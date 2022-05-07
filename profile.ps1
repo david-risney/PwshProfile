@@ -1,3 +1,19 @@
+$sw = [Diagnostics.Stopwatch]::StartNew()
+$swTotal = [Diagnostics.Stopwatch]::StartNew()
+$global:progressIdx = 0;
+$global:maxProgress = 12;
+
+function IncrementProgress {
+  param($Name);
+  ++$global:progressIdx;
+  Write-Verbose ($Name + " (" + $swTotal.Elapsed.ToString() + ", " + $sw.Elapsed.ToString() + ")");
+  $sw.Restart();
+
+  Write-Progress -Activity "Loading Profile" -Status $Name -PercentComplete (($global:progressIdx * 100) / ($global:maxProgress));
+}
+
+IncrementProgress "Starting";
+
 $env:PATH = ($env:PATH.split(";") + @(Get-ChildItem ~\*bin) + @(Get-ChildItem ~\*bin\* -Directory) + @(Get-ChildItem ~\*bin\*bin -Directory)) -join ";";
 if (Test-Path out\debug_x64) {
   [void](Start-Job -ScriptBlock { ninja -C out\debug_x64 -t compdb cxx > out\debug_x64\compile_commands.json ; Show-Toast "Completed compdb update" });
@@ -38,43 +54,71 @@ new-alias \ Set-LocationRoot
 $env:PYTHONIOENCODING = "UTF-8"
 
 function UpdateOrInstallModule {
-  param($ModuleName);
-
-  Import-Module $ModuleName -ErrorAction Ignore;
+  param(
+    $ModuleName,
+    [switch] $Async);
 
   if (!(Get-Module $ModuleName)) {
-    Write-Output "Install $ModuleName";
-    if ((Get-Command install-module)[0].Parameters["AllowPrerelease"]) {
-      Install-Module -Name $ModuleName -Force -Repository PSGallery -AllowPrerelease -Scope CurrentUser;
+    Import-Module $ModuleName -ErrorAction Ignore;
+
+    if (!(Get-Module $ModuleName)) {
+      [void](Start-Job -ScriptBlock {
+        Write-Output "Install $ModuleName";
+        if ((Get-Command install-module)[0].Parameters["AllowPrerelease"]) {
+          Install-Module -Name $ModuleName -Force -Repository PSGallery -AllowPrerelease -Scope CurrentUser;
+        } else {
+          Install-Module -Name $ModuleName -Force -Repository PSGallery -Scope CurrentUser;
+        }
+        Import-Module $ModuleName;
+      });
     } else {
-      Install-Module -Name $ModuleName -Force -Repository PSGallery -Scope CurrentUser;
+      $tryUpdate = $true;
     }
-    Import-Module $ModuleName;
   } else {
+    $tryUpdate = $true;
+  }
+
+  if ($tryUpdate) {
     [void](Start-Job -ScriptBlock { Update-Module $ModuleName -Scope CurrentUser; });
   }
 }
 
 function UpdateOrInstallWinget {
-  param($ModuleName);
+  param(
+    $ModuleName,
+    [switch] $Exact);
+  $tryUpdate = $false;
 
-  if (!(Get-Command $ModuleName -ErrorAction Ignore)) {
-    winget install $ModuleName;
+  if (!(Get-Command $ModuleName)) {
+    winget list $ModuleName | Out-Null;
+    $found = ($LastExitCode -eq 0);
+
+    if (!$found) {
+      winget install $ModuleName;
+    } else {
+      $tryUpdate = $true;
+    }
   } else {
-    [void](Start-Job -ScriptBlock { winget upgrade $ModuleName; });
+    $tryUpdate = $true;
+  }
+
+  if ($tryUpdate) {
+    [void](Start-Job -ScriptBlock { 
+      if (!$Exact) {
+        winget upgrade $ModuleName;
+      } else {
+        winget upgrade $ModuleName -e;
+      }
+    });
   }
 }
 
-$progressIdx = 0;
-$maxProgress = 10;
-function IncrementProgress {
-  param($Name);
-  ++$progressIdx;
-  Write-Progress -Activity "Loading Profile" -Status $Name -PercentComplete (($progressIdx * 100) / ($maxProgress));
+if ((Get-PSRepository PSGallery).InstallationPolicy -ne "Trusted") {
+  Set-PSRepository PSGallery -InstallationPolicy Trusted;
 }
 
-Set-PSRepository PSGallery -InstallationPolicy Trusted;
-
+IncrementProgress "PowerShell";
+UpdateOrInstallWinget PowerShell -Exact
 IncrementProgress "PowerShellGet";
 UpdateOrInstallModule PowerShellGet;
 IncrementProgress "PSReadLine";
@@ -84,7 +128,7 @@ UpdateOrInstallModule Terminal-Icons; # https://www.hanselman.com/blog/take-your
 IncrementProgress "cd-extras";
 UpdateOrInstallModule cd-extras; # https://github.com/nickcox/cd-extras
 IncrementProgress "BurntToast";
-UpdateOrInstallModule BurntToast; # https://github.com/Windos/BurntToast
+UpdateOrInstallModule BurntToast -Async; # https://github.com/Windos/BurntToast
 IncrementProgress "oh-my-posh";
 UpdateOrInstallWinget oh-my-posh; # https://ohmyposh.dev/docs/pwsh/
 
@@ -92,9 +136,9 @@ UpdateOrInstallWinget oh-my-posh; # https://ohmyposh.dev/docs/pwsh/
 # UpdateOrInstallModule Posh-Git; # https://github.com/dahlbyk/posh-git
 
 # https://github.com/microsoft/cascadia-code/releases
-if (!(Get-ChildItem C:\windows\fonts\cascadia*)) {
-  Write-Error "Install the Cascadia Code font https://github.com/microsoft/cascadia-code/releases"
-}
+# if (!(Get-ChildItem C:\windows\fonts\cascadia*)) {
+#   Write-Error "Install the Cascadia Code font https://github.com/microsoft/cascadia-code/releases"
+# }
 
 IncrementProgress "PSReadLineOptions init";
 Set-PSReadLineOption -PredictionSource History;

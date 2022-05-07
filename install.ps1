@@ -8,6 +8,6 @@ $paths | ForEach-Object {
     New-Item -Force -ItemType HardLink -Path $targetPath -Value $sourcePath;
 }
 
-if (gc $profile | ?{ $_ -like ". ~\profile.ps1" }) {
+if (!(gc $profile | ?{ $_ -like ". ~\profile.ps1" })) {
     "`n. ~\profile.ps1" >> $profile;
 }
