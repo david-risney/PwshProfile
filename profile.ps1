@@ -113,6 +113,13 @@ function UpdateOrInstallWinget {
   }
 }
 
+# Update the profile scripts
+[void](Start-Job -ScriptBlock {
+  pushd ~\PwshProfile;
+  # Use ff-only to hopefully avoid cases where merge is required
+  git pull --ff-only
+});
+
 if ((Get-PSRepository PSGallery).InstallationPolicy -ne "Trusted") {
   Set-PSRepository PSGallery -InstallationPolicy Trusted;
 }
