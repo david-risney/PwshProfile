@@ -86,7 +86,11 @@ function UpdateOrInstallModule {
 function UpdateOrInstallWinget {
   param(
     $ModuleName,
+    $PackageName,
     [switch] $Exact);
+  if ($PackageName -eq "") {
+    $PackageName = $ModuleName;
+  }
   $tryUpdate = $false;
 
   if (!(Get-Command $ModuleName)) {
@@ -137,11 +141,12 @@ UpdateOrInstallModule cd-extras; # https://github.com/nickcox/cd-extras
 IncrementProgress "BurntToast";
 UpdateOrInstallModule BurntToast -Async; # https://github.com/Windos/BurntToast
 IncrementProgress "oh-my-posh";
-UpdateOrInstallWinget oh-my-posh; # https://ohmyposh.dev/docs/pwsh/
+UpdateOrInstallWinget -ModuleName oh-my-posh -PackageName JanDeDobbeleer.OhMyPosh; # https://ohmyposh.dev/docs/pwsh/
 
 # IncrementProgress "Posh-Git";
 # UpdateOrInstallModule Posh-Git; # https://github.com/dahlbyk/posh-git
 
+# https://ohmyposh.dev/docs/installation/fonts
 # https://github.com/microsoft/cascadia-code/releases
 # if (!(Get-ChildItem C:\windows\fonts\cascadia*)) {
 #   Write-Error "Install the Cascadia Code font https://github.com/microsoft/cascadia-code/releases"
