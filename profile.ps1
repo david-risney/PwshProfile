@@ -107,7 +107,7 @@ function UpdateOrInstallWinget {
   }
 
   if ($tryUpdate) {
-    [void](Start-Job -ScriptBlock { 
+    [void](Start-Job -ScriptBlock {
       if (!$Exact) {
         winget upgrade $ModuleName;
       } else {
@@ -159,7 +159,8 @@ Set-PSReadLineOption -EditMode Windows;
 Set-PSReadLineKeyHandler Tab MenuComplete; # Tab completion gets a menu
 
 IncrementProgress "oh-my-posh init";
-oh-my-posh init pwsh --config (gi ~/oh-my-posh.json).FullName | Invoke-Expression;
+$ohmyposhConfigPath = (Join-Path $PSScriptRoot "oh-my-posh.json");
+oh-my-posh init pwsh --config $ohmyposhConfigPath | Invoke-Expression;
 
 IncrementProgress "toast prompt";
 Copy-Item Function:prompt Function:poshPrompt;
@@ -223,7 +224,8 @@ function Format-TerminalClickableFileInfo {
   }
 }
 
-Update-FormatData -PrependPath ~\TerminalClickable.format.ps1xml;
+$terminableClickableFormatPath = (Join-Path $PSScriptRoot "TerminalClickable.format.ps1xml");
+Update-FormatData -PrependPath $terminableClickableFormatPath;
 
 function Auto-Vpn {
   $ensureVpnConnectionScriptBlock = {
@@ -270,7 +272,7 @@ function Auto-Vpn {
 
 function WebView2Docs {
   # WebView2-Docs.ps1 takes a WebView2 API name, and an optional parameter to say which language
-  # to use (WinRT, .NET, Win32), and opens the corresponding WebView2 API documentation page in 
+  # to use (WinRT, .NET, Win32), and opens the corresponding WebView2 API documentation page in
   # the default browser.
   param(
       [Parameter(Mandatory=$true)]
@@ -283,7 +285,7 @@ function WebView2Docs {
       [switch] $Win32,
       # Equivalent to specifying -Language DotNet
       [switch] $DotNet,
-      # Pass this switch to not actually open the browser, but instead list all 
+      # Pass this switch to not actually open the browser, but instead list all
       # considered matches
       [switch] $WhatIf,
       # Consider all results in the WhatIf output not just filtered
