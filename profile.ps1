@@ -1,7 +1,7 @@
 $sw = [Diagnostics.Stopwatch]::StartNew()
 $swTotal = [Diagnostics.Stopwatch]::StartNew()
 $global:progressIdx = 0;
-$global:maxProgress = 16; # The count of IncrementProgress calls in this file.
+$global:maxProgress = 17; # The count of IncrementProgress calls in this file.
 
 function IncrementProgress {
   param($Name);
@@ -13,6 +13,10 @@ function IncrementProgress {
     Write-Progress -Activity "Loading Profile" -Complete;
   } else {
     $percentComplete = (($global:progressIdx) / ($global:maxProgress) * 100);
+    if ($percentComplete -gt 100) {
+      Write-Verbose ("You need to update maxProgress to reflect the actual count of IncrementProgress calls in this file.");
+      $percentComplete = 100;
+    }
     Write-Progress -Activity "Loading Profile" -Status $Name -PercentComplete $percentComplete;
   }
 }
@@ -153,13 +157,11 @@ UpdateOrInstallWinget -ModuleName oh-my-posh -PackageName JanDeDobbeleer.OhMyPos
 # IncrementProgress "Posh-Git";
 # UpdateOrInstallModule Posh-Git; # https://github.com/dahlbyk/posh-git
 
+IncrementProgress "Nerd font check";
 # https://ohmyposh.dev/docs/installation/fonts
-#  oh-my-posh font install CascadiaCode
-# Choose CaskaydiaCove Nerd Font Mono
-# https://github.com/microsoft/cascadia-code/releases
-# if (!(Get-ChildItem C:\windows\fonts\cascadia*)) {
-#   Write-Error "Install the Cascadia Code font https://github.com/microsoft/cascadia-code/releases"
-# }
+if (!(Get-ChildItem C:\windows\fonts\CaskaydiaCoveNerdFont*)) {
+  Write-Error "Cascadia nerd font not found. Run the following from admin`n`toh-my-posh font install CascadiaCode;"
+}
 
 IncrementProgress "PSReadLineOptions init";
 Set-PSReadLineOption -PredictionSource History;
@@ -288,45 +290,37 @@ Update-FormatData -PrependPath $terminableClickableFormatPath;
 IncrementProgress "Define helpful functions";
 
 function AutoConnect-Vpn {
-  $ensureVpnConnectionScriptBlock = {
-      function GetVpnStatus {
-          $vpns = Get-VpnConnection;
-          $date = (date);
-          $vpns | %{
-              New-Object -TypeName PSObject -Property @{'Date'=$date; 'Name'=$_.Name; 'ConnectionStatus'=$_.ConnectionStatus};
+  function GetVpnStatus {
+      $vpns = Get-VpnConnection;
+      $date = (date);
+      $vpns | %{
+          New-Object -TypeName PSObject -Property @{'Date'=$date; 'Name'=$_.Name; 'ConnectionStatus'=$_.ConnectionStatus};
+      }
+  }
+
+  function EnsureVpnConnection {
+      $changed = $false;
+      $vpns = GetVpnStatus;
+      Write-Host ($vpns);
+      $vpns | %{
+          if ($_.ConnectionStatus -eq "Disconnected") {
+              rasdial $_.Name;
+              $changed = $true;
+              Start-Sleep -Seconds 5;
           }
       }
 
-      function EnsureVpnConnection {
-          $changed = $false;
-          $vpns = GetVpnStatus;
-          Write-Host ($vpns);
-          $vpns | %{
-              if ($_.ConnectionStatus -eq "Disconnected") {
-                  rasdial $_.Name;
-                  $changed = $true;
-                  Start-Sleep -Seconds 5;
-              }
-          }
+      $changed;
+  }
 
-          $changed;
-      }
 
+  while ($true) {
       $changed = (EnsureVpnConnection);
       if ($changed) {
           Write-Host (GetVpnStatus);
       }
-  };
-
-  $sysevent = [microsoft.win32.systemevents];
-  $sessionSwitchEvent = Register-ObjectEvent -InputObject $sysevent -EventName "SessionSwitch" -Action $ensureVpnConnectionScriptBlock;
-
-  while ($true) {
-      .$ensureVpnConnectionScriptBlock;
 
       Start-Sleep -Seconds (60 * 0.5);
-
-      Receive-Job $sessionSwitchEvent;
   }
 }
 
