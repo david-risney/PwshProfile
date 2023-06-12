@@ -227,7 +227,7 @@ function Format-TerminalClickableFileInfo {
 $terminableClickableFormatPath = (Join-Path $PSScriptRoot "TerminalClickable.format.ps1xml");
 Update-FormatData -PrependPath $terminableClickableFormatPath;
 
-function Auto-Vpn {
+function AutoConnect-Vpn {
   $ensureVpnConnectionScriptBlock = {
       function GetVpnStatus {
           $vpns = Get-VpnConnection;
@@ -270,10 +270,19 @@ function Auto-Vpn {
   }
 }
 
-function WebView2Docs {
+function Launch-WebView2Docs {
+  <#
+  .SYNOPSIS
   # WebView2-Docs.ps1 takes a WebView2 API name, and an optional parameter to say which language
   # to use (WinRT, .NET, Win32), and opens the corresponding WebView2 API documentation page in
   # the default browser.
+
+  .EXAMPLE
+  Launch-WebView2Docs AddHostObjectToScript -Language DotNet
+
+  .EXAMPLE
+  Launch-WebView2Docs -WhatIf AddHostObjectToScript
+  #>
   param(
       [Parameter(Mandatory=$true)]
       [string] $Api,
@@ -395,3 +404,72 @@ function WebView2Docs {
       }
   }
 }
+
+function Git-RebaseOnto {
+  <#
+  .SYNOPSIS
+  # Git-RebaseOnto.ps1 rebases the current branch onto an official branch.
+
+  .EXAMPLE
+  # Use git log -10 to find the branch source commit
+  # Git-RebaseOnto.ps1 -BranchTarget main -BranchSource 38743dadac2951a19b397322280783cb4907224f -Verbose
+  #>
+  [CmdletBinding()]
+  param(
+      [Parameter(Mandatory=$true)] $BranchTarget,
+      $BranchToRebase,
+      [switch] $PullBranchToRebase,
+      $BranchSource,
+      [switch] $PullBranchSource,
+      [switch] $WhatIf
+      );
+
+  if (!$BranchToRebase) {
+      $BranchToRebase = git branch | ?{ $_.StartsWith("*") } | %{ $_.substring(2) }
+  }
+
+  if (!$BranchSource) {
+      $BranchSource = (git merge-base $BranchToRebase $BranchTarget);
+  }
+
+  Write-Verbose "BranchToRebase: $BranchToRebase";
+  Write-Verbose "BranchSource: $BranchSource";
+  Write-Verbose "BranchTarget: $BranchTarget";
+  Write-Verbose "";
+
+  if ($PullBranchSource) {
+      Write-Verbose "Pull $BranchSource";
+      if (!$WhatIf) {
+          git checkout $BranchSource;
+          git pull;
+      }
+  }
+
+  Write-Verbose "Pull $BranchTarget";
+  if (!$WhatIf) {
+      git checkout $BranchTarget;
+      git pull;
+  }
+
+  if ($PullBranchToRebase) {
+      Write-Verbose "Pull $BranchToRebase";
+      if (!$WhatIf) {
+          git checkout $BranchToRebase;
+          git pull;
+      }
+  }
+
+  Write-Verbose "git rebase --onto $BranchTarget $BranchSource $BranchToRebase;";
+  if (!$WhatIf) {
+      git rebase --onto $BranchTarget $BranchSource $BranchToRebase;
+  }
+
+  Write-Verbose "Resulting status. You may need to finish a merge.";
+  Write-Verbose 'git status (shows any changes under "Unmerged paths". Open the file and resolve the conflicts)'
+  Write-Verbose 'git add <file that was resolved>'
+  Write-Verbose 'git status (this will tell you all have been resolved)'
+  Write-Verbose 'git rebase --continue (or git rebase --abort to get back to the state before the rebase was started)'
+  Write-Warning 'If the branch has previously been pushed to the server, do *not* run git pull, instead run'
+  Write-Warning '    git push --force'
+}
+
