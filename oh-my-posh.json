@@ -23,12 +23,13 @@
           "foreground": "#193549",
           "powerline_symbol": "\ue0b0",
           "properties": {
-            "fetch_stash_count": true,
+            "fetch_stash_count": false,
             "fetch_status": false,
             "fetch_upstream_icon": true
           },
           "style": "powerline",
-          "template": " {{ url .UpstreamIcon .UpstreamURL }}{{ url .HEAD .Env.OhMyPoshCustomBranchUri }} {{ .BranchStatus }}{{ if .Working.Changed }} \uf044 {{ .Working.String }}{{ end }}{{ if and (.Staging.Changed) (.Working.Changed) }} |{{ end }}{{ if .Staging.Changed }} \uf046 {{ .Staging.String }}{{ end }}{{ if gt .StashCount 0}} \uf692 {{ .StashCount }}{{ end }}{{ if gt .WorktreeCount 0}} \uf1bb {{ .WorktreeCount }}{{ end }} "
+          "disabled_template": "{{ url .UpstreamIcon .UpstreamURL }}{{ url .HEAD .Env.OhMyPoshCustomBranchUri }} {{ .BranchStatus }}{{ if .Working.Changed }} \uf044 {{ .Working.String }}{{ end }}{{ if and (.Staging.Changed) (.Working.Changed) }} |{{ end }}{{ if .Staging.Changed }} \uf046 {{ .Staging.String }}{{ end }}{{ if gt .StashCount 0}} \uf692 {{ .StashCount }}{{ end }}{{ if gt .WorktreeCount 0}} \uf1bb {{ .WorktreeCount }}{{ end }} ",
+          "template": " {{ url .UpstreamIcon .UpstreamURL }}{{ url .HEAD .Env.OhMyPoshCustomBranchUri }}{{if .BranchStatus }} {{ .BranchStatus }}{{ end }}{{ if .Working.Changed }} \uF044 {{ .Working.String }}{{ end }}{{ if and (.Staging.Changed) (.Working.Changed) }} |{{ end }}{{ if .Staging.Changed }} \uF046 {{ .Staging.String }}{{ end }} "
         },
         {
           "type": "dotnet",
