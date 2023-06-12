@@ -1,15 +1,20 @@
 $sw = [Diagnostics.Stopwatch]::StartNew()
 $swTotal = [Diagnostics.Stopwatch]::StartNew()
 $global:progressIdx = 0;
-$global:maxProgress = 12;
+$global:maxProgress = 15;
 
 function IncrementProgress {
   param($Name);
   ++$global:progressIdx;
-  Write-Verbose ($Name + " (" + $swTotal.Elapsed.ToString() + ", " + $sw.Elapsed.ToString() + ")");
+  Write-Verbose ("Loading profile $Name " + " (" + $swTotal.Elapsed.ToString() + ", " + $sw.Elapsed.ToString() + ")");
   $sw.Restart();
 
-  Write-Progress -Activity "Loading Profile" -Status $Name -PercentComplete (($global:progressIdx * 100) / ($global:maxProgress));
+  if ($global:progressIdx -eq $global:maxProgress) {
+    Write-Progress -Activity "Loading Profile" -Complete;
+  } else {
+    $percentComplete = (($global:progressIdx) / ($global:maxProgress) * 100);
+    Write-Progress -Activity "Loading Profile" -Status $Name -PercentComplete $percentComplete;
+  }
 }
 
 IncrementProgress "Starting";
@@ -117,6 +122,7 @@ function UpdateOrInstallWinget {
   }
 }
 
+IncrementProgress "Updating profile script"
 # Update the profile scripts
 [void](Start-Job -ScriptBlock {
   pushd ~\PwshProfile;
@@ -124,12 +130,13 @@ function UpdateOrInstallWinget {
   git pull --ff-only
 });
 
+IncrementProgress "InstallPolicy check"
 if ((Get-PSRepository PSGallery).InstallationPolicy -ne "Trusted") {
   Set-PSRepository PSGallery -InstallationPolicy Trusted;
 }
 
 IncrementProgress "PowerShell";
-UpdateOrInstallWinget PowerShell -Exact
+UpdateOrInstallWinget PowerShell -Exact -Async;
 IncrementProgress "PowerShellGet";
 UpdateOrInstallModule PowerShellGet;
 IncrementProgress "PSReadLine";
@@ -147,6 +154,8 @@ UpdateOrInstallWinget -ModuleName oh-my-posh -PackageName JanDeDobbeleer.OhMyPos
 # UpdateOrInstallModule Posh-Git; # https://github.com/dahlbyk/posh-git
 
 # https://ohmyposh.dev/docs/installation/fonts
+#  oh-my-posh font install CascadiaCode
+# Choose CaskaydiaCove Nerd Font Mono
 # https://github.com/microsoft/cascadia-code/releases
 # if (!(Get-ChildItem C:\windows\fonts\cascadia*)) {
 #   Write-Error "Install the Cascadia Code font https://github.com/microsoft/cascadia-code/releases"
@@ -522,3 +531,4 @@ function Git-RebaseOnto {
   Write-Warning '    git push --force'
 }
 
+IncrementProgress "Done";
