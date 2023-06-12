@@ -1,80 +1,91 @@
 {
   "$schema": "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/schema.json",
+  "palette": {
+      "foreground-light": "#e0e0e0",
+      "foreground-dark": "#082336",
+      "background-path": "#f30cf3",
+      "background-git": "#ffff13",
+      "background-dotnet": "#6CA35E",
+      "background-root": "#ff9838",
+      "background-time": "#385cfd",
+      "background-exit": "#2e9599"
+  },
   "blocks": [
     {
       "alignment": "left",
       "segments": [
         {
           "type": "path",
-          "background": "#f30cf3",
-          "foreground": "#ffffff",
-          "powerline_symbol": "\ue0b0",
+          "template": " \ue5ff {{ path .Path .Location }} ",
           "properties": {
             "style": "powerlevel"
           },
+          "background": "p:background-path",
+          "foreground": "p:foreground-light",
           "style": "diamond",
-          "template": " \ue5ff {{ path .Path .Location }} ",
-          "leading_diamond": "\ue0be",
-          "trailing_diamond": "\ue0b0"
+          "trailing_diamond": "\ue0b4",
+          "leading_diamond": "\ue0b6"
         },
         {
           "type": "git",
-          "background": "#fffb38",
-          "foreground": "#193549",
-          "powerline_symbol": "\ue0b0",
+          "template": " {{ url .UpstreamIcon .UpstreamURL }}{{ url .HEAD .Env.OhMyPoshCustomBranchUri }}{{if .BranchStatus }} {{ .BranchStatus }}{{ end }}{{ if .Working.Changed }} \uF044 {{ .Working.String }}{{ end }}{{ if and (.Staging.Changed) (.Working.Changed) }} |{{ end }}{{ if .Staging.Changed }} \uF046 {{ .Staging.String }}{{ end }} ",
           "properties": {
-            "fetch_stash_count": false,
-            "fetch_status": false,
-            "fetch_upstream_icon": true
+            "fetch_stash_count": true,
+            "fetch_status": true,
+            "fetch_upstream_icon": true,
+            "ignore_status": [
+              "C:\\s\\0\\src",
+              "C:\\s\\1\\src",
+              "C:\\s\\2\\src"
+            ]
           },
-          "style": "powerline",
-          "disabled_template": "{{ url .UpstreamIcon .UpstreamURL }}{{ url .HEAD .Env.OhMyPoshCustomBranchUri }} {{ .BranchStatus }}{{ if .Working.Changed }} \uf044 {{ .Working.String }}{{ end }}{{ if and (.Staging.Changed) (.Working.Changed) }} |{{ end }}{{ if .Staging.Changed }} \uf046 {{ .Staging.String }}{{ end }}{{ if gt .StashCount 0}} \uf692 {{ .StashCount }}{{ end }}{{ if gt .WorktreeCount 0}} \uf1bb {{ .WorktreeCount }}{{ end }} ",
-          "template": " {{ url .UpstreamIcon .UpstreamURL }}{{ url .HEAD .Env.OhMyPoshCustomBranchUri }}{{if .BranchStatus }} {{ .BranchStatus }}{{ end }}{{ if .Working.Changed }} \uF044 {{ .Working.String }}{{ end }}{{ if and (.Staging.Changed) (.Working.Changed) }} |{{ end }}{{ if .Staging.Changed }} \uF046 {{ .Staging.String }}{{ end }} "
+          "background": "p:background-git",
+          "foreground": "p:foreground-dark",
+          "style": "diamond",
+          "trailing_diamond": "\ue0b4"
         },
         {
           "type": "dotnet",
-          "background": "#6CA35E",
-          "foreground": "#ffffff",
-          "powerline_symbol": "\ue0b0",
+          "template": " \ue70c {{ if .Unsupported }}\uf071{{ else }}{{ .Full }}{{ end }} ",
           "properties": {
             "fetch_version": true
           },
-          "style": "powerline",
-          "template": " \ue70c {{ if .Unsupported }}\uf071{{ else }}{{ .Full }}{{ end }} "
-        },
-        {
-          "type": "root",
-          "background": "#ffff66",
-          "foreground": "#ffffff",
-          "powerline_symbol": "\ue0b0",
-          "style": "powerline",
-          "template": " \uf0e7 "
+          "background": "p:background-dotnet",
+          "foreground": "p:foreground-light",
+          "style": "diamond",
+          "trailing_diamond": "\ue0b4"
         },
         {
           "type": "executiontime",
-          "background": "#8800dd",
-          "foreground": "#ffffff",
-          "powerline_symbol": "\ue0b0",
+          "template": " \u23f1\ufe0f {{ .FormattedMs }} ",
           "properties": {
             "style": "austin",
             "threshold": 1000
           },
-          "style": "powerline",
-          "template": " \u23f1\ufe0f {{ .FormattedMs }} "
+          "background": "p:background-time",
+          "foreground": "p:foreground-light",
+          "style": "diamond",
+          "trailing_diamond": "\ue0b4"
         },
         {
           "type": "exit",
-          "background": "#2e9599",
-          "background_templates": [
-            "{{ if gt .Code 0 }}#f1184c{{ end }}"
-          ],
-          "foreground": "#ffffff",
-          "powerline_symbol": "\ue0b0",
+          "template": " {{ if gt .Code 0 }}👎{{ else }}👍{{ end }} ",
           "properties": {
             "always_enabled": false
           },
-          "style": "powerline",
-          "template": " {{ if gt .Code 0 }}👎{{ else }}👍{{ end }} ",
+          "background": "p:background-exit",
+          "foreground": "p:foreground-light",
+          "background_templates": [
+            "{{ if gt .Code 0 }}#f1184c{{ end }}"
+          ],
+          "style": "diamond",
+          "trailing_diamond": "\ue0b4"
+        },
+        {
+          "type": "root",
+          "background": "p:background-root",
+          "foreground": "p:foreground-dark",
+          "style": "diamond",
           "trailing_diamond": "\ue0b4"
         }
       ],
