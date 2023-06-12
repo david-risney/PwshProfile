@@ -34,9 +34,9 @@
             "fetch_status": true,
             "fetch_upstream_icon": true,
             "ignore_status": [
-              "C:\\s\\0\\src",
-              "C:\\s\\1\\src",
-              "C:\\s\\2\\src"
+              "C:/s/0/src",
+              "C:/s/1/src",
+              "C:/s/2/src"
             ]
           },
           "background": "p:background-git",
