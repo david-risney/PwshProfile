@@ -1,7 +1,7 @@
 $sw = [Diagnostics.Stopwatch]::StartNew()
 $swTotal = [Diagnostics.Stopwatch]::StartNew()
 $global:progressIdx = 0;
-$global:maxProgress = 15;
+$global:maxProgress = 16; # The count of IncrementProgress calls in this file.
 
 function IncrementProgress {
   param($Name);
@@ -284,6 +284,8 @@ function Format-TerminalClickableFileInfo {
 
 $terminableClickableFormatPath = (Join-Path $PSScriptRoot "TerminalClickable.format.ps1xml");
 Update-FormatData -PrependPath $terminableClickableFormatPath;
+
+IncrementProgress "Define helpful functions";
 
 function AutoConnect-Vpn {
   $ensureVpnConnectionScriptBlock = {
