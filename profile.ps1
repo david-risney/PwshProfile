@@ -215,6 +215,8 @@ function Get-GitUri {
 IncrementProgress "prompt shim for toast and oh-my-posh custom env vars";
 Copy-Item Function:prompt Function:poshPrompt;
 function prompt {
+    $previousLastExitCode = $global:LASTEXITCODE;
+
     try {
       $currentPath = ((Get-Location).Path);
       if ($env:OhMyPoshCustomBranchUriCachePath -ne $currentPath) {
@@ -225,6 +227,10 @@ function prompt {
       Write-Host ("Custom POSH env var prompt Error: " + $_);
     }
 
+    $global:LASTEXITCODE = $previousLastExitCode;
+    if ($global:LASTEXITCODE -ne 0) {
+      try { asdf } catch { }
+    }
     try {
       poshPrompt;
     } catch {

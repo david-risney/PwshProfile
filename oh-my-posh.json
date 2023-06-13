@@ -8,7 +8,8 @@
       "background-dotnet": "#6CA35E",
       "background-root": "#ff9838",
       "background-time": "#385cfd",
-      "background-exit": "#2e9599"
+      "background-exit-success": "#2e9982",
+      "background-exit-fail": "#fc5a80"
   },
   "blocks": [
     {
@@ -16,9 +17,9 @@
       "segments": [
         {
           "type": "path",
-          "template": " \ue5ff {{ path .Path .Location }} ",
+          "template": "📁 {{ path .Path .Location }} ",
           "properties": {
-            "style": "powerlevel"
+            "style": "full"
           },
           "background": "p:background-path",
           "foreground": "p:foreground-light",
@@ -57,7 +58,7 @@
         },
         {
           "type": "executiontime",
-          "template": " \u23f1\ufe0f {{ .FormattedMs }} ",
+          "template": " ⏱️ {{ .FormattedMs }} ",
           "properties": {
             "style": "austin",
             "threshold": 1000
@@ -69,14 +70,14 @@
         },
         {
           "type": "exit",
-          "template": " {{ if gt .Code 0 }}👎{{ else }}👍{{ end }} ",
+          "template": " {{.Meaning}} {{ if ne .Code 0 }}👎{{ else }}👍{{ end }} ",
           "properties": {
             "always_enabled": false
           },
-          "background": "p:background-exit",
+          "background": "p:background-exit-success",
           "foreground": "p:foreground-light",
           "background_templates": [
-            "{{ if gt .Code 0 }}#f1184c{{ end }}"
+            "{{ if ne .Code 0 }}p:background-exit-fail{{ end }}"
           ],
           "style": "diamond",
           "trailing_diamond": "\ue0b4"
