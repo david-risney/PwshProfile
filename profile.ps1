@@ -227,10 +227,10 @@ function prompt {
       Write-Host ("Custom POSH env var prompt Error: " + $_);
     }
 
-    $global:LASTEXITCODE = $previousLastExitCode;
-    if ($global:LASTEXITCODE -ne 0) {
-      try { asdf } catch { }
+    if ($previousLastExitCode -ne 0) {
+        cmd /c "exit $previousLastExitCode";
     }
+
     try {
       poshPrompt;
     } catch {
