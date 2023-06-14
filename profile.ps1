@@ -1,7 +1,8 @@
 $sw = [Diagnostics.Stopwatch]::StartNew()
 $swTotal = [Diagnostics.Stopwatch]::StartNew()
 $global:progressIdx = 0;
-$global:maxProgress = 17; # The count of IncrementProgress calls in this file.
+# Find via (findstr /c "^IncrementProgress" .\profile.ps1).Count
+$global:maxProgress = 16; # The count of IncrementProgress calls in this file.
 
 function IncrementProgress {
   param($Name);
@@ -73,6 +74,11 @@ function UpdateOrInstallModule {
     if (!(Get-Module $ModuleName)) {
       [void](Start-Job -ScriptBlock {
         Write-Output "Install $ModuleName";
+
+        if ((Get-PSRepository PSGallery).InstallationPolicy -ne "Trusted") {
+          Set-PSRepository PSGallery -InstallationPolicy Trusted;
+        }
+
         if ((Get-Command install-module)[0].Parameters["AllowPrerelease"]) {
           Install-Module -Name $ModuleName -Force -Repository PSGallery -AllowPrerelease -Scope CurrentUser;
         } else {
@@ -133,11 +139,6 @@ IncrementProgress "Updating profile script"
   # Use ff-only to hopefully avoid cases where merge is required
   git pull --ff-only
 });
-
-IncrementProgress "InstallPolicy check"
-if ((Get-PSRepository PSGallery).InstallationPolicy -ne "Trusted") {
-  Set-PSRepository PSGallery -InstallationPolicy Trusted;
-}
 
 IncrementProgress "PowerShell";
 UpdateOrInstallWinget PowerShell -Exact -Async;
@@ -531,6 +532,57 @@ function Git-RebaseOnto {
   Write-Verbose 'git rebase --continue (or git rebase --abort to get back to the state before the rebase was started)'
   Write-Warning 'If the branch has previously been pushed to the server, do *not* run git pull, instead run'
   Write-Warning '    git push --force'
+}
+
+function MergeObjects ($objectsToMerge) {
+  if ($null -eq $objectsToMerge) {
+    return;
+  }
+
+  # Last one wins
+  # If the last one is a literal return it directly - no merging
+  if (($null -eq $objectsToMerge[-1]) -or ($objectsToMerge[-1].GetType().Name -ne "PSCustomObject")) {
+    $objectsToMerge[0];
+  } else { # Otherwise its an object and need to merge the properties
+    $result = New-Object PSObject;
+
+    # All unique property names
+    $propertyNames = $objectsToMerge | ForEach-Object {
+      $_.PSObject.Properties.Name;
+    } | Sort-Object -Unique;
+
+    # For each property name gather the object property values and
+    # rerun merge.
+    $propertyNames | ForEach-Object {
+      $propertyName = $_;
+      $propertyValues = ($objectsToMerge | Where-Object {
+        $object = $_;
+        $hasMember = $object | Get-Member $propertyName;
+        $hasMember;
+      } | ForEach-Object {
+        $object.$propertyName;
+      });
+      $propertyValue = (MergeObjects $propertyValues);
+
+      $result | Add-Member -Name $propertyName -Value $propertyValue -Force -MemberType NoteProperty;
+    };
+
+    $result;
+  }
+}
+
+function MergeJson ($jsonObjects) {
+  $objects = $jsonObjects | ForEach-Object { ConvertFrom-Json $_ }
+  $resultObject = MergeObjects $objects;
+  ConvertTo-Json $resultObject;
+}
+
+function MergeJsonFiles ($inJsonFilePaths, $outJsonFilePath, $encoding = "Utf8") {
+  $inJson = ($inJsonFilePaths | ForEach-Object { 
+    Get-Content $_ -Raw;
+  });
+  $outJson = MergeJson $inJson;
+  $outJson | Out-File $outJsonFilePath -Encoding $encoding;
 }
 
 IncrementProgress "Done";
