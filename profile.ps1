@@ -228,7 +228,7 @@ function prompt {
       Write-Host ("Custom POSH env var prompt Error: " + $_);
     }
 
-    if ($previousLastExitCode -ne 0) {
+    if (!$previousLastExitCode) {
         cmd /c "exit $previousLastExitCode";
     }
 
@@ -420,7 +420,7 @@ function Launch-WebView2Docs {
   $results = $msdnSearchRssXml.rss.channel.item | ForEach-Object {
       $titleProperty = $_.title;
       $uriProperty = $_.link;
-      $linkProperty = "`e]8;;$($_.link)`e\$($_.title)`e]8;;`e\";
+      $linkProperty = (Format-TerminalClickableString $_.link $_.title);
       $languageProperty = "Unknown";
       # Use languageToPathPart to determine which language the link is for
       foreach ($key in $languageToPathPart.Keys) {
