@@ -177,7 +177,7 @@ oh-my-posh init pwsh --config $ohmyposhConfigPath | Invoke-Expression;
 function Get-GitUri {
   param($Path);
 
-  $Path = (gi $Path).FullName.ToLower().Replace("\", "/");
+  $Path = (gi $Path).FullName.Replace("\", "/");
 
   $repoUri = (git config remote.origin.url);
   if ($repoUri) {
@@ -185,18 +185,17 @@ function Get-GitUri {
       $gitRootPath = (git rev-parse --show-toplevel).ToLower();
       $repoUri = $repoUri.Replace(".git", "");
 
-      $currentPathInGit = $Path.Replace($gitRootPath, "");
-      $uriEncodedCurrentPathInGit = [System.Web.HttpUtility]::UrlEncode($currentPathInGit);
+      $currentPathInGit = $Path.Substring($gitRootPath.Length);
 
       $currentBranch = (git rev-parse --abbrev-ref HEAD);
       $uriEncodedCurrentBranch = [System.Web.HttpUtility]::UrlEncode($currentBranch);
 
       $repoUri = $repoUri + `
-        "/blob/" + $uriEncodedCurrentBranch + `
-        "/" + $uriEncodedCurrentPathInGit;
+        "/tree/" + $uriEncodedCurrentBranch + `
+        "/" + $currentPathInGit;
     } elseif ($repoUri.Contains("azure")) {
       $gitRootPath = (git rev-parse --show-toplevel).ToLower();
-      $currentPathInGit = $Path.Replace($gitRootPath, "");
+      $currentPathInGit = $Path.ToLower().Replace($gitRootPath, "");
       $uriEncodedCurrentPathInGit = [System.Web.HttpUtility]::UrlEncode($currentPathInGit);
 
       $currentBranch = (git rev-parse --abbrev-ref HEAD);
