@@ -534,47 +534,22 @@ function Git-RebaseOnto {
   Write-Warning '    git push --force'
 }
 
-function MergeObjects ($objectsToMerge) {
-  if ($null -eq $objectsToMerge) {
-    return;
-  }
+function MergeJson ($jsons) {
+    $settings = New-Object -TypeName Newtonsoft.Json.Linq.JsonMergeSettings
+    $settings.MergeArrayHandling = [Newtonsoft.Json.Linq.MergeArrayHandling]::Replace;
+    # Use newtonsoft to parse json into object
+    $resultObject = $null;
+    $jsons | ForEach-Object {
+      $jsonObject = [Newtonsoft.Json.JsonConvert]::DeserializeObject($_);
 
-  # Last one wins
-  # If the last one is a literal return it directly - no merging
-  if (($null -eq $objectsToMerge[-1]) -or ($objectsToMerge[-1].GetType().Name -ne "PSCustomObject")) {
-    $objectsToMerge[0];
-  } else { # Otherwise its an object and need to merge the properties
-    $result = New-Object PSObject;
+      if (!$resultObject) {
+        $resultObject = $jsonObject;
+      } else {
+        $resultObject.Merge($jsonObject, $settings);
+      }
+    } 
 
-    # All unique property names
-    $propertyNames = $objectsToMerge | ForEach-Object {
-      $_.PSObject.Properties.Name;
-    } | Sort-Object -Unique;
-
-    # For each property name gather the object property values and
-    # rerun merge.
-    $propertyNames | ForEach-Object {
-      $propertyName = $_;
-      $propertyValues = ($objectsToMerge | Where-Object {
-        $object = $_;
-        $hasMember = $object | Get-Member $propertyName;
-        $hasMember;
-      } | ForEach-Object {
-        $object.$propertyName;
-      });
-      $propertyValue = (MergeObjects $propertyValues);
-
-      $result | Add-Member -Name $propertyName -Value $propertyValue -Force -MemberType NoteProperty;
-    };
-
-    $result;
-  }
-}
-
-function MergeJson ($jsonObjects) {
-  $objects = $jsonObjects | ForEach-Object { ConvertFrom-Json $_ }
-  $resultObject = MergeObjects $objects;
-  ConvertTo-Json $resultObject;
+    $resultObject.ToString();
 }
 
 function MergeJsonFiles ($inJsonFilePaths, $outJsonFilePath, $encoding = "Utf8") {
@@ -583,6 +558,20 @@ function MergeJsonFiles ($inJsonFilePaths, $outJsonFilePath, $encoding = "Utf8")
   });
   $outJson = MergeJson $inJson;
   $outJson | Out-File $outJsonFilePath -Encoding $encoding;
+}
+
+IncrementProgress "Applying Terminal settings";
+$terminalSettingsPatchPath = (Join-Path $PSScriptRoot "terminal-settings.json");
+
+@(
+  "$env:LOCALAPPDATA\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json",
+  "$env:LOCALAPPDATA\Packages\Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe\LocalState\settings.json",
+  "$env:LOCALAPPDATA\Microsoft\Windows Terminal\settings.json"
+) | Where-Object {
+  Test-Path $_;
+} | ForEach-Object {
+  $terminalSettingsPath = $_;
+  MergeJsonFiles -inJsonFilePaths $terminalSettingsPath,$terminalSettingsPatchPath -outJsonFilePath (($terminalSettingsPath));
 }
 
 IncrementProgress "Done";
