@@ -135,9 +135,9 @@ IncrementProgress "PSReadLineOptions init";
 Set-PSReadLineOption -PredictionSource History;
 Set-PSReadLineOption -PredictionViewStyle ListView;
 Set-PSReadLineOption -EditMode Windows;
-Set-PSReadLineKeyHandler Tab MenuComplete; # Tab completion gets a menu
+Set-PSReadLineKeyHandler Tab MenuComplete; # Tab completion gets a menu. Must do before importing cd-extras
 
-IncrementProgress "Terminal-Icon";
+IncrementProgress "Terminal-Icons";
 Import-Module Terminal-Icons; # https://www.hanselman.com/blog/take-your-windows-terminal-and-powershell-to-the-next-level-with-terminal-icons
 
 IncrementProgress "cd-extras";
@@ -145,6 +145,7 @@ Import-Module cd-extras; # https://github.com/nickcox/cd-extras
 
 IncrementProgress "BurntToast";
 Import-Module BurntToast; # https://github.com/Windos/BurntToast
+
 
 # IncrementProgress "oh-my-posh";
 # UpdateOrInstallWinget -ModuleName oh-my-posh -PackageName JanDeDobbeleer.OhMyPosh; # https://ohmyposh.dev/docs/pwsh/
@@ -580,3 +581,8 @@ $terminalSettingsPatchPath = (Join-Path $PSScriptRoot "terminal-settings.json");
 }
 
 IncrementProgress "Done";
+# Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -OutFile .\winfetch.ps1 -UseBasicParsing
+$winfetchPath = (Join-Path $PSScriptRoot "winfetch.ps1");
+$winfetchConfigPath = (Join-Path $PSScriptRoot "winfetch-config.ps1");
+$winfetchLogoPath = (Join-Path $PSScriptRoot "logo.png");
+.$winfetchPath -config $winfetchConfigPath -image $winfetchLogoPath;
