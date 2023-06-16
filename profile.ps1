@@ -205,7 +205,9 @@ function Get-GitUri {
 IncrementProgress "prompt shim for toast and oh-my-posh custom env vars";
 Copy-Item Function:prompt Function:poshPrompt;
 function prompt {
+    $previousSuccess = $?;
     $previousLastExitCode = $global:LASTEXITCODE;
+    $lastCommandSucceeded = !$previousLastExitCode -or $previousSuccess;
 
     try {
       $currentPath = ((Get-Location).Path);
@@ -220,9 +222,9 @@ function prompt {
     # Scrollbar marks
     # https://learn.microsoft.com/en-us/windows/terminal/tutorials/shell-integration
     # Scrollbar mark - note start of prompt
-    Write-Host "`e]133;A$([char]07)";
+    Write-Host "`e]133;A$([char]07)" -NoNewline;
 
-    if (($previousLastExitCode -ne $null) -and ($previousLastExitCode -ne 0)) {
+    if (!$lastCommandSucceeded) {
         cmd /c "exit $previousLastExitCode";
     }
 
@@ -233,10 +235,9 @@ function prompt {
     }
 
     # Scrollbar mark - note end of prompt
-    Write-Host "`e]133;B$([char]07)";
+    Write-Host "`e]133;B$([char]07)" -NoNewLine;
 
     try {
-      $lastCommandFailed = ($LastExitCode -ne $null -and $LastExitCode -ne 0) -or !$?;
       $lastCommandTookALongTime = $false;
       $lastCommandTime = 0;
 
@@ -247,24 +248,24 @@ function prompt {
           $lastCommandTookALongTime = $lastCommandTime.TotalSeconds -gt 10;
           if ($lh.ExecutionStatus -eq "Completed" -and $lastCommandTookALongTime) {
               $status = "Success: ";
-              if ($lastCommandFailed) {
+              if (!$lastCommandSucceeded) {
                 $status = "Failed: ";
               }
               New-BurntToastNotification -Text $status,($lh.CommandLine);
-
           }
 
           # Scrollbar mark - end of command including exit code
-          if (!$LastExitCode) {
-            Write-Host "`e]133;D`a";
+          if ($lastCommandSucceeded) {
+            Write-Host "`e]133;D`a" -NoNewline;
           } else {
-            Write-Host "`e]133;D;$gle`a";
+            Write-Host "`e]133;D;$gle`a" -NoNewline;
           }
       }
 
     } catch {
       Write-Host ("CDHistory Prompt Error: " + $_);
     }
+    $global:LASTEXITCODE = 0;
 }
 
 IncrementProgress "clickable paths";
