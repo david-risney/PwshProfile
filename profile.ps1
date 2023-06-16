@@ -2,7 +2,7 @@ $sw = [Diagnostics.Stopwatch]::StartNew()
 $swTotal = [Diagnostics.Stopwatch]::StartNew()
 $global:progressIdx = 0;
 # Find via (findstr /c "^IncrementProgress" .\profile.ps1).Count
-$global:maxProgress = 16; # The count of IncrementProgress calls in this file.
+$global:maxProgress = 14; # The count of IncrementProgress calls in this file.
 
 function IncrementProgress {
   param($Name);
@@ -220,11 +220,19 @@ function prompt {
         cmd /c "exit $previousLastExitCode";
     }
 
+    # Scrollbar marks
+    # https://learn.microsoft.com/en-us/windows/terminal/tutorials/shell-integration
+    # Scrollbar mark - note start of prompt
+    Write-Host "`e]133;A$([char]07)";
+
     try {
       poshPrompt;
     } catch {
       Write-Host ("POSH Prompt Error: " + $_);
     }
+
+    # Scrollbar mark - note end of prompt
+    Write-Host "`e]133;B$([char]07)";
 
     try {
       $lastCommandFailed = ($LastExitCode -ne $null -and $LastExitCode -ne 0) -or !$?;
@@ -242,8 +250,17 @@ function prompt {
                 $status = "Failed: ";
               }
               New-BurntToastNotification -Text $status,($lh.CommandLine);
+
+          }
+
+          # Scrollbar mark - end of command including exit code
+          if (!$LastExitCode) {
+            $out += "`e]133;D`a"
+          } else {
+            $out += "`e]133;D;$gle`a"
           }
       }
+
     } catch {
       Write-Host ("CDHistory Prompt Error: " + $_);
     }
