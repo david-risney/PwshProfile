@@ -26,7 +26,10 @@ IncrementProgress "Starting";
 
 $env:PATH = ($env:PATH.split(";") + @(Get-ChildItem ~\*bin) + @(Get-ChildItem ~\*bin\* -Directory) + @(Get-ChildItem ~\*bin\*bin -Directory)) -join ";";
 if (Test-Path out\debug_x64) {
-  [void](Start-Job -ScriptBlock { ninja -C out\debug_x64 -t compdb cxx > out\debug_x64\compile_commands.json ; Show-Toast "Completed compdb update" });
+    [void](Start-Job -ScriptBlock {
+        ninja -C out\debug_x64 -t compdb cxx > out\debug_x64\compile_commands.json ;
+        Show-Toast "Completed compdb update"
+    });
 }
 
 function cd- { cd - };
@@ -64,9 +67,7 @@ new-alias \ Set-LocationRoot
 $env:PYTHONIOENCODING = "UTF-8"
 
 function UpdateOrInstallModule {
-  param(
-    $ModuleName,
-    [switch] $Async);
+  param($ModuleName);
 
   Import-Module $ModuleName -ErrorVariable errorVariable -ErrorAction SilentlyContinue;
   # if we fail to import, we need to block and install
@@ -82,7 +83,10 @@ function UpdateOrInstallModule {
     }
     Import-Module $ModuleName;
   } else {
-    [void](Start-Job -ScriptBlock { Update-Module $ModuleName -Scope CurrentUser; });
+    [void](Start-Job -ScriptBlock { 
+      $args[0];
+      Update-Module $args[0] -Scope CurrentUser;
+    } -ArgumentList @($ModuleName));
   }
 }
 
@@ -96,52 +100,58 @@ function UpdateOrInstallWinget {
   }
   $tryUpdate = $false;
 
+  # Blocking install if its not here
   if (!(Get-Command $ModuleName)) {
-    winget list $ModuleName | Out-Null;
-    $found = ($LastExitCode -eq 0);
-
-    if (!$found) {
-      winget install $ModuleName;
-    } else {
-      $tryUpdate = $true;
-    }
+    winget install $ModuleName;
   } else {
-    $tryUpdate = $true;
-  }
-
-  if ($tryUpdate) {
+    # Otherwise, non-blocking update
     [void](Start-Job -ScriptBlock {
-      if (!$Exact) {
-        winget upgrade $ModuleName;
+      $args[0],$args[1];
+      if (!$args[1]) {
+        winget upgrade $args[0];
       } else {
-        winget upgrade $ModuleName -e;
+        winget upgrade $args[0] -e;
       }
-    });
+    } -ArgumentList @($ModuleName,$Exact));
   }
 }
 
 IncrementProgress "Updating profile script"
 # Update the profile scripts
 [void](Start-Job -ScriptBlock {
-  pushd ~\PwshProfile;
+  Push-Location ~\PwshProfile;
   # Use ff-only to hopefully avoid cases where merge is required
   git pull --ff-only
 });
 
-IncrementProgress "PowerShell";
-UpdateOrInstallWinget PowerShell -Exact -Async;
-IncrementProgress "PowerShellGet";
-UpdateOrInstallModule PowerShellGet;
+# Move these to a separate install / update script
+# IncrementProgress "PowerShell";
+# UpdateOrInstallWinget PowerShell -Exact;
+# IncrementProgress "PowerShellGet";
+# UpdateOrInstallModule PowerShellGet;
 IncrementProgress "PSReadLine";
-UpdateOrInstallModule PSReadLine; # https://github.com/PowerShell/PSReadLine
+Import-Module PSReadLine; # https://github.com/PowerShell/PSReadLine
+IncrementProgress "PSReadLineOptions init";
+Set-PSReadLineOption -PredictionSource History;
+Set-PSReadLineOption -PredictionViewStyle ListView;
+Set-PSReadLineOption -EditMode Windows;
+Set-PSReadLineKeyHandler Tab MenuComplete; # Tab completion gets a menu
+
 IncrementProgress "Terminal-Icon";
-UpdateOrInstallModule Terminal-Icons; # https://www.hanselman.com/blog/take-your-windows-terminal-and-powershell-to-the-next-level-with-terminal-icons
+Import-Module Terminal-Icons; # https://www.hanselman.com/blog/take-your-windows-terminal-and-powershell-to-the-next-level-with-terminal-icons
+
 IncrementProgress "cd-extras";
-UpdateOrInstallModule cd-extras; # https://github.com/nickcox/cd-extras
+Import-Module cd-extras; # https://github.com/nickcox/cd-extras
+
 IncrementProgress "BurntToast";
-UpdateOrInstallModule BurntToast -Async; # https://github.com/Windos/BurntToast
-IncrementProgress "oh-my-posh";
-UpdateOrInstallWinget -ModuleName oh-my-posh -PackageName JanDeDobbeleer.OhMyPosh; # https://ohmyposh.dev/docs/pwsh/
+Import-Module BurntToast; # https://github.com/Windos/BurntToast
+
+# IncrementProgress "oh-my-posh";
+# UpdateOrInstallWinget -ModuleName oh-my-posh -PackageName JanDeDobbeleer.OhMyPosh; # https://ohmyposh.dev/docs/pwsh/
+IncrementProgress "oh-my-posh init";
+$ohmyposhConfigPath = (Join-Path $PSScriptRoot "oh-my-posh.json");
+oh-my-posh init pwsh --config $ohmyposhConfigPath | Invoke-Expression;
+
 
 # IncrementProgress "Posh-Git";
 # UpdateOrInstallModule Posh-Git; # https://github.com/dahlbyk/posh-git
@@ -152,15 +162,6 @@ if (!(Get-ChildItem C:\windows\fonts\CaskaydiaCoveNerdFont*)) {
   Write-Error "Cascadia nerd font not found. Run the following from admin`n`toh-my-posh font install CascadiaCode;"
 }
 
-IncrementProgress "PSReadLineOptions init";
-Set-PSReadLineOption -PredictionSource History;
-Set-PSReadLineOption -PredictionViewStyle ListView;
-Set-PSReadLineOption -EditMode Windows;
-Set-PSReadLineKeyHandler Tab MenuComplete; # Tab completion gets a menu
-
-IncrementProgress "oh-my-posh init";
-$ohmyposhConfigPath = (Join-Path $PSScriptRoot "oh-my-posh.json");
-oh-my-posh init pwsh --config $ohmyposhConfigPath | Invoke-Expression;
 
 function Get-GitUri {
   param($Path);
