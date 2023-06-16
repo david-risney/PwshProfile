@@ -217,14 +217,14 @@ function prompt {
       Write-Host ("Custom POSH env var prompt Error: " + $_);
     }
 
-    if (!$previousLastExitCode) {
-        cmd /c "exit $previousLastExitCode";
-    }
-
     # Scrollbar marks
     # https://learn.microsoft.com/en-us/windows/terminal/tutorials/shell-integration
     # Scrollbar mark - note start of prompt
     Write-Host "`e]133;A$([char]07)";
+
+    if (($previousLastExitCode -ne $null) -and ($previousLastExitCode -ne 0)) {
+        cmd /c "exit $previousLastExitCode";
+    }
 
     try {
       poshPrompt;
@@ -256,9 +256,9 @@ function prompt {
 
           # Scrollbar mark - end of command including exit code
           if (!$LastExitCode) {
-            $out += "`e]133;D`a"
+            Write-Host "`e]133;D`a";
           } else {
-            $out += "`e]133;D;$gle`a"
+            Write-Host "`e]133;D;$gle`a";
           }
       }
 
