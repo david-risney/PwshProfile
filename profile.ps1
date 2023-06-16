@@ -68,32 +68,20 @@ function UpdateOrInstallModule {
     $ModuleName,
     [switch] $Async);
 
-  if (!(Get-Module $ModuleName)) {
-    Import-Module $ModuleName -ErrorAction Ignore;
-
-    if (!(Get-Module $ModuleName)) {
-      [void](Start-Job -ScriptBlock {
-        Write-Output "Install $ModuleName";
-
-        if ((Get-PSRepository PSGallery).InstallationPolicy -ne "Trusted") {
-          Set-PSRepository PSGallery -InstallationPolicy Trusted;
-        }
-
-        if ((Get-Command install-module)[0].Parameters["AllowPrerelease"]) {
-          Install-Module -Name $ModuleName -Force -Repository PSGallery -AllowPrerelease -Scope CurrentUser;
-        } else {
-          Install-Module -Name $ModuleName -Force -Repository PSGallery -Scope CurrentUser;
-        }
-        Import-Module $ModuleName;
-      });
-    } else {
-      $tryUpdate = $true;
+  Import-Module $ModuleName -ErrorVariable errorVariable -ErrorAction SilentlyContinue;
+  # if we fail to import, we need to block and install
+  if ($errorVariable) {
+    Write-Host "Couldn't import $ModuleName, trying to install first..."
+    if ((Get-PSRepository PSGallery).InstallationPolicy -ne "Trusted") {
+      Set-PSRepository PSGallery -InstallationPolicy Trusted;
     }
+    if ((Get-Command install-module)[0].Parameters["AllowPrerelease"]) {
+      Install-Module -Name $ModuleName -Force -Repository PSGallery -AllowPrerelease -Scope CurrentUser;
+    } else {
+      Install-Module -Name $ModuleName -Force -Repository PSGallery -Scope CurrentUser;
+    }
+    Import-Module $ModuleName;
   } else {
-    $tryUpdate = $true;
-  }
-
-  if ($tryUpdate) {
     [void](Start-Job -ScriptBlock { Update-Module $ModuleName -Scope CurrentUser; });
   }
 }
