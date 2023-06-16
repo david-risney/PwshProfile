@@ -2,7 +2,7 @@ $sw = [Diagnostics.Stopwatch]::StartNew()
 $swTotal = [Diagnostics.Stopwatch]::StartNew()
 $global:progressIdx = 0;
 # Find via (findstr /c "^IncrementProgress" .\profile.ps1).Count
-$global:maxProgress = 14; # The count of IncrementProgress calls in this file.
+$global:maxProgress = 15; # The count of IncrementProgress calls in this file.
 
 function IncrementProgress {
   param($Name);
@@ -579,6 +579,11 @@ $terminalSettingsPatchPath = (Join-Path $PSScriptRoot "terminal-settings.json");
   $terminalSettingsPath = $_;
   MergeJsonFiles -inJsonFilePaths $terminalSettingsPath,$terminalSettingsPatchPath -outJsonFilePath (($terminalSettingsPath));
 }
+
+# https://github.com/badmotorfinger/z
+# install-module z -AllowClobber
+IncrementProgress "z";
+Import-Module z;
 
 IncrementProgress "Done";
 # Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -OutFile .\winfetch.ps1 -UseBasicParsing
