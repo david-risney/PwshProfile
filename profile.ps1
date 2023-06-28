@@ -587,11 +587,13 @@ IncrementProgress "z";
 Import-Module z;
 
 IncrementProgress "Done";
-# Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -OutFile .\winfetch.ps1 -UseBasicParsing
-$winfetchPath = (Join-Path $PSScriptRoot "winfetch.ps1");
-$winfetchConfigPath = (Join-Path $PSScriptRoot "winfetch-config.ps1");
-$winfetchLogoPath = (Join-Path $PSScriptRoot "logo.png");
-.$winfetchPath -config $winfetchConfigPath -image $winfetchLogoPath;
+if ((ps -Id $PID).Parent.ProcessName -eq "WindowsTerminal") {
+  # Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -OutFile .\winfetch.ps1 -UseBasicParsing
+  $winfetchPath = (Join-Path $PSScriptRoot "winfetch.ps1");
+  $winfetchConfigPath = (Join-Path $PSScriptRoot "winfetch-config.ps1");
+  $winfetchLogoPath = (Join-Path $PSScriptRoot "logo.png");
+  .$winfetchPath -config $winfetchConfigPath -image $winfetchLogoPath;
+}
 
 # Also install bat
 # If you get 'invalid charset name' make sure you don't have an old less.exe in your PATH
@@ -613,3 +615,15 @@ function which {
     }
   }
 }
+
+# Ideas:
+# * Fix terminal-icons
+# * integrate posh git
+# * Add -update parameter and run it async at the end
+# * Merge install.ps1 with this script, do I need a separate -install parameter for anything that would take too long otherwise?  # * bat has syntax highlighting for git log. Can you add linkifying to commits with that and make it replace git log?
+# * Change winfetch logo for my edge repos
+# * Only do winfetch when its a new terminal session versus a new powershell process in an existing terminal.
+# * Add more comments and group sections of profile.ps1 together
+# * Consider extracting grouped chunks out into modules
+# * Check out https://github.com/dandavison/delta
+# * Check out ripgrep
