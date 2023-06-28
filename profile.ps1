@@ -622,7 +622,7 @@ function which {
 # * Add -update parameter and run it async at the end
 # * Merge install.ps1 with this script, do I need a separate -install parameter for anything that would take too long otherwise?  # * bat has syntax highlighting for git log. Can you add linkifying to commits with that and make it replace git log?
 # * Change winfetch logo for my edge repos
-# * Only do winfetch when its a new terminal session versus a new powershell process in an existing terminal.
+# * Better icon for toast
 # * Add more comments and group sections of profile.ps1 together
 # * Consider extracting grouped chunks out into modules
 # * Check out https://github.com/dandavison/delta
