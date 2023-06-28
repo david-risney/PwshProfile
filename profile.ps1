@@ -592,3 +592,24 @@ $winfetchPath = (Join-Path $PSScriptRoot "winfetch.ps1");
 $winfetchConfigPath = (Join-Path $PSScriptRoot "winfetch-config.ps1");
 $winfetchLogoPath = (Join-Path $PSScriptRoot "logo.png");
 .$winfetchPath -config $winfetchConfigPath -image $winfetchLogoPath;
+
+# Also install bat
+# If you get 'invalid charset name' make sure you don't have an old less.exe in your PATH
+if (!(Get-Command bat)) {
+  winget install sharkdp.bat;
+  # bat relies on less for paging
+  winget install jftuga.less;
+}
+$env:BAT_THEME = "OneHalfDark";
+
+New-Alias more bat;
+
+function which {
+  Get-Command -All $args[0] | %{
+    if ($_.Source.Length -gt 0) {
+      $_.Source;
+    } else {
+      ("" + $_.CommandType) + ":" + $_.Name;
+    }
+  }
+}
