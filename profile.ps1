@@ -602,10 +602,26 @@ if (!(Get-Command bat)) {
   # bat relies on less for paging
   winget install jftuga.less;
 }
-$env:BAT_THEME = "OneHalfDark";
 
+# Use bat --list-themes to see all themes
+# And then set the theme you want using:
+$env:BAT_THEME = "OneHalfDark";
+# Use some specific command line params with less:
+# -X - don't clear the screen on exit
+# -R - don't escape colors
+# -F - quit if less than one screen
+$env:BAT_PAGER = "less -RFX";
+
+# I'm never going to remember to use bat because my fingers
+# are too used to typing more. So just alias more to bat.
+# Get-Content (gc) is the powershell version of cat that won't
+# add line numbers and extra decorations and can handle 
+# PowerShell specific paths like env: and function:
 New-Alias more bat;
 
+# A version of which that says the path to the command but
+# also handles PowerShell specific paths things like alias:
+# and function:
 function which {
   Get-Command -All $args[0] | %{
     if ($_.Source.Length -gt 0) {
