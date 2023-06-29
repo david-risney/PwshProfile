@@ -154,6 +154,10 @@ $ohmyposhConfigPath = (Join-Path $PSScriptRoot "oh-my-posh.json");
 oh-my-posh init pwsh --config $ohmyposhConfigPath | Invoke-Expression;
 
 
+# Why are't I using posh git? Posh-Git does two things: (1) a pretty prompt and (2) tab completion. 
+# I don't need the pretty prompt because I have oh-my-posh which does that and more.
+# I don't want tab completion because in big projects git is slow and then tab completion is very slow and blocks the prompt.
+# With PSReadLine's menu completion, I can get some of the same functionality via history completion without the blocking.
 # IncrementProgress "Posh-Git";
 # UpdateOrInstallModule Posh-Git; # https://github.com/dahlbyk/posh-git
 
@@ -632,9 +636,9 @@ function which {
   }
 }
 
+
 # Ideas:
 # * Fix terminal-icons
-# * integrate posh git
 # * Add -update parameter and run it async at the end
 # * Merge install.ps1 with this script, do I need a separate -install parameter for anything that would take too long otherwise?  # * bat has syntax highlighting for git log. Can you add linkifying to commits with that and make it replace git log?
 # * Change winfetch logo for my edge repos
