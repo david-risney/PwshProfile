@@ -3,13 +3,13 @@
   "palette": {
       "foreground-light": "#e0e0e0",
       "foreground-dark": "#082336",
-      "background-path": "#f30cf3",
-      "background-git": "#ffff13",
-      "background-dotnet": "#6CA35E",
-      "background-root": "#ff9838",
-      "background-time": "#385cfd",
-      "background-exit-success": "#2e9982",
-      "background-exit-fail": "#fc5a80"
+      "background-path": "#ce5efe",
+      "background-git": "#fffa6a",
+      "background-dotnet": "#00fbac",
+      "background-root": "#ffb56a",
+      "background-time": "#00bfff",
+      "background-exit-success": "#00fbac",
+      "background-exit-fail": "#ff7092"
   },
   "blocks": [
     {
@@ -64,7 +64,7 @@
             "threshold": 1000
           },
           "background": "p:background-time",
-          "foreground": "p:foreground-light",
+          "foreground": "p:foreground-dark",
           "style": "diamond",
           "trailing_diamond": "\ue0b4"
         },
