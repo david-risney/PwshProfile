@@ -701,10 +701,12 @@ if (Get-Command goma_ctl -ErrorAction Ignore) {
 if ($InstallOrUpdate -eq "Async") {
   $userProfilePath = (Join-Path $PSScriptRoot "profile.ps1");
 
-  Start-Job -Name ProfileAsyncInstallOrUpdate -ScriptBlock { 
+  [void](Start-Job -Name ProfileAsyncInstallOrUpdate -ScriptBlock { 
     param($userProfilePath);
     .$userProfilePath -InstallOrUpdate On -Verbose;
-  } -ArgumentList $userProfilePath;
+    $success = $LASTEXITCODE -eq 0 -and $?;
+    New-BurntToastNotification -Text "Profile Update",$success;
+  } -ArgumentList $userProfilePath);
 }
 
 IncrementProgress "Done";
