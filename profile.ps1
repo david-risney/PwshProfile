@@ -2,7 +2,7 @@ $sw = [Diagnostics.Stopwatch]::StartNew()
 $swTotal = [Diagnostics.Stopwatch]::StartNew()
 $global:progressIdx = 0;
 # Find via (findstr /c "^IncrementProgress" .\profile.ps1).Count
-$global:maxProgress = 15; # The count of IncrementProgress calls in this file.
+$global:maxProgress = 16; # The count of IncrementProgress calls in this file.
 
 function IncrementProgress {
   param($Name);
@@ -24,7 +24,10 @@ function IncrementProgress {
 
 IncrementProgress "Starting";
 
+# Update PATHs to include all the bin-like folders in your user folder
 $env:PATH = ($env:PATH.split(";") + @(Get-ChildItem ~\*bin) + @(Get-ChildItem ~\*bin\* -Directory) + @(Get-ChildItem ~\*bin\*bin -Directory)) -join ";";
+
+# Asynchronously update compdb for ninja builds in VS
 if (Test-Path out\debug_x64) {
     [void](Start-Job -ScriptBlock {
         ninja -C out\debug_x64 -t compdb cxx > out\debug_x64\compile_commands.json ;
@@ -32,39 +35,8 @@ if (Test-Path out\debug_x64) {
     });
 }
 
-function cd- { cd - };
-
-Set-Alias back cd-
-Set-Alias fwd cd+
-New-Alias cds Set-LocationSet
-
-function Get-LocationRoot {
-    $root = $env:SDXROOT;
-    if (!$root) {
-        $root = (Get-Location).Path;
-        while ($root) {
-            if (Test-Path (Join-Path $root ".git\HEAD")) {
-                break;
-            } else {
-                $root = Split-Path $root;
-            }
-        }
-    }
-    $root;
-}
-
-function Set-LocationRoot {
-    $root = (Get-LocationRoot);
-    if ((Get-Location).Path -eq $root) {
-        cd ..
-        $root = (Get-LocationRoot);
-    }
-    Set-Location $root;
-}
-
-new-alias \ Set-LocationRoot
-
-$env:PYTHONIOENCODING = "UTF-8"
+# Avoid some python errors moving between old and new verions
+$env:PYTHONIOENCODING = "UTF-8";
 
 function UpdateOrInstallModule {
   param($ModuleName);
@@ -117,7 +89,7 @@ function UpdateOrInstallWinget {
 }
 
 IncrementProgress "Updating profile script"
-# Update the profile scripts
+# Update this profile script and associated files asynchronously
 [void](Start-Job -ScriptBlock {
   Push-Location ~\PwshProfile;
   # Use ff-only to hopefully avoid cases where merge is required
@@ -129,45 +101,96 @@ IncrementProgress "Updating profile script"
 # UpdateOrInstallWinget PowerShell -Exact;
 # IncrementProgress "PowerShellGet";
 # UpdateOrInstallModule PowerShellGet;
+
 IncrementProgress "PSReadLine";
+# PSReadLine gives improved input, tabbing, suggestions and such for
+# PowerShell input
 Import-Module PSReadLine; # https://github.com/PowerShell/PSReadLine
 IncrementProgress "PSReadLineOptions init";
 Set-PSReadLineOption -PredictionSource History;
 Set-PSReadLineOption -PredictionViewStyle ListView;
 Set-PSReadLineOption -EditMode Windows;
-Set-PSReadLineKeyHandler Tab MenuComplete; # Tab completion gets a menu. Must do before importing cd-extras
+ # Tab completion gets a menu. Must do before importing cd-extras
+Set-PSReadLineKeyHandler Tab MenuComplete;
 
 IncrementProgress "Terminal-Icons";
+# Terminal-Icons adds "icons" and coloring to default dir output
+# in PowerShell.
 Import-Module Terminal-Icons; # https://www.hanselman.com/blog/take-your-windows-terminal-and-powershell-to-the-next-level-with-terminal-icons
 
 IncrementProgress "cd-extras";
+# cd-extras adds different functions for quickly moving between
+# directories in your cd history, or directories with shortened
+# names, and others.
 Import-Module cd-extras; # https://github.com/nickcox/cd-extras
+setocd ColorCompletion; # Adds color to tab completion
+
+Set-Alias back cd-;
+Set-Alias fwd cd+;
+
+# Get root folder of current source repository
+function Get-LocationRoot {
+    $root = $env:SDXROOT;
+    if (!$root) {
+        $root = (Get-Location).Path;
+        while ($root) {
+            if (Test-Path (Join-Path $root ".git\HEAD")) {
+                break;
+            } else {
+                $root = Split-Path $root;
+            }
+        }
+    }
+    $root;
+}
+
+# Go to root folder of current source repository
+function Set-LocationRoot {
+    $root = (Get-LocationRoot);
+    if ((Get-Location).Path -eq $root) {
+        cd ..
+        $root = (Get-LocationRoot);
+    }
+    Set-Location $root;
+}
+
+new-alias \ Set-LocationRoot
 
 IncrementProgress "BurntToast";
+# BurntToast provides PowerShell commands to show OS toast
+# notifications
 Import-Module BurntToast; # https://github.com/Windos/BurntToast
 
 
-# IncrementProgress "oh-my-posh";
+IncrementProgress "oh-my-posh";
+# oh-my-posh lets you setup a pretty command prompt
 # UpdateOrInstallWinget -ModuleName oh-my-posh -PackageName JanDeDobbeleer.OhMyPosh; # https://ohmyposh.dev/docs/pwsh/
-IncrementProgress "oh-my-posh init";
 $ohmyposhConfigPath = (Join-Path $PSScriptRoot "oh-my-posh.json");
 oh-my-posh init pwsh --config $ohmyposhConfigPath | Invoke-Expression;
 
 
-# Why are't I using posh git? Posh-Git does two things: (1) a pretty prompt and (2) tab completion. 
+# IncrementProgress "Posh-Git";
+# Why are't I using posh git? Posh-Git does two things: 
+# (1) a pretty prompt 
 # I don't need the pretty prompt because I have oh-my-posh which does that and more.
+# (2) tab completion. 
 # I don't want tab completion because in big projects git is slow and then tab completion is very slow and blocks the prompt.
 # With PSReadLine's menu completion, I can get some of the same functionality via history completion without the blocking.
-# IncrementProgress "Posh-Git";
+# Accordingly, this is disabled
 # UpdateOrInstallModule Posh-Git; # https://github.com/dahlbyk/posh-git
 
 IncrementProgress "Nerd font check";
+# Nerd fonts provide extra symbols useful for making a pretty prompt.
+# General purpose icons like the branching icon, or company specific logos
+# like the Windows logo, or GitHub logo, and ASCII art sort of icons.
+# This is used by oh-my-posh and by Terminal-Icons
 # https://ohmyposh.dev/docs/installation/fonts
 if (!(Get-ChildItem C:\windows\fonts\CaskaydiaCoveNerdFont*)) {
   Write-Error "Cascadia nerd font not found. Run the following from admin`n`toh-my-posh font install CascadiaCode;"
 }
 
-
+# Function to get the URI of the current git repo set
+# to the specificed path.
 function Get-GitUri {
   param($Path);
 
@@ -207,6 +230,10 @@ function Get-GitUri {
 }
 
 IncrementProgress "prompt shim for toast and oh-my-posh custom env vars";
+# Shim the oh-my-posh prompt function to:
+#  * add git info to oh-my-posh
+#  * show toasts for long running commands
+#  * add scrollbar mark support
 Copy-Item Function:prompt Function:poshPrompt;
 function prompt {
     $previousSuccess = $?;
@@ -273,6 +300,9 @@ function prompt {
 }
 
 IncrementProgress "clickable paths";
+# This function takes a URI and text, and returns
+# the text formatted with ANSI escape sequence to make
+# a link from that.
 function Format-TerminalClickableString {
   param(
     $Uri,
@@ -283,6 +313,8 @@ function Format-TerminalClickableString {
   $formattedString;
 }
 
+# Make the result of dir into clickable links.
+# This is used by ./TerminalClickable.format.ps1xml
 function Format-TerminalClickableFileInfo {
   [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
   [OutputType([string])]
@@ -302,11 +334,15 @@ function Format-TerminalClickableFileInfo {
   }
 }
 
+# Run after Terminal-Icons to have both terminal-icons and clickable
+# paths.
 $terminableClickableFormatPath = (Join-Path $PSScriptRoot "TerminalClickable.format.ps1xml");
 Update-FormatData -PrependPath $terminableClickableFormatPath;
 
 IncrementProgress "Define helpful functions";
 
+# Keep checking on the VPN connection and get it to reconnect if it
+# disconnects.
 function AutoConnect-Vpn {
   function GetVpnStatus {
       $vpns = Get-VpnConnection;
@@ -572,6 +608,7 @@ function MergeJsonFiles ($inJsonFilePaths, $outJsonFilePath, $encoding = "Utf8")
 }
 
 IncrementProgress "Applying Terminal settings";
+# Merge terminal settings JSON into the various places Windows terminal stores its settings
 $terminalSettingsPatchPath = (Join-Path $PSScriptRoot "terminal-settings.json");
 
 @(
@@ -585,28 +622,21 @@ $terminalSettingsPatchPath = (Join-Path $PSScriptRoot "terminal-settings.json");
   MergeJsonFiles -inJsonFilePaths $terminalSettingsPath,$terminalSettingsPatchPath -outJsonFilePath (($terminalSettingsPath));
 }
 
+IncrementProgress "z";
+# A port of the z bash script - z lets you quickly jump between
+# directories in your cd history.
 # https://github.com/badmotorfinger/z
 # install-module z -AllowClobber
-IncrementProgress "z";
 Import-Module z;
 
-IncrementProgress "Done";
-if ((ps -Id $PID).Parent.ProcessName -eq "WindowsTerminal") {
-  # Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -OutFile .\winfetch.ps1 -UseBasicParsing
-  $winfetchPath = (Join-Path $PSScriptRoot "winfetch.ps1");
-  $winfetchConfigPath = (Join-Path $PSScriptRoot "winfetch-config.ps1");
-  $winfetchLogoPath = (Join-Path $PSScriptRoot "logo.png");
-  .$winfetchPath -config $winfetchConfigPath -image $winfetchLogoPath;
-}
-
-# Also install bat
+IncrementProgress "bat";
+# bat is a fancy version of cat / more / less with syntax highlighting
 # If you get 'invalid charset name' make sure you don't have an old less.exe in your PATH
 if (!(Get-Command bat)) {
   winget install sharkdp.bat;
   # bat relies on less for paging
   winget install jftuga.less;
 }
-
 # Use bat --list-themes to see all themes
 # And then set the theme you want using:
 $env:BAT_THEME = "OneHalfDark";
@@ -622,6 +652,19 @@ $env:BAT_PAGER = "less -RFX";
 # add line numbers and extra decorations and can handle 
 # PowerShell specific paths like env: and function:
 New-Alias more bat;
+
+IncrementProgress "Done";
+
+# WinFetch basically just looks cool
+# We run it last AFTER all the IncrememntProgress calls because the
+# PowerShell progress indicator clears the WinFetch logo display
+if ((ps -Id $PID).Parent.ProcessName -eq "WindowsTerminal") {
+  # Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -OutFile .\winfetch.ps1 -UseBasicParsing
+  $winfetchPath = (Join-Path $PSScriptRoot "winfetch.ps1");
+  $winfetchConfigPath = (Join-Path $PSScriptRoot "winfetch-config.ps1");
+  $winfetchLogoPath = (Join-Path $PSScriptRoot "logo.png");
+  .$winfetchPath -config $winfetchConfigPath -image $winfetchLogoPath;
+}
 
 # A version of which that says the path to the command but
 # also handles PowerShell specific paths things like alias:
