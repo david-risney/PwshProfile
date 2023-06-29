@@ -1,8 +1,16 @@
+[CmdletBinding()]
+param(
+  [ValidateSet("On", "Off", "Async")] $InstallOrUpdate = "Async",
+  [ValidateSet("On", "Off", "Auto")] $WinFetch = "Auto");
+
 $sw = [Diagnostics.Stopwatch]::StartNew()
 $swTotal = [Diagnostics.Stopwatch]::StartNew()
 $global:progressIdx = 0;
 # Find via (findstr /c "^IncrementProgress" .\profile.ps1).Count
-$global:maxProgress = 16; # The count of IncrementProgress calls in this file.
+$global:maxProgress = 15; # The count of IncrementProgress calls in this file.
+if ($Update) {
+  $global:maxProgress += 3;
+}
 
 function IncrementProgress {
   param($Name);
@@ -24,6 +32,17 @@ function IncrementProgress {
 
 IncrementProgress "Starting";
 
+if ($InstallOrUpdate -eq "On") {
+  $Update = $true;
+}
+
+if ($Update) {
+  winget install gerardog.gsudo;
+  if (!(Get-Command gsudo -ErrorAction Ignore)) {
+    $env:PATH += ";C:\Program Files\gsudo\Current\";
+  }
+}
+
 # Update PATHs to include all the bin-like folders in your user folder
 $env:PATH = ($env:PATH.split(";") + @(Get-ChildItem ~\*bin) + @(Get-ChildItem ~\*bin\* -Directory) + @(Get-ChildItem ~\*bin\*bin -Directory)) -join ";";
 
@@ -38,75 +57,55 @@ if (Test-Path out\debug_x64) {
 # Avoid some python errors moving between old and new verions
 $env:PYTHONIOENCODING = "UTF-8";
 
-function UpdateOrInstallModule {
-  param($ModuleName);
-
-  Import-Module $ModuleName -ErrorVariable errorVariable -ErrorAction SilentlyContinue;
-  # if we fail to import, we need to block and install
-  if ($errorVariable) {
-    Write-Host "Couldn't import $ModuleName, trying to install first..."
-    if ((Get-PSRepository PSGallery).InstallationPolicy -ne "Trusted") {
-      Set-PSRepository PSGallery -InstallationPolicy Trusted;
-    }
-    if ((Get-Command install-module)[0].Parameters["AllowPrerelease"]) {
-      Install-Module -Name $ModuleName -Force -Repository PSGallery -AllowPrerelease -Scope CurrentUser;
-    } else {
-      Install-Module -Name $ModuleName -Force -Repository PSGallery -Scope CurrentUser;
-    }
-    Import-Module $ModuleName;
-  } else {
-    [void](Start-Job -ScriptBlock { 
-      $args[0];
-      Update-Module $args[0] -Scope CurrentUser;
-    } -ArgumentList @($ModuleName));
+IncrementProgress "Setup PSRepository"
+# This is all slow and so only do it when Update is set.
+if ($Update) {
+  if ((Get-PSRepository PSGallery).InstallationPolicy -ne "Trusted") {
+    Set-PSRepository PSGallery -InstallationPolicy Trusted;
   }
 }
 
-function UpdateOrInstallWinget {
-  param(
-    $ModuleName,
-    $PackageName,
-    [switch] $Exact);
-  if ($PackageName -eq "") {
-    $PackageName = $ModuleName;
-  }
-  $tryUpdate = $false;
-
-  # Blocking install if its not here
-  if (!(Get-Command $ModuleName)) {
-    winget install $ModuleName;
-  } else {
-    # Otherwise, non-blocking update
-    [void](Start-Job -ScriptBlock {
-      $args[0],$args[1];
-      if (!$args[1]) {
-        winget upgrade $args[0];
-      } else {
-        winget upgrade $args[0] -e;
-      }
-    } -ArgumentList @($ModuleName,$Exact));
-  }
-}
-
-IncrementProgress "Updating profile script"
 # Update this profile script and associated files asynchronously
-[void](Start-Job -ScriptBlock {
+if ($Update) {
+  IncrementProgress "Update profile script"
+
   Push-Location ~\PwshProfile;
   # Use ff-only to hopefully avoid cases where merge is required
   git pull --ff-only
-});
 
-# Move these to a separate install / update script
-# IncrementProgress "PowerShell";
-# UpdateOrInstallWinget PowerShell -Exact;
-# IncrementProgress "PowerShellGet";
-# UpdateOrInstallModule PowerShellGet;
+  $userProfilePath = (Join-Path $PSScriptRoot "profile.ps1");
+
+  if (!(Get-Content $profile | Where-Object { $_.Contains($userProfilePath); })) {
+      "`n. `"$userProfilePath`"" >> $profile;
+  }
+}
+
+if ($Update) {
+  IncrementProgress "Update various apps";
+
+  winget install --id Microsoft.Powershell --source winget
+  winget install git --source winget
+  # The following installs could take a while and they aren't
+  # requirements for anything else in this script
+  # So run them in a different command prompt
+  winget install Microsoft.VisualStudioCode
+  winget install Microsoft.VisualStudio.2022.Enterprise
+  winget install Microsoft.PowerToys
+}
+
+if ($Update) {
+  IncrementProgress "Update PowerShellGet";
+  Install-Module -Name PowerShellGet -Force -Repository PSGallery -AllowPrerelease -Scope CurrentUser;
+}
 
 IncrementProgress "PSReadLine";
 # PSReadLine gives improved input, tabbing, suggestions and such for
 # PowerShell input
-Import-Module PSReadLine; # https://github.com/PowerShell/PSReadLine
-IncrementProgress "PSReadLineOptions init";
+if ($Update) {
+  gsudo { Install-Module PSReadLine -AllowPrerelease -Force; };
+} else {
+  Import-Module PSReadLine; # https://github.com/PowerShell/PSReadLine
+}
 Set-PSReadLineOption -PredictionSource History;
 Set-PSReadLineOption -PredictionViewStyle ListView;
 Set-PSReadLineOption -EditMode Windows;
@@ -116,12 +115,18 @@ Set-PSReadLineKeyHandler Tab MenuComplete;
 IncrementProgress "Terminal-Icons";
 # Terminal-Icons adds "icons" and coloring to default dir output
 # in PowerShell.
+if ($Update) {
+  Install-Module -Name Terminal-Icons -Repository PSGallery;
+}
 Import-Module Terminal-Icons; # https://www.hanselman.com/blog/take-your-windows-terminal-and-powershell-to-the-next-level-with-terminal-icons
 
 IncrementProgress "cd-extras";
 # cd-extras adds different functions for quickly moving between
 # directories in your cd history, or directories with shortened
 # names, and others.
+if ($Update) {
+  Install-Module cd-extras
+}
 Import-Module cd-extras; # https://github.com/nickcox/cd-extras
 setocd ColorCompletion; # Adds color to tab completion
 
@@ -154,17 +159,22 @@ function Set-LocationRoot {
     Set-Location $root;
 }
 
-new-alias \ Set-LocationRoot
+Set-Alias \ Set-LocationRoot
 
 IncrementProgress "BurntToast";
 # BurntToast provides PowerShell commands to show OS toast
 # notifications
+if ($Update) {
+  Install-Module -Name BurntToast
+}
 Import-Module BurntToast; # https://github.com/Windos/BurntToast
-
 
 IncrementProgress "oh-my-posh";
 # oh-my-posh lets you setup a pretty command prompt
 # UpdateOrInstallWinget -ModuleName oh-my-posh -PackageName JanDeDobbeleer.OhMyPosh; # https://ohmyposh.dev/docs/pwsh/
+if ($Update) {
+  winget install JanDeDobbeleer.OhMyPosh -s winget
+}
 $ohmyposhConfigPath = (Join-Path $PSScriptRoot "oh-my-posh.json");
 oh-my-posh init pwsh --config $ohmyposhConfigPath | Invoke-Expression;
 
@@ -185,8 +195,14 @@ IncrementProgress "Nerd font check";
 # like the Windows logo, or GitHub logo, and ASCII art sort of icons.
 # This is used by oh-my-posh and by Terminal-Icons
 # https://ohmyposh.dev/docs/installation/fonts
-if (!(Get-ChildItem C:\windows\fonts\CaskaydiaCoveNerdFont*)) {
-  Write-Error "Cascadia nerd font not found. Run the following from admin`n`toh-my-posh font install CascadiaCode;"
+if ($Update) {
+  winget install gerardog.gsudo;
+  # This maybe doesn't work when first installing gsudo.
+  gsudo { oh-my-posh font install CascadiaCode; };
+} else {
+  if (!(Get-ChildItem C:\windows\fonts\CaskaydiaCoveNerdFont*)) {
+    Write-Error "Cascadia nerd font not found. Run the following from admin`n`toh-my-posh font install CascadiaCode;"
+  }
 }
 
 # Function to get the URI of the current git repo set
@@ -229,7 +245,7 @@ function Get-GitUri {
   $repoUri;
 }
 
-IncrementProgress "prompt shim for toast and oh-my-posh custom env vars";
+IncrementProgress "Prompt shim";
 # Shim the oh-my-posh prompt function to:
 #  * add git info to oh-my-posh
 #  * show toasts for long running commands
@@ -299,7 +315,7 @@ function prompt {
     $global:LASTEXITCODE = 0;
 }
 
-IncrementProgress "clickable paths";
+IncrementProgress "Clickable paths";
 # This function takes a URI and text, and returns
 # the text formatted with ANSI escape sequence to make
 # a link from that.
@@ -627,12 +643,15 @@ IncrementProgress "z";
 # directories in your cd history.
 # https://github.com/badmotorfinger/z
 # install-module z -AllowClobber
+if ($Update) {
+  install-module z -AllowClobber
+}
 Import-Module z;
 
 IncrementProgress "bat";
 # bat is a fancy version of cat / more / less with syntax highlighting
 # If you get 'invalid charset name' make sure you don't have an old less.exe in your PATH
-if (!(Get-Command bat)) {
+if ($Update -or !(Get-Command bat)) {
   winget install sharkdp.bat;
   # bat relies on less for paging
   winget install jftuga.less;
@@ -651,20 +670,7 @@ $env:BAT_PAGER = "less -RFX";
 # Get-Content (gc) is the powershell version of cat that won't
 # add line numbers and extra decorations and can handle 
 # PowerShell specific paths like env: and function:
-New-Alias more bat;
-
-IncrementProgress "Done";
-
-# WinFetch basically just looks cool
-# We run it last AFTER all the IncrememntProgress calls because the
-# PowerShell progress indicator clears the WinFetch logo display
-if ((ps -Id $PID).Parent.ProcessName -eq "WindowsTerminal") {
-  # Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -OutFile .\winfetch.ps1 -UseBasicParsing
-  $winfetchPath = (Join-Path $PSScriptRoot "winfetch.ps1");
-  $winfetchConfigPath = (Join-Path $PSScriptRoot "winfetch-config.ps1");
-  $winfetchLogoPath = (Join-Path $PSScriptRoot "logo.png");
-  .$winfetchPath -config $winfetchConfigPath -image $winfetchLogoPath;
-}
+Set-Alias more bat;
 
 # A version of which that says the path to the command but
 # also handles PowerShell specific paths things like alias:
@@ -692,13 +698,40 @@ if (Get-Command goma_ctl -ErrorAction Ignore) {
   $env:NINJA_STATUS = "`e[1;37;44m[`e]8;;$gomaUri`e\%r running, %f/%t @ %c/s %o/s : %es`e]8;;`e\]`e[0m ";
 }
 
+if ($InstallOrUpdate -eq "Async") {
+  $userProfilePath = (Join-Path $PSScriptRoot "profile.ps1");
+
+  Start-Job -Name ProfileAsyncInstallOrUpdate -ScriptBlock { 
+    param($userProfilePath);
+    .$userProfilePath -InstallOrUpdate On -Verbose;
+  } -ArgumentList $userProfilePath;
+}
+
+IncrementProgress "Done";
+
+# WinFetch basically just looks cool
+# We run it last AFTER all the IncrememntProgress calls because the
+# PowerShell progress indicator clears the WinFetch logo display
+if ($WinFetch -eq "Auto") {
+  if ((ps -Id $PID).Parent.ProcessName -eq "WindowsTerminal") {
+    $WinFetch = "On";
+  } else {
+    $WinFetch = "Off";
+  }
+}
+
+if ($WinFetch -eq "On") {
+  # Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -OutFile .\winfetch.ps1 -UseBasicParsing
+  $winfetchPath = (Join-Path $PSScriptRoot "winfetch.ps1");
+  $winfetchConfigPath = (Join-Path $PSScriptRoot "winfetch-config.ps1");
+  $winfetchLogoPath = (Join-Path $PSScriptRoot "logo.png");
+  .$winfetchPath -config $winfetchConfigPath -image $winfetchLogoPath;
+}
+
 # Ideas:
 # * Fix terminal-icons
-# * Add -update parameter and run it async at the end
-# * Merge install.ps1 with this script, do I need a separate -install parameter for anything that would take too long otherwise?  # * bat has syntax highlighting for git log. Can you add linkifying to commits with that and make it replace git log?
 # * Change winfetch logo for my edge repos
 # * Better icon for toast
-# * Add more comments and group sections of profile.ps1 together
 # * Consider extracting grouped chunks out into modules
 # * Check out https://github.com/dandavison/delta
 # * Check out ripgrep
