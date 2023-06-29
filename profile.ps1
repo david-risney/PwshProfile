@@ -636,6 +636,18 @@ function which {
   }
 }
 
+# Fancy ninja status
+if (Get-Command goma_ctl -ErrorAction Ignore) {
+  # See https://chromium.googlesource.com/infra/goma/client/+/refs/heads/main/client/goma_ctl.py
+  $gomaUri = @((goma_ctl status) | %{ if ($_ -match "(http[^ ]+)") { $matches[1] } })[0];
+  # The first ` e escape sequence changes to blue on white text
+  # The second changes the text to be a link to the goma uri
+  # The third closes the link
+  # The fourth resets the color
+  # See https://ninja-build.org/manual.html#:~:text=control%20its%20behavior%3A-,NINJA_STATUS,-%2C%20the%20progress%20status
+  # for more info on the percent escape codes for NINJA_STATUS
+  $env:NINJA_STATUS = "`e[1;37;44m[`e]8;;$gomaUri`e\%r running, %f/%t @ %c/s %o/s : %es`e]8;;`e\]`e[0m ";
+}
 
 # Ideas:
 # * Fix terminal-icons
