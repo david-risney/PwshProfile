@@ -651,7 +651,7 @@ Import-Module z;
 IncrementProgress "bat";
 # bat is a fancy version of cat / more / less with syntax highlighting
 # If you get 'invalid charset name' make sure you don't have an old less.exe in your PATH
-if ($Update -or !(Get-Command bat)) {
+if ($Update -or !(Get-Command bat -ErrorAction Ignore)) {
   winget install sharkdp.bat;
   # bat relies on less for paging
   winget install jftuga.less;
@@ -676,7 +676,7 @@ Set-Alias more bat;
 # also handles PowerShell specific paths things like alias:
 # and function:
 function which {
-  Get-Command -All $args[0] | %{
+  Get-Command -All $args[0] -ErrorAction Ignore | %{
     if ($_.Source.Length -gt 0) {
       $_.Source;
     } else {
