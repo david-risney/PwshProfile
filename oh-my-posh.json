@@ -52,7 +52,7 @@
             "fetch_version": true
           },
           "background": "p:background-dotnet",
-          "foreground": "p:foreground-light",
+          "foreground": "p:foreground-dark",
           "style": "diamond",
           "trailing_diamond": "\ue0b4"
         },

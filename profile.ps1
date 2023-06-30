@@ -83,14 +83,15 @@ if ($Update) {
 if ($Update) {
   IncrementProgress "Update various apps";
 
-  winget install --id Microsoft.Powershell --source winget
-  winget install git --source winget
+  winget install BurntSushi.ripgrep.MSVC;
+  winget install --id Microsoft.Powershell --source winget;
+  winget install git --source winget;
   # The following installs could take a while and they aren't
   # requirements for anything else in this script
   # So run them in a different command prompt
-  winget install Microsoft.VisualStudioCode
-  winget install Microsoft.VisualStudio.2022.Enterprise
-  winget install Microsoft.PowerToys
+  winget install Microsoft.VisualStudioCode;
+  winget install Microsoft.VisualStudio.2022.Enterprise;
+  winget install Microsoft.PowerToys;
 }
 
 if ($Update) {
