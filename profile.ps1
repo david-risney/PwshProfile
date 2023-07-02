@@ -715,7 +715,7 @@ IncrementProgress "Done";
 # We run it last AFTER all the IncrememntProgress calls because the
 # PowerShell progress indicator clears the WinFetch logo display
 if ($WinFetch -eq "Auto") {
-  if ((ps -Id $PID).Parent.ProcessName -eq "WindowsTerminal") {
+  if ((Get-Process -Id $PID).Parent.ProcessName -eq "WindowsTerminal") {
     $WinFetch = "On";
   } else {
     $WinFetch = "Off";
@@ -736,4 +736,3 @@ if ($WinFetch -eq "On") {
 # * Better icon for toast
 # * Consider extracting grouped chunks out into modules
 # * Check out https://github.com/dandavison/delta
-# * Check out ripgrep
