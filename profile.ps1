@@ -83,14 +83,15 @@ if ($Update) {
 if ($Update) {
   IncrementProgress "Update various apps";
 
-  winget install --id Microsoft.Powershell --source winget
-  winget install git --source winget
+  winget install BurntSushi.ripgrep.MSVC;
+  winget install --id Microsoft.Powershell --source winget;
+  winget install git --source winget;
   # The following installs could take a while and they aren't
   # requirements for anything else in this script
   # So run them in a different command prompt
-  winget install Microsoft.VisualStudioCode
-  winget install Microsoft.VisualStudio.2022.Enterprise
-  winget install Microsoft.PowerToys
+  winget install Microsoft.VisualStudioCode;
+  winget install Microsoft.VisualStudio.2022.Enterprise;
+  winget install Microsoft.PowerToys;
 }
 
 if ($Update) {
@@ -651,7 +652,7 @@ Import-Module z;
 IncrementProgress "bat";
 # bat is a fancy version of cat / more / less with syntax highlighting
 # If you get 'invalid charset name' make sure you don't have an old less.exe in your PATH
-if ($Update -or !(Get-Command bat)) {
+if ($Update -or !(Get-Command bat -ErrorAction Ignore)) {
   winget install sharkdp.bat;
   # bat relies on less for paging
   winget install jftuga.less;
@@ -676,7 +677,7 @@ Set-Alias more bat;
 # also handles PowerShell specific paths things like alias:
 # and function:
 function which {
-  Get-Command -All $args[0] | %{
+  Get-Command -All $args[0] -ErrorAction Ignore | %{
     if ($_.Source.Length -gt 0) {
       $_.Source;
     } else {
