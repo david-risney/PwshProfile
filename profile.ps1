@@ -710,6 +710,141 @@ if ($InstallOrUpdate -eq "Async") {
   } -ArgumentList $userProfilePath);
 }
 
+function Get-GitChangePaths {
+  [CmdletBinding()]
+  param(
+    $SetPathMatch,
+    [switch] $FullPaths,
+    [switch] $OnlyGitStatusFiles,
+    [switch] $RebuildCache,
+    $BranchCommit);
+
+  if (!$global:gitChangePathsCache -or $RebuildCache) {
+    Write-Verbose "Rebuilding git change paths cache";
+    $gitRoot = (git rev-parse --show-toplevel);
+    Write-Verbose ("gitroot: " + $gitRoot);
+
+    if (!$BranchCommit) {
+      $BranchCommit = (git merge-base origin/main HEAD);
+    }
+    Write-Verbose ("Branch commit: " + $BranchCommit);
+
+    $gitStatusFiles = git status -s | ForEach-Object {
+      $path = $_.substring(3);
+      if (Test-Path $path) {
+        (Get-Item $path).FullName;
+      }
+    };
+    Write-Verbose "Found $($gitStatusFiles.Count) git status files";
+
+    if (!$OnlyGitStatusFiles) {
+      $gitBranchFiles = git diff --name-only $BranchCommit | ForEach-Object {
+        $path = (Join-Path $gitRoot $_);
+        if (Test-Path $path) {
+          (Get-Item $path).FullName;
+        }
+      };
+      Write-Verbose "Found $($gitBranchFiles.Count) git branch files";
+    }
+
+    $gitFiles = @($gitStatusFiles) + @($gitBranchFiles);
+    $global:gitChangePathsCache = $gitFiles;
+  } else {
+    Write-Verbose "Using cached git change paths";
+  }
+
+  $gitFiles = $global:gitChangePathsCache;
+
+  if (!$FullPaths) {
+    # Convert to containing folder paths
+    $gitFiles = $gitFiles | ForEach-Object {
+      (Split-Path $_ -Parent);
+    };
+  }
+
+  $gitFiles = $gitFiles | Sort-Object -Unique;
+  if ($SetPathMatch -ne $null) {
+    # Filter to just matching paths
+    $gitFiles = $gitFiles | Where-Object { $_ -match $SetPathMatch };
+    Write-Verbose "Found $($gitFiles.Count) matching git change paths";
+
+    if ($gitFiles.Count -gt 1) {
+      # Reorder array to start with firstMatchIndex and then wrap around.
+      # This way if we're currently on a file that matches the set path match we'll go to the next path
+      # in the list if we're called the same way again.
+      $firstMatchIndex = 0;
+      $cwd = (Get-Location).Path;
+      while ($firstMatchIndex -lt $gitFiles.Length -and $gitFiles[$firstMatchIndex].ToLower() -ne $cwd.ToLower()) {
+        ++$firstMatchIndex;
+      }
+      # If we're on the last index or no match was found, no need to reorder
+      if ($firstMatchIndex -lt $gitFiles.Length - 1) {
+        $gitFiles = $gitFiles[($firstMatchIndex + 1)..($gitFiles.Length - 1)] + $gitFiles[0..$firstMatchIndex];
+      }
+    }
+
+    if ($gitFiles.Count -gt 0) {
+      Set-Location $gitFiles[0];
+    }
+  } else {
+    $gitFiles;
+  }
+}
+
+function gitcd {
+  [CmdletBinding()]
+  param($SetPathMatch = "");
+  Get-GitChangePaths -SetPathMatch $SetPathMatch;
+}
+
+function Build-AutoNinja {
+  [CmdletBinding()]
+  param(
+    [switch] $AllFilesInBranch,
+    [switch] $UseCache,
+    $OutPath,
+    [ValidateSet("immediate", "test", "retail")] $BuildTargetKind = "immediate",
+    $LogPath,
+    [switch] $WhatIf);
+
+  $gitRoot = (git rev-parse --show-toplevel);
+  Write-Verbose ("gitroot: " + $gitRoot);
+
+  if (!$OutPath) {
+    # find the most recently run folder under gitRoot\out
+    $OutPath = (Get-ChildItem -Path "$gitRoot\out" -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName;
+  }
+  Write-Verbose ("Outpath: " + $OutPath);
+
+  if (!$LogPath) {
+    $LogPath = (Join-Path $OutPath "build.log");
+  }
+  Write-Verbose ("LogPath: " + $LogPath);
+
+  if (!($global:AutoNinjaCache -and $UseCache)) {
+    $gitStatusFiles = Get-GitChangePaths -FullPaths -OnlyGitStatusFiles:(!$AllFilesInBranch) -RebuildCache;
+    Write-Verbose ("git status files: " + $gitStatusFiles);
+
+    if ($BuildTargetKind -eq "immediate") {
+      $gnRefs = (gn refs $OutPath $gitStatusFiles | %{ $_.substring(2); });
+    } elseif ($BuildTargetKind -eq "test") {
+      $gnRefs = gn refs $OutPath $gitStatusFiles --all --testonly=true --type=executable --as=output;
+    } elseif ($BuildTargetKind -eq "retail") {
+      $gnRefs = gn refs $OutPath $gitStatusFiles --all --testonly=false --type=executable --as=output;
+    }
+    Write-Verbose ("gn refs: " + $gnRefs);
+
+    $global:AutoNinjaCache = $gnRefs;
+  }
+  $gnRefs = $global:AutoNinjaCache;
+
+  if (!($WhatIf)) {
+    autoninja -C $OutPath $gnRefs | Tee-Object -FilePath $LogPath -Encoding Utf8;
+  } else {
+    $gnRefs | ForEach-Object { Write-Output $_; };
+  }
+}
+
 IncrementProgress "Done";
 
 # WinFetch basically just looks cool
