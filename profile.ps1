@@ -12,6 +12,9 @@ if ($Update) {
   $global:maxProgress += 3;
 }
 
+# Store an environment variable for the path to this folder
+$env:PwshProfilePath = $PSScriptRoot;
+
 function IncrementProgress {
   param($Name);
   ++$global:progressIdx;
@@ -154,7 +157,7 @@ function Get-LocationRoot {
 function Set-LocationRoot {
     $root = (Get-LocationRoot);
     if ((Get-Location).Path -eq $root) {
-        cd ..
+        Set-Location ..
         $root = (Get-LocationRoot);
     }
     Set-Location $root;
@@ -211,7 +214,7 @@ if ($Update) {
 function Get-GitUri {
   param($Path);
 
-  $Path = (gi $Path).FullName.Replace("\", "/");
+  $Path = (Get-Item $Path).FullName.Replace("\", "/");
 
   $repoUri = (git config remote.origin.url);
   if ($repoUri) {
@@ -360,34 +363,34 @@ IncrementProgress "Define helpful functions";
 
 # Keep checking on the VPN connection and get it to reconnect if it
 # disconnects.
-function AutoConnect-Vpn {
+function Connect-Vpn {
   function GetVpnStatus {
       $vpns = Get-VpnConnection;
       $date = (date);
-      $vpns | %{
+      $vpns | ForEach-Object {
           New-Object -TypeName PSObject -Property @{'Date'=$date; 'Name'=$_.Name; 'ConnectionStatus'=$_.ConnectionStatus};
       }
   }
 
   function EnsureVpnConnection {
-      $changed = $false;
+      $script:changed = $false;
       $vpns = GetVpnStatus;
       Write-Host ($vpns);
-      $vpns | %{
+      $vpns | ForEach-Object {
           if ($_.ConnectionStatus -eq "Disconnected") {
               rasdial $_.Name;
-              $changed = $true;
+              $script:changed = $true;
               Start-Sleep -Seconds 5;
           }
       }
 
-      $changed;
+      $script:changed;
   }
 
 
   while ($true) {
-      $changed = (EnsureVpnConnection);
-      if ($changed) {
+      $script:changed = (EnsureVpnConnection);
+      if ($script:changed) {
           Write-Host (GetVpnStatus);
       }
 
@@ -395,7 +398,7 @@ function AutoConnect-Vpn {
   }
 }
 
-function Launch-WebView2Docs {
+function Open-WebView2Docs {
   <#
   .SYNOPSIS
   # WebView2-Docs.ps1 takes a WebView2 API name, and an optional parameter to say which language
@@ -530,7 +533,7 @@ function Launch-WebView2Docs {
   }
 }
 
-function Git-RebaseOnto {
+function GitRebaseOnto {
   <#
   .SYNOPSIS
   # Git-RebaseOnto.ps1 rebases the current branch onto an official branch.
@@ -550,7 +553,7 @@ function Git-RebaseOnto {
       );
 
   if (!$BranchToRebase) {
-      $BranchToRebase = git branch | ?{ $_.StartsWith("*") } | %{ $_.substring(2) }
+      $BranchToRebase = git branch | Where-Object { $_.StartsWith("*") } | ForEach-Object { $_.substring(2) }
   }
 
   if (!$BranchSource) {
@@ -677,7 +680,7 @@ Set-Alias more bat;
 # also handles PowerShell specific paths things like alias:
 # and function:
 function which {
-  Get-Command -All $args[0] -ErrorAction Ignore | %{
+  Get-Command -All $args[0] -ErrorAction Ignore | ForEach-Object {
     if ($_.Source.Length -gt 0) {
       $_.Source;
     } else {
@@ -689,7 +692,7 @@ function which {
 # Fancy ninja status
 if (Get-Command goma_ctl -ErrorAction Ignore) {
   # See https://chromium.googlesource.com/infra/goma/client/+/refs/heads/main/client/goma_ctl.py
-  $gomaUri = @((goma_ctl status) | %{ if ($_ -match "(http[^ ]+)") { $matches[1] } })[0];
+  $gomaUri = @((goma_ctl status) | ForEach-Object { if ($_ -match "(http[^ ]+)") { $matches[1] } })[0];
   # The first ` e escape sequence changes to blue on white text
   # The second changes the text to be a link to the goma uri
   # The third closes the link
@@ -763,7 +766,7 @@ function Get-GitChangePaths {
   }
 
   $gitFiles = $gitFiles | Sort-Object -Unique;
-  if ($SetPathMatch -ne $null) {
+  if ($null -ne $SetPathMatch) {
     # Filter to just matching paths
     $gitFiles = $gitFiles | Where-Object { $_ -match $SetPathMatch };
     Write-Verbose "Found $($gitFiles.Count) matching git change paths";
@@ -800,15 +803,27 @@ function gitcd {
 function Build-AutoNinja {
   [CmdletBinding()]
   param(
-    [switch] $AllFilesInBranch,
-    [switch] $UseCache,
-    $OutPath,
-    [ValidateSet("immediate", "test", "retail")] $BuildTargetKind = "immediate",
+    $BuildTargets,
+    [ValidateSet("none", "immediate", "test", "retail")] $DiscoverBuildTargets = "none",
+    [switch] $UseCachedDiscoveredBuildTargets,
+    [Alias("C")] $OutPath,
     $LogPath,
     [switch] $WhatIf);
 
+  if (!($BuildTargets)) {
+    $DiscoverBuildTargets = "immediate";
+  }
+
   $gitRoot = (git rev-parse --show-toplevel);
   Write-Verbose ("gitroot: " + $gitRoot);
+
+  if (!$OutPath) {
+    # Check if we're in an out path
+    $prefix = "$gitRoot\out";
+    if ((Get-Location).Path.ToLower().StartsWith($prefix.ToLower())) {
+      $OutPath = (Get-Location).Path.Substring($prefix.Length + 1).Split("\")[0];
+    }
+  }
 
   if (!$OutPath) {
     # find the most recently run folder under gitRoot\out
@@ -821,25 +836,33 @@ function Build-AutoNinja {
   }
   Write-Verbose ("LogPath: " + $LogPath);
 
-  if (!($global:AutoNinjaCache -and $UseCache)) {
-    $gitStatusFiles = Get-GitChangePaths -FullPaths -OnlyGitStatusFiles:(!$AllFilesInBranch) -RebuildCache;
+  if (($DiscoverBuildTargets -ne "none") -and !($global:AutoNinjaCache -and $UseCachedDiscoveredBuildTargets)) {
+    $gitStatusFiles = Get-GitChangePaths -FullPaths -RebuildCache;
     Write-Verbose ("git status files: " + $gitStatusFiles);
 
-    if ($BuildTargetKind -eq "immediate") {
-      $gnRefs = (gn refs $OutPath $gitStatusFiles | %{ $_.substring(2); });
-    } elseif ($BuildTargetKind -eq "test") {
+    if ($DiscoverBuildTargets -eq "immediate") {
+      $gnRefs = (gn refs $OutPath $gitStatusFiles | ForEach-Object { $_.substring(2); });
+    } elseif ($DiscoverBuildTargets -eq "test") {
       $gnRefs = gn refs $OutPath $gitStatusFiles --all --testonly=true --type=executable --as=output;
-    } elseif ($BuildTargetKind -eq "retail") {
+    } elseif ($DiscoverBuildTargets -eq "retail") {
       $gnRefs = gn refs $OutPath $gitStatusFiles --all --testonly=false --type=executable --as=output;
     }
     Write-Verbose ("gn refs: " + $gnRefs);
 
     $global:AutoNinjaCache = $gnRefs;
   }
-  $gnRefs = $global:AutoNinjaCache;
+  if ($DiscoverBuildTargets) {
+    $gnRefs = $global:AutoNinjaCache;
+  }
+  if ($BuildTargets) {
+    $gnRefs += ($BuildTargets);
+  }
 
   if (!($WhatIf)) {
-    autoninja -C $OutPath $gnRefs | Tee-Object -FilePath $LogPath -Encoding Utf8;
+    "---START LOG note---" > $LogPath;
+    autoninja -C $OutPath $gnRefs | Tee-Object -Append -FilePath $LogPath -Encoding Utf8;
+    "---END LOG note---" >> $LogPath;
+    "" >> $LogPath;
   } else {
     $gnRefs | ForEach-Object { Write-Output $_; };
   }
