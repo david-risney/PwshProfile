@@ -689,6 +689,15 @@ function which {
   }
 }
 
+function touch {
+  param($Path);
+  if (Test-Path $Path) {
+    (Get-Item $Path).LastWriteTime = Get-Date;
+  } else {
+    [void](New-Item $Path -ItemType File);
+  }
+}
+
 # Fancy ninja status
 if (Get-Command goma_ctl -ErrorAction Ignore) {
   # See https://chromium.googlesource.com/infra/goma/client/+/refs/heads/main/client/goma_ctl.py
@@ -703,14 +712,26 @@ if (Get-Command goma_ctl -ErrorAction Ignore) {
 }
 
 if ($InstallOrUpdate -eq "Async") {
-  $userProfilePath = (Join-Path $PSScriptRoot "profile.ps1");
+  $lastAsyncUpdatePath = (Join-Path "~" "pwsh-profile-last-async-update.txt");
+  $lastAsyncUpdate = $null;
 
-  [void](Start-Job -Name ProfileAsyncInstallOrUpdate -ScriptBlock { 
-    param($userProfilePath);
-    .$userProfilePath -InstallOrUpdate On -Verbose;
-    $success = $LASTEXITCODE -eq 0 -and $?;
-    New-BurntToastNotification -Text "Profile Update",$success;
-  } -ArgumentList $userProfilePath);
+  if (Test-Path $lastAsyncUpdatePath) {
+    $lastAsyncUpdate = (Get-Item $lastAsyncUpdatePath).LastWriteTime;
+  }
+
+  if (!($lastAsyncUpdate) -or ((Get-Date) -gt $lastAsyncUpdate.AddMinutes(60))) {
+    # Touch before starting update because the update may take a long time.
+    touch $lastAsyncUpdatePath;
+
+    $userProfilePath = (Join-Path $PSScriptRoot "profile.ps1");
+
+    [void](Start-Job -Name ProfileAsyncInstallOrUpdate -ScriptBlock {
+      param($userProfilePath);
+      .$userProfilePath -InstallOrUpdate On -Verbose;
+      $success = $LASTEXITCODE -eq 0 -and $?;
+      New-BurntToastNotification -Text "Profile Update",$success;
+    } -ArgumentList $userProfilePath);
+  }
 }
 
 function Get-GitChangePaths {
