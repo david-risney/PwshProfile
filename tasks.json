@@ -1,0 +1,87 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Autoninja build log",
+            "type": "process",
+            "command": "pwsh",
+            "args": [
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy", "Bypass",
+                "-File", "${env:PwshProfilePath}\\PwshProfile\\Get-AutoNinjaLog.ps1", "${workspaceFolder}",
+            ],
+            "group": "build",
+            "presentation": {
+                // Reveal the output only if unrecognized errors occur.
+                "reveal": "silent"
+            },
+            // Use the standard MS compiler pattern to detect errors, warnings and infos
+            "problemMatcher": [
+                {
+                    "owner": "autoninja",
+                    "fileLocation": [
+                        "relative",
+                        "${workspaceFolder}\\a\\b"
+                    ],
+                    "pattern": [
+                        {
+                            "regexp": "^(.*)\\((\\d+),(\\d+)\\):\\s+([^:]+):\\s+(.*)$",
+                            "file": 1,
+                            "line": 2,
+                            "column": 3,
+                            "severity": 4,
+                            "message": 5
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "label": "Watch Autoninja build log",
+            "isBackground": true,
+            "type": "process",
+            "command": "pwsh",
+            "args": [
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy", "Bypass",
+                "-File", "${env:PwshProfilePath}\\PwshProfile\\Get-AutoNinjaLog.ps1", "${workspaceFolder}", "-Watch",
+            ],
+            "group": "build",
+            "presentation": {
+                // Reveal the output only if unrecognized errors occur.
+                "reveal": "silent"
+            },
+            // Use the standard MS compiler pattern to detect errors, warnings and infos
+            "problemMatcher": [
+                {
+                    "owner": "autoninja",
+                    "fileLocation": [
+                        "relative",
+                        "${workspaceFolder}\\a\\b"
+                    ],
+                    "pattern": [
+                        {
+                            "regexp": "^(.*)\\((\\d+),(\\d+)\\):\\s+([^:]+):\\s+(.*)$",
+                            "file": 1,
+                            "line": 2,
+                            "column": 3,
+                            "severity": 4,
+                            "message": 5
+                        }
+                    ],
+                    "background": {
+                        "activeOnStart": true,
+                        "beginsPattern": "---START LOG note---",
+                        "endsPattern": "---END LOG note---",
+                    }
+                }
+            ]
+        }
+    ]
+}
