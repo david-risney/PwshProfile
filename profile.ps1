@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [ValidateSet("On", "Off", "Async")] $InstallOrUpdate = "Async",
+  [ValidateSet("On", "Off", "Async")] $Update = "Async",
   [ValidateSet("On", "Off", "Auto")] $WinFetch = "Auto");
 
 $sw = [Diagnostics.Stopwatch]::StartNew()
@@ -8,7 +8,8 @@ $swTotal = [Diagnostics.Stopwatch]::StartNew()
 $global:progressIdx = 0;
 # Find via (findstr /c "^IncrementProgress" .\profile.ps1).Count
 $global:maxProgress = 15; # The count of IncrementProgress calls in this file.
-if ($Update) {
+
+if ($Update -eq "On") {
   $global:maxProgress += 3;
 }
 
@@ -35,42 +36,42 @@ function IncrementProgress {
 
 IncrementProgress "Starting";
 
-if ($InstallOrUpdate -eq "On") {
-  $Update = $true;
-}
-
-if ($Update) {
+if ($Update -eq "On") {
+  Write-Verbose "Updating gsudo";
   winget install gerardog.gsudo;
   if (!(Get-Command gsudo -ErrorAction Ignore)) {
     $env:PATH += ";C:\Program Files\gsudo\Current\";
   }
+  gsudo config CacheMode Auto
 }
 
 # Update PATHs to include all the bin-like folders in your user folder
 $env:PATH = ($env:PATH.split(";") + @(Get-ChildItem ~\*bin) + @(Get-ChildItem ~\*bin\* -Directory) + @(Get-ChildItem ~\*bin\*bin -Directory)) -join ";";
 
 # Asynchronously update compdb for ninja builds in VS
-if (Test-Path out\debug_x64) {
-    [void](Start-Job -ScriptBlock {
-        ninja -C out\debug_x64 -t compdb cxx > out\debug_x64\compile_commands.json ;
-        Show-Toast "Completed compdb update"
-    });
-}
+# if (Test-Path out\debug_x64) {
+#     [void](Start-Job -ScriptBlock {
+#         ninja -C out\debug_x64 -t compdb cxx > out\debug_x64\compile_commands.json ;
+#         Show-Toast "Completed compdb update"
+#     });
+# }
 
 # Avoid some python errors moving between old and new verions
 $env:PYTHONIOENCODING = "UTF-8";
 
 IncrementProgress "Setup PSRepository"
 # This is all slow and so only do it when Update is set.
-if ($Update) {
+if ($Update -eq "On") {
+  Write-Verbose "Set-PSRepository";
   if ((Get-PSRepository PSGallery).InstallationPolicy -ne "Trusted") {
     Set-PSRepository PSGallery -InstallationPolicy Trusted;
   }
 }
 
 # Update this profile script and associated files asynchronously
-if ($Update) {
+if ($Update -eq "On") {
   IncrementProgress "Update profile script"
+  Write-Verbose "Update profile script";
 
   Push-Location ~\PwshProfile;
   # Use ff-only to hopefully avoid cases where merge is required
@@ -83,29 +84,17 @@ if ($Update) {
   }
 }
 
-if ($Update) {
-  IncrementProgress "Update various apps";
-
-  winget install BurntSushi.ripgrep.MSVC;
-  winget install --id Microsoft.Powershell --source winget;
-  winget install git --source winget;
-  # The following installs could take a while and they aren't
-  # requirements for anything else in this script
-  # So run them in a different command prompt
-  winget install Microsoft.VisualStudioCode;
-  winget install Microsoft.VisualStudio.2022.Enterprise;
-  winget install Microsoft.PowerToys;
-}
-
-if ($Update) {
+if ($Update -eq "On") {
   IncrementProgress "Update PowerShellGet";
+  Write-Verbose "Update PowerShellGet";
   Install-Module -Name PowerShellGet -Force -Repository PSGallery -AllowPrerelease -Scope CurrentUser;
 }
 
 IncrementProgress "PSReadLine";
 # PSReadLine gives improved input, tabbing, suggestions and such for
 # PowerShell input
-if ($Update) {
+if ($Update -eq "On") {
+  Write-Verbose "Update PSReadLine";
   gsudo { Install-Module PSReadLine -AllowPrerelease -Force; };
 } else {
   Import-Module PSReadLine; # https://github.com/PowerShell/PSReadLine
@@ -119,7 +108,8 @@ Set-PSReadLineKeyHandler Tab MenuComplete;
 IncrementProgress "Terminal-Icons";
 # Terminal-Icons adds "icons" and coloring to default dir output
 # in PowerShell.
-if ($Update) {
+if ($Update -eq "On") {
+  Write-Verbose "Update Terminal-Icons";
   Install-Module -Name Terminal-Icons -Repository PSGallery;
 }
 Import-Module Terminal-Icons; # https://www.hanselman.com/blog/take-your-windows-terminal-and-powershell-to-the-next-level-with-terminal-icons
@@ -128,7 +118,8 @@ IncrementProgress "cd-extras";
 # cd-extras adds different functions for quickly moving between
 # directories in your cd history, or directories with shortened
 # names, and others.
-if ($Update) {
+if ($Update -eq "On") {
+  Write-Verbose "Update cd-extras";
   Install-Module cd-extras
 }
 Import-Module cd-extras; # https://github.com/nickcox/cd-extras
@@ -168,7 +159,8 @@ Set-Alias \ Set-LocationRoot
 IncrementProgress "BurntToast";
 # BurntToast provides PowerShell commands to show OS toast
 # notifications
-if ($Update) {
+if ($Update -eq "On") {
+  Write-Verbose "Updating BurntToast";
   Install-Module -Name BurntToast
 }
 Import-Module BurntToast; # https://github.com/Windos/BurntToast
@@ -176,12 +168,12 @@ Import-Module BurntToast; # https://github.com/Windos/BurntToast
 IncrementProgress "oh-my-posh";
 # oh-my-posh lets you setup a pretty command prompt
 # UpdateOrInstallWinget -ModuleName oh-my-posh -PackageName JanDeDobbeleer.OhMyPosh; # https://ohmyposh.dev/docs/pwsh/
-if ($Update) {
+if ($Update -eq "On") {
+  Write-Verbose "Updating OhMyPosh";
   winget install JanDeDobbeleer.OhMyPosh -s winget
 }
 $ohmyposhConfigPath = (Join-Path $PSScriptRoot "oh-my-posh.json");
 oh-my-posh init pwsh --config $ohmyposhConfigPath | Invoke-Expression;
-
 
 # IncrementProgress "Posh-Git";
 # Why are't I using posh git? Posh-Git does two things: 
@@ -199,9 +191,9 @@ IncrementProgress "Nerd font check";
 # like the Windows logo, or GitHub logo, and ASCII art sort of icons.
 # This is used by oh-my-posh and by Terminal-Icons
 # https://ohmyposh.dev/docs/installation/fonts
-if ($Update) {
-  winget install gerardog.gsudo;
+if ($Update -eq "On") {
   # This maybe doesn't work when first installing gsudo.
+  Write-Verbose "Updating font";
   gsudo { oh-my-posh font install CascadiaCode; };
 } else {
   if (!(Get-ChildItem C:\windows\fonts\CaskaydiaCoveNerdFont*)) {
@@ -647,7 +639,8 @@ IncrementProgress "z";
 # directories in your cd history.
 # https://github.com/badmotorfinger/z
 # install-module z -AllowClobber
-if ($Update) {
+if ($Update -eq "On") {
+  Write-Verbose "Updating z";
   install-module z -AllowClobber
 }
 Import-Module z;
@@ -655,9 +648,11 @@ Import-Module z;
 IncrementProgress "bat";
 # bat is a fancy version of cat / more / less with syntax highlighting
 # If you get 'invalid charset name' make sure you don't have an old less.exe in your PATH
-if ($Update -or !(Get-Command bat -ErrorAction Ignore)) {
+if (($Update -eq "On")) { # -or !(Get-Command bat -ErrorAction Ignore)) {
+  Write-Verbose "Updating bat";
   winget install sharkdp.bat;
   # bat relies on less for paging
+  Write-Verbose "Updating less";
   winget install jftuga.less;
 }
 # Use bat --list-themes to see all themes
@@ -711,7 +706,7 @@ if (Get-Command goma_ctl -ErrorAction Ignore) {
   $env:NINJA_STATUS = "`e[1;37;44m[`e]8;;$gomaUri`e\%r running, %f/%t @ %c/s %o/s : %es`e]8;;`e\]`e[0m ";
 }
 
-if ($InstallOrUpdate -eq "Async") {
+if ($Update -eq "Async") {
   $lastAsyncUpdatePath = (Join-Path "~" "pwsh-profile-last-async-update.txt");
   $lastAsyncUpdate = $null;
 
@@ -725,9 +720,10 @@ if ($InstallOrUpdate -eq "Async") {
 
     $userProfilePath = (Join-Path $PSScriptRoot "profile.ps1");
 
+    Write-Host "Starting async update...";
     [void](Start-Job -Name ProfileAsyncInstallOrUpdate -ScriptBlock {
       param($userProfilePath);
-      .$userProfilePath -InstallOrUpdate On -Verbose;
+      .$userProfilePath -Update On -Verbose;
       $success = $LASTEXITCODE -eq 0 -and $?;
       New-BurntToastNotification -Text "Profile Update",$success;
     } -ArgumentList $userProfilePath);
@@ -888,6 +884,29 @@ function Build-AutoNinja {
     $gnRefs | ForEach-Object { Write-Output $_; };
   }
 }
+
+if ($Update -eq "On") {
+  IncrementProgress "Update various apps";
+
+  Write-Verbose "Update ripgrep";
+  winget install BurntSushi.ripgrep.MSVC;
+  Write-Verbose "Update powershell";
+  winget install --id Microsoft.Powershell --source winget;
+  Write-Verbose "Update git";
+  winget install git --source winget;
+  # The following installs could take a while and they aren't
+  # requirements for anything else in this script
+  # So run them in a different command prompt
+  Write-Verbose "Update powertoys";
+  winget install Microsoft.PowerToys;
+  Write-Verbose "Update vscode";
+  winget install Microsoft.VisualStudioCode;
+  Write-Verbose "Update vs";
+  winget install Microsoft.VisualStudio.2022.Enterprise;
+}
+
+IncrementProgress "Copying VSCode tasks.json";
+Copy-Item (Join-Path $PSScriptRoot "tasks.json") $env:APPDATA\code\user\tasks.json;
 
 IncrementProgress "Done";
 
