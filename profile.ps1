@@ -421,6 +421,7 @@ if ($WinFetch -eq "On") {
 #endregion
 
 # Ideas:
+# * Pull out prompt add-ons into separate functions
 # * Change winfetch logo for my edge repos
 # * Better icon for toast
 # * Check out https://github.com/dandavison/delta
