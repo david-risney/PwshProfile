@@ -423,6 +423,4 @@ if ($WinFetch -eq "On") {
 # * Fix terminal-icons
 # * Change winfetch logo for my edge repos
 # * Better icon for toast
-# * Consider extracting grouped chunks out into modules
-# * Put async update code into one big sudo call
 # * Check out https://github.com/dandavison/delta
