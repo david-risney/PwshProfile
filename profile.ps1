@@ -6,10 +6,10 @@ param(
 . (Join-Path $PSScriptRoot "helper-progress.ps1");
 
 # Find via (findstr /c "^IncrementProgress" .\profile.ps1).Count
-$global:maxProgress = 18; # The count of IncrementProgress calls in this file.
+$global:maxProgress = 17; # The count of IncrementProgress calls in this file.
 
 if ($Update -eq "On") {
-  $global:maxProgress += 3;
+  $global:maxProgress += 4;
 }
 
 # Store an environment variable for the path to this folder
@@ -32,9 +32,9 @@ $env:PATH = ($env:PATH.split(";") + @(Get-ChildItem ~\*bin) + @(Get-ChildItem ~\
 # Avoid some python errors moving between old and new verions
 $env:PYTHONIOENCODING = "UTF-8";
 
-IncrementProgress "Setup PSRepository"
 # This is all slow and so only do it when Update is set.
 if ($Update -eq "On") {
+  IncrementProgress "Setup PSRepository"
   Write-Verbose "Set-PSRepository";
   if ((Get-PSRepository PSGallery).InstallationPolicy -ne "Trusted") {
     Set-PSRepository PSGallery -InstallationPolicy Trusted;
@@ -53,6 +53,7 @@ IncrementProgress "Loading Json Helpers";
 IncrementProgress "Loading WebView2 Helpers";
 . (Join-Path $PSScriptRoot "helper-webview2.ps1");
 
+#region profile update
 # Update this profile script and associated files asynchronously
 if ($Update -eq "On") {
   IncrementProgress "Update profile script"
@@ -68,12 +69,15 @@ if ($Update -eq "On") {
       "`n. `"$userProfilePath`"" >> $profile;
   }
 }
+#endregion
 
+#region update powershellget
 if ($Update -eq "On") {
   IncrementProgress "Update PowerShellGet";
   Write-Verbose "Update PowerShellGet";
   Install-Module -Name PowerShellGet -Force -Repository PSGallery -AllowPrerelease -Scope CurrentUser;
 }
+#endregion
 
 #region PSReadLine
 IncrementProgress "PSReadLine";
@@ -92,6 +96,7 @@ Set-PSReadLineOption -EditMode Windows;
 Set-PSReadLineKeyHandler Tab MenuComplete;
 #endregion
 
+#region terminal-icons
 IncrementProgress "Terminal-Icons";
 # Terminal-Icons adds "icons" and coloring to default dir output
 # in PowerShell.
@@ -100,6 +105,7 @@ if ($Update -eq "On") {
   Install-Module -Name Terminal-Icons -Repository PSGallery;
 }
 Import-Module Terminal-Icons; # https://www.hanselman.com/blog/take-your-windows-terminal-and-powershell-to-the-next-level-with-terminal-icons
+#endregion
 
 #region cd-extras
 IncrementProgress "cd-extras";
@@ -117,6 +123,7 @@ Set-Alias back cd-;
 Set-Alias fwd cd+;
 #endregion
 
+#region burnttoast
 IncrementProgress "BurntToast";
 # BurntToast provides PowerShell commands to show OS toast
 # notifications
@@ -125,6 +132,7 @@ if ($Update -eq "On") {
   Install-Module -Name BurntToast
 }
 Import-Module BurntToast; # https://github.com/Windos/BurntToast
+#endregion
 
 #region ohmyposh
 IncrementProgress "oh-my-posh";
@@ -138,6 +146,7 @@ $ohmyposhConfigPath = (Join-Path $PSScriptRoot "oh-my-posh.json");
 oh-my-posh init pwsh --config $ohmyposhConfigPath | Invoke-Expression;
 #endregion
 
+#region poshgit
 # IncrementProgress "Posh-Git";
 # Why are't I using posh git? Posh-Git does two things: 
 # (1) a pretty prompt 
@@ -147,7 +156,9 @@ oh-my-posh init pwsh --config $ohmyposhConfigPath | Invoke-Expression;
 # With PSReadLine's menu completion, I can get some of the same functionality via history completion without the blocking.
 # Accordingly, this is disabled
 # UpdateOrInstallModule Posh-Git; # https://github.com/dahlbyk/posh-git
+#endregion
 
+#region font
 # Nerd fonts provide extra symbols useful for making a pretty prompt.
 # General purpose icons like the branching icon, or company specific logos
 # like the Windows logo, or GitHub logo, and ASCII art sort of icons.
@@ -158,7 +169,9 @@ if ($Update -eq "On") {
   Write-Verbose "Updating font";
   gsudo { oh-my-posh font install CascadiaCode; };
 }
+#endregion
 
+#region prompt
 IncrementProgress "Prompt shim";
 # Shim the oh-my-posh prompt function to:
 #  * add git info to oh-my-posh
@@ -228,7 +241,9 @@ function prompt {
     }
     $global:LASTEXITCODE = 0;
 }
+#endregion
 
+#region clickablepaths
 IncrementProgress "Clickable paths";
 # This function takes a URI and text, and returns
 # the text formatted with ANSI escape sequence to make
@@ -268,7 +283,9 @@ function Format-TerminalClickableFileInfo {
 # paths.
 $terminableClickableFormatPath = (Join-Path $PSScriptRoot "TerminalClickable.format.ps1xml");
 Update-FormatData -PrependPath $terminableClickableFormatPath;
+#endregion
 
+#region terminalsettings
 IncrementProgress "Applying Terminal settings";
 # Merge terminal settings JSON into the various places Windows terminal stores its settings
 $terminalSettingsPatchPath = (Join-Path $PSScriptRoot "terminal-settings.json");
@@ -283,7 +300,9 @@ $terminalSettingsPatchPath = (Join-Path $PSScriptRoot "terminal-settings.json");
   $terminalSettingsPath = $_;
   MergeJsonFiles -inJsonFilePaths $terminalSettingsPath,$terminalSettingsPatchPath -outJsonFilePath (($terminalSettingsPath));
 }
+#endregion
 
+#region z
 IncrementProgress "z";
 # A port of the z bash script - z lets you quickly jump between
 # directories in your cd history.
@@ -294,6 +313,7 @@ if ($Update -eq "On") {
   install-module z -AllowClobber
 }
 Import-Module z;
+#endregion
 
 #region bat
 IncrementProgress "bat";
@@ -323,6 +343,7 @@ $env:BAT_PAGER = "less -RFX";
 Set-Alias more bat;
 #endregion
 
+#region asyncupdate
 if ($Update -eq "Async") {
   $lastAsyncUpdatePath = (Join-Path "~" "pwsh-profile-last-async-update.txt");
   $lastAsyncUpdate = $null;
@@ -340,13 +361,15 @@ if ($Update -eq "Async") {
     Write-Host "Starting async update...";
     [void](Start-Job -Name ProfileAsyncInstallOrUpdate -ScriptBlock {
       param($userProfilePath);
-      .$userProfilePath -Update On -Verbose;
+      sudo .$userProfilePath -Update On -Verbose;
       $success = $LASTEXITCODE -eq 0 -and $?;
       New-BurntToastNotification -Text "Profile Update",$success;
     } -ArgumentList $userProfilePath);
   }
 }
+#endregion
 
+#region miscupdate
 if ($Update -eq "On") {
   IncrementProgress "Update various apps";
 
@@ -365,13 +388,17 @@ if ($Update -eq "On") {
   winget install Microsoft.VisualStudioCode;
   Write-Verbose "Update vs";
   winget install Microsoft.VisualStudio.2022.Enterprise;
+
+  winget update --all;
 }
+#endregion
 
 IncrementProgress "Copying VSCode tasks.json";
 Copy-Item (Join-Path $PSScriptRoot "tasks.json") $env:APPDATA\code\user\tasks.json;
 
 IncrementProgress "Done";
 
+#region winfetch
 # WinFetch basically just looks cool
 # We run it last AFTER all the IncrememntProgress calls because the
 # PowerShell progress indicator clears the WinFetch logo display
@@ -390,6 +417,7 @@ if ($WinFetch -eq "On") {
   $winfetchLogoPath = (Join-Path $PSScriptRoot "logo.png");
   .$winfetchPath -config $winfetchConfigPath -image $winfetchLogoPath;
 }
+#endregion
 
 # Ideas:
 # * Fix terminal-icons
