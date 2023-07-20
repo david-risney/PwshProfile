@@ -76,6 +76,7 @@ if ($Update -eq "On") {
   IncrementProgress "Update PowerShellGet";
   Write-Verbose "Update PowerShellGet";
   Install-Module -Name PowerShellGet -Force -Repository PSGallery -AllowPrerelease -Scope CurrentUser;
+  Import-Module PowerShellGet;
 }
 #endregion
 
@@ -102,7 +103,7 @@ IncrementProgress "Terminal-Icons";
 # in PowerShell.
 if ($Update -eq "On") {
   Write-Verbose "Update Terminal-Icons";
-  Install-Module -Name Terminal-Icons -Repository PSGallery;
+  Install-Module -Name Terminal-Icons -Repository PSGallery -Force;
 }
 Import-Module Terminal-Icons; # https://www.hanselman.com/blog/take-your-windows-terminal-and-powershell-to-the-next-level-with-terminal-icons
 #endregion
@@ -420,7 +421,6 @@ if ($WinFetch -eq "On") {
 #endregion
 
 # Ideas:
-# * Fix terminal-icons
 # * Change winfetch logo for my edge repos
 # * Better icon for toast
 # * Check out https://github.com/dandavison/delta
