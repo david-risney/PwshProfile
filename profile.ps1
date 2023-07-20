@@ -3,9 +3,8 @@ param(
   [ValidateSet("On", "Off", "Async")] $Update = "Async",
   [ValidateSet("On", "Off", "Auto")] $WinFetch = "Auto");
 
-$sw = [Diagnostics.Stopwatch]::StartNew()
-$swTotal = [Diagnostics.Stopwatch]::StartNew()
-$global:progressIdx = 0;
+. (Join-Path $PSScriptRoot "helper-progress.ps1");
+
 # Find via (findstr /c "^IncrementProgress" .\profile.ps1).Count
 $global:maxProgress = 18; # The count of IncrementProgress calls in this file.
 
@@ -15,24 +14,6 @@ if ($Update -eq "On") {
 
 # Store an environment variable for the path to this folder
 $env:PwshProfilePath = $PSScriptRoot;
-
-function IncrementProgress {
-  param($Name);
-  ++$global:progressIdx;
-  Write-Verbose ("Loading profile $Name " + " (" + $swTotal.Elapsed.ToString() + ", " + $sw.Elapsed.ToString() + ")");
-  $sw.Restart();
-
-  if ($global:progressIdx -eq $global:maxProgress) {
-    Write-Progress -Activity "Loading Profile" -Complete;
-  } else {
-    $percentComplete = (($global:progressIdx) / ($global:maxProgress) * 100);
-    if ($percentComplete -gt 100) {
-      Write-Verbose ("You need to update maxProgress to reflect the actual count of IncrementProgress calls in this file.");
-      $percentComplete = 100;
-    }
-    Write-Progress -Activity "Loading Profile" -Status $Name -PercentComplete $percentComplete;
-  }
-}
 
 IncrementProgress "Starting";
 
