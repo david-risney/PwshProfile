@@ -394,7 +394,7 @@ if ($Update -eq "On") {
 #endregion
 
 IncrementProgress "Copying VSCode tasks.json";
-Copy-Item (Join-Path $PSScriptRoot "tasks.json") $env:APPDATA\code\user\tasks.json;
+Copy-Item (Join-Path $PSScriptRoot "vscode-tasks.json") $env:APPDATA\code\user\tasks.json;
 
 IncrementProgress "Done";
 
