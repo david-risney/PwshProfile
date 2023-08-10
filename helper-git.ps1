@@ -63,7 +63,7 @@ New-Alias Create-PullRequest New-PullRequest;
 # Function to get the URI of the current git repo set
 # to the specificed path.
 function Get-GitUri {
-  param($Path);
+  param($Path = ".");
 
   $Path = (Get-Item $Path).FullName.Replace("\", "/");
 
