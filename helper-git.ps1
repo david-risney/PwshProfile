@@ -26,6 +26,40 @@ function Set-LocationRoot {
 
 Set-Alias \ Set-LocationRoot
 
+function Get-GitPullRequestUri {
+  $repoUri = (git config remote.origin.url);
+  if ($repoUri) {
+    if ($repoUri.Contains("github.com")) {
+      $repoUri = $repoUri.Replace(".git", "");
+
+      $currentBranch = (git rev-parse --abbrev-ref HEAD);
+      $uriEncodedCurrentBranch = [uri]::EscapeDataString($currentBranch);
+
+      $repoUri = $repoUri + `
+        "/compare/" + $uriEncodedCurrentBranch + "?expand=1";
+    } elseif ($repoUri.Contains("azure") -or $repoUri.Contains("visualstudio.com")) {
+      $currentBranch = (git rev-parse --abbrev-ref HEAD);
+      $uriEncodedCurrentBranch = [uri]::EscapeDataString($currentBranch);
+
+      $targetBranch = (git symbolic-ref refs/remotes/origin/HEAD --short).Replace("origin/", "");
+      $uriEncodedTargetBranch = [uri]::EscapeDataString($targetBranch);
+
+      $repoUri = $repoUri + `
+        '/pullrequestcreate?' + `
+        'sourceRef=' + $uriEncodedCurrentBranch + `
+        '&targetRef=' + $uriEncodedTargetBranch;
+    }
+  }
+ 
+  $repoUri;
+}
+
+function New-PullRequest {
+  Start-Process (Get-GitPullRequestUri);
+}
+
+New-Alias Create-PullRequest New-PullRequest;
+
 # Function to get the URI of the current git repo set
 # to the specificed path.
 function Get-GitUri {
@@ -35,25 +69,25 @@ function Get-GitUri {
 
   $repoUri = (git config remote.origin.url);
   if ($repoUri) {
-    if ($repoUri.Contains("github")) {
+    if ($repoUri.Contains("github.com")) {
       $gitRootPath = (git rev-parse --show-toplevel).ToLower();
       $repoUri = $repoUri.Replace(".git", "");
 
       $currentPathInGit = $Path.Substring($gitRootPath.Length);
 
       $currentBranch = (git rev-parse --abbrev-ref HEAD);
-      $uriEncodedCurrentBranch = [System.Web.HttpUtility]::UrlEncode($currentBranch);
+      $uriEncodedCurrentBranch = [uri]::EscapeDataString($currentBranch);
 
       $repoUri = $repoUri + `
         "/tree/" + $uriEncodedCurrentBranch + `
         "/" + $currentPathInGit;
-    } elseif ($repoUri.Contains("azure")) {
+    } elseif ($repoUri.Contains("azure") -or $repoUri.Contains("visualstudio.com")) {
       $gitRootPath = (git rev-parse --show-toplevel).ToLower();
       $currentPathInGit = $Path.ToLower().Replace($gitRootPath, "");
-      $uriEncodedCurrentPathInGit = [System.Web.HttpUtility]::UrlEncode($currentPathInGit);
+      $uriEncodedCurrentPathInGit = [uri]::EscapeDataString($currentPathInGit);
 
       $currentBranch = (git rev-parse --abbrev-ref HEAD);
-      $uriEncodedCurrentBranch = [System.Web.HttpUtility]::UrlEncode($currentBranch);
+      $uriEncodedCurrentBranch = [uri]::EscapeDataString($currentBranch);
 
       $repoUri = $repoUri + `
         "?path=" + $uriEncodedCurrentPathInGit + `

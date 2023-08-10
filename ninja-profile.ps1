@@ -58,6 +58,8 @@ function Build-AutoNinja {
   }
   Write-Verbose ("LogPath: " + $LogPath);
 
+  $gnRefs = "";
+
   if (($DiscoverBuildTargets -ne "none") -and !($global:AutoNinjaCache -and $UseCachedDiscoveredBuildTargets)) {
     $gitStatusFiles = Get-GitChangePaths -FullPaths -RebuildCache;
     Write-Verbose ("git status files: " + $gitStatusFiles);
@@ -77,7 +79,10 @@ function Build-AutoNinja {
     $gnRefs = $global:AutoNinjaCache;
   }
   if ($BuildTargets) {
-    $gnRefs += ($BuildTargets);
+    if ($gnRefs) {
+      $gnRefs += " ";
+    }
+    $gnRefs += $BuildTargets;
   }
 
   if (!($WhatIf)) {
