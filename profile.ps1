@@ -1,3 +1,8 @@
+<#
+.Description
+[Dave Risney's profile.ps1](https://github.com/david-risney/PwshProfile). Install, load, and configure command line tools 
+and such for PowerShell.
+#>
 [CmdletBinding()]
 param(
   [ValidateSet("On", "Off", "Async")] $Update = "Async",
@@ -17,6 +22,8 @@ $env:PwshProfilePath = $PSScriptRoot;
 
 IncrementProgress "Starting";
 
+# gsudo lets you easily run commands as administrator from PowerShell
+# https://github.com/gerardog/gsudo
 if ($Update -eq "On") {
   Write-Verbose "Updating gsudo";
   winget install gerardog.gsudo;
@@ -32,7 +39,8 @@ $env:PATH = ($env:PATH.split(";") + @(Get-ChildItem ~\*bin) + @(Get-ChildItem ~\
 # Avoid some python errors moving between old and new verions
 $env:PYTHONIOENCODING = "UTF-8";
 
-# This is all slow and so only do it when Update is set.
+# Some install and update requires setting up the PSRepository.
+# But it is slow and so only do it when're actually updating.
 if ($Update -eq "On") {
   IncrementProgress "Setup PSRepository"
   Write-Verbose "Set-PSRepository";
@@ -55,6 +63,7 @@ IncrementProgress "Loading WebView2 Helpers";
 
 #region profile update
 # Update this profile script and associated files asynchronously
+# https://github.com/david-risney/PwshProfile
 if ($Update -eq "On") {
   IncrementProgress "Update profile script"
   Write-Verbose "Update profile script";
@@ -72,6 +81,10 @@ if ($Update -eq "On") {
 #endregion
 
 #region update powershellget
+# PowerShellGet is the module that lets you install other modules and is required
+# for installing or updating some of the modules below.
+# But it is slow and we only do it when we're actually updating.
+# https://learn.microsoft.com/en-us/powershell/gallery/powershellget/overview
 if ($Update -eq "On") {
   IncrementProgress "Update PowerShellGet";
   Write-Verbose "Update PowerShellGet";
@@ -81,9 +94,9 @@ if ($Update -eq "On") {
 #endregion
 
 #region PSReadLine
+# [PSReadLine](https://github.com/david-risney/PwshProfile) gives improved and customized input, tabbing, suggestions and such for
+# PowerShell input and command line editing.
 IncrementProgress "PSReadLine";
-# PSReadLine gives improved input, tabbing, suggestions and such for
-# PowerShell input
 if ($Update -eq "On") {
   Write-Verbose "Update PSReadLine";
   gsudo { Install-Module PSReadLine -AllowPrerelease -Force; };
@@ -98,26 +111,25 @@ Set-PSReadLineKeyHandler Tab MenuComplete;
 #endregion
 
 #region terminal-icons
+# [Terminal-Icons](https://github.com/david-risney/PwshProfile) adds "icons" and coloring to default dir output
+# in PowerShell. I found this from [Hanselman's blog](https://github.com/david-risney/PwshProfile).
 IncrementProgress "Terminal-Icons";
-# Terminal-Icons adds "icons" and coloring to default dir output
-# in PowerShell.
 if ($Update -eq "On") {
   Write-Verbose "Update Terminal-Icons";
   Install-Module -Name Terminal-Icons -Repository PSGallery -Force;
 }
-Import-Module Terminal-Icons; # https://www.hanselman.com/blog/take-your-windows-terminal-and-powershell-to-the-next-level-with-terminal-icons
+Import-Module Terminal-Icons; # 
 #endregion
 
 #region cd-extras
+# [cd-extras](https://github.com/david-risney/PwshProfile) adds different functions for quickly moving between
+# directories in your cd history, or directories with shortened names, and others.
 IncrementProgress "cd-extras";
-# cd-extras adds different functions for quickly moving between
-# directories in your cd history, or directories with shortened
-# names, and others.
 if ($Update -eq "On") {
   Write-Verbose "Update cd-extras";
   Install-Module cd-extras
 }
-Import-Module cd-extras; # https://github.com/nickcox/cd-extras
+Import-Module cd-extras;
 setocd ColorCompletion; # Adds color to tab completion
 
 Set-Alias back cd-;
@@ -125,20 +137,19 @@ Set-Alias fwd cd+;
 #endregion
 
 #region burnttoast
+# [BurntToast](https://github.com/Windos/BurntToast) provides PowerShell commands to show OS toast
+# notifications. I use it below in the prompt function wrapper.
 IncrementProgress "BurntToast";
-# BurntToast provides PowerShell commands to show OS toast
-# notifications
 if ($Update -eq "On") {
   Write-Verbose "Updating BurntToast";
   Install-Module -Name BurntToast
 }
-Import-Module BurntToast; # https://github.com/Windos/BurntToast
+Import-Module BurntToast; 
 #endregion
 
 #region ohmyposh
+# [oh-my-posh](https://ohmyposh.dev/docs/) lets you setup a pretty command prompt
 IncrementProgress "oh-my-posh";
-# oh-my-posh lets you setup a pretty command prompt
-# UpdateOrInstallWinget -ModuleName oh-my-posh -PackageName JanDeDobbeleer.OhMyPosh; # https://ohmyposh.dev/docs/pwsh/
 if ($Update -eq "On") {
   Write-Verbose "Updating OhMyPosh";
   winget install JanDeDobbeleer.OhMyPosh -s winget
@@ -148,36 +159,31 @@ oh-my-posh init pwsh --config $ohmyposhConfigPath | Invoke-Expression;
 #endregion
 
 #region poshgit
-# IncrementProgress "Posh-Git";
-# Why are't I using posh git? Posh-Git does two things: 
-# (1) a pretty prompt 
-# I don't need the pretty prompt because I have oh-my-posh which does that and more.
-# (2) tab completion. 
-# I don't want tab completion because in big projects git is slow and then tab completion is very slow and blocks the prompt.
+# Why are't I using [posh git](https://github.com/dahlbyk/posh-git)? Posh-Git does two things: 
+# 1. **Pretty prompt**: I don't need the pretty prompt because I have oh-my-posh which does that and more.
+# 2. **Tab completion**: I don't want tab completion because in big projects git is slow and then tab completion is very slow and blocks the prompt.
+#
 # With PSReadLine's menu completion, I can get some of the same functionality via history completion without the blocking.
-# Accordingly, this is disabled
-# UpdateOrInstallModule Posh-Git; # https://github.com/dahlbyk/posh-git
+# Accordingly, I'm not using it.
 #endregion
 
 #region font
-# Nerd fonts provide extra symbols useful for making a pretty prompt.
+# [Nerd fonts](https://ohmyposh.dev/docs/installation/fonts) provide extra symbols useful for making a pretty prompt.
 # General purpose icons like the branching icon, or company specific logos
 # like the Windows logo, or GitHub logo, and ASCII art sort of icons.
 # This is used by oh-my-posh and by Terminal-Icons
-# https://ohmyposh.dev/docs/installation/fonts
 if ($Update -eq "On") {
-  # This maybe doesn't work when first installing gsudo.
-  Write-Verbose "Updating font";
+  Write-Verbose "Updating font"; # This maybe doesn't work when first installing gsudo.
   gsudo { oh-my-posh font install CascadiaCode; };
 }
 #endregion
 
 #region prompt
-IncrementProgress "Prompt shim";
 # Shim the oh-my-posh prompt function to:
 #  * add git info to oh-my-posh
 #  * show toasts for long running commands
 #  * add scrollbar mark support
+IncrementProgress "Prompt shim";
 Copy-Item Function:prompt Function:poshPrompt;
 function prompt {
     $previousSuccess = $?;
@@ -186,6 +192,8 @@ function prompt {
 
     try {
       $currentPath = ((Get-Location).Path);
+      # oh-my-posh can read environment variables so we put GIT related
+      # info into environment variables to be read by our custom prompt
       if ($env:OhMyPoshCustomBranchUriCachePath -ne $currentPath) {
         $env:OhMyPoshCustomBranchUri = Get-GitUri $currentPath;
         $env:OhMyPoshCustomBranchUriCachePath = $currentPath;
@@ -194,24 +202,26 @@ function prompt {
       Write-Host ("Custom POSH env var prompt Error: " + $_);
     }
 
-    # Scrollbar marks
-    # https://learn.microsoft.com/en-us/windows/terminal/tutorials/shell-integration
-    # Scrollbar mark - note start of prompt
+    # Apply the [scrollbar marks](https://learn.microsoft.com/en-us/windows/terminal/tutorials/shell-integration).
+    # This notes the start of the prompt
     Write-Host "`e]133;A$([char]07)" -NoNewline;
 
     if (!$lastCommandSucceeded) {
         cmd /c "exit $previousLastExitCode";
     }
 
+    # Call the wrapped prompt that oh-my-posh created. We use try/catch blocks here
+    # because uncaught errors coming from prompt functions are not easy to debug.
     try {
       poshPrompt;
     } catch {
       Write-Host ("POSH Prompt Error: " + $_);
     }
 
-    # Scrollbar mark - note end of prompt
+    # This notes the end of the prompt for scrollbar marks.
     Write-Host "`e]133;B$([char]07)" -NoNewLine;
 
+    # Use toasts to notify of completion of long running commands
     try {
       $lastCommandTookALongTime = $false;
       $lastCommandTime = 0;
@@ -229,7 +239,7 @@ function prompt {
               New-BurntToastNotification -Text $status,($lh.CommandLine);
           }
 
-          # Scrollbar mark - end of command including exit code
+          # This notes the end of the command for scrollbar marks
           if ($lastCommandSucceeded) {
             Write-Host "`e]133;D`a" -NoNewline;
           } else {
@@ -245,10 +255,10 @@ function prompt {
 #endregion
 
 #region clickablepaths
-IncrementProgress "Clickable paths";
 # This function takes a URI and text, and returns
 # the text formatted with ANSI escape sequence to make
 # a link from that.
+IncrementProgress "Clickable paths";
 function Format-TerminalClickableString {
   param(
     $Uri,
@@ -287,8 +297,8 @@ Update-FormatData -PrependPath $terminableClickableFormatPath;
 #endregion
 
 #region terminalsettings
-IncrementProgress "Applying Terminal settings";
 # Merge terminal settings JSON into the various places Windows terminal stores its settings
+IncrementProgress "Applying Terminal settings";
 $terminalSettingsPatchPath = (Join-Path $PSScriptRoot "terminal-settings.json");
 
 @(
@@ -304,11 +314,9 @@ $terminalSettingsPatchPath = (Join-Path $PSScriptRoot "terminal-settings.json");
 #endregion
 
 #region z
-IncrementProgress "z";
-# A port of the z bash script - z lets you quickly jump between
+# A port of the z bash script - [z](https://github.com/badmotorfinger/z) lets you quickly jump between
 # directories in your cd history.
-# https://github.com/badmotorfinger/z
-# install-module z -AllowClobber
+IncrementProgress "z";
 if ($Update -eq "On") {
   Write-Verbose "Updating z";
   install-module z -AllowClobber
@@ -317,9 +325,9 @@ Import-Module z;
 #endregion
 
 #region bat
-IncrementProgress "bat";
 # bat is a fancy version of cat / more / less with syntax highlighting
 # If you get 'invalid charset name' make sure you don't have an old less.exe in your PATH
+IncrementProgress "bat";
 if (($Update -eq "On")) { # -or !(Get-Command bat -ErrorAction Ignore)) {
   Write-Verbose "Updating bat";
   winget install sharkdp.bat;
@@ -420,7 +428,7 @@ if ($WinFetch -eq "On") {
 }
 #endregion
 
-# Ideas:
+# ## Todo
 # * Pull out prompt add-ons into separate functions
 # * Change winfetch logo for my edge repos
 # * Better icon for toast
