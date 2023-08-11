@@ -254,3 +254,115 @@ function gitcd {
   param($SetPathMatch = "");
   Get-GitChangePaths -SetPathMatch $SetPathMatch;
 }
+
+function Search-GitCode {
+    param(
+        [string] $Query,
+        [string] $Path,
+        [string] $Organization,# = "microsoft",
+        [string[]] $ProjectNames,# = @("OS"),
+        [string[]] $RepositoryNames,# = @("os"),
+        [string[]] $BranchNames = @(),
+        [int] $SkipResults = 0,
+        [int] $TakeResults = 200,
+        [string] $AuthenticationPersonalAccessToken,
+        [ValidateSet("Files","FullName","PSObject")] [string] $OutputFormat = "Files",
+        [string] $ApiHost = "almsearch.dev.azure.com",
+        [string] $ApiName = "_apis/search/codesearchresults?api-version=7.0" # "_apis/search/codesearchresults?api-version=5.0-preview.1"
+        );
+    
+    $root = Get-LocationRoot;
+  
+    $gitRemote = (git remote -v)[0].Split("`t")[1].Split(" ")[0];
+    if ($gitRemote -match "https\:\/\/([^\.]+)\.visualstudio.com\/([^/]+)\/_git\/(.*)") {
+      $Organization = $matches[1].ToLower();
+      $ProjectNames = $matches[2];
+      $RepositoryNames = $matches[3];
+    } elseif ($gitRemote -match "https\:\/\/([^\.]+)\.visualstudio.com\/DefaultCollection/([^/]+)\/_git\/(.*)") {
+      $Organization = $matches[1].ToLower();
+      $ProjectNames = $matches[2];
+      $RepositoryNames = $matches[3];
+    }
+  
+    if (!($AuthenticationPersonalAccessToken)) {
+        $AuthenticationPersonalAccessToken = $env:AuthenticationPersonalAccessToken;
+    }
+  
+    if (!($AuthenticationPersonalAccessToken)) {
+        throw "Must provide valid AuthenticationPersonalAccessToken parameter. See https://www.visualstudio.com/en-us/docs/integrate/get-started/auth/overview";
+    }
+  
+    if (!($BranchNames)) {
+      if ($env:SDXROOT) {
+        $currentBranch = "official/$(SourceControl.Git.ShellAdapter GetOfficialBranch)"; #(gc (join-path $env:SDXROOT ".git\HEAD")).substring("ref: refs/heads/".length);
+        $BranchNames = @($currentBranch);
+      }
+      else {
+        $BranchNames = (git rev-parse --abbrev-ref HEAD);
+      }
+    }
+  
+    $BranchNames = @($BranchNames);
+    $ProjectNames = @($ProjectNames);
+    $RepositoryNames = @($RepositoryNames);
+  
+    $fullUri = "https://$ApiHost/$Organization/$ProjectNames/$ApiName";
+  
+    if (!($Path) -and $root) {
+        $Path = (Get-Location).Path.Substring($root.length)
+    }
+  
+    if ($Path) {
+        $Query += " path:$Path";
+    }
+  
+    # POST params
+    $postBody = New-Object PSObject |
+        Add-Member searchText $Query -P |
+        Add-Member '$top' $TakeResults -P |
+        Add-Member '$skip' $SkipResults -P |
+    #    Add-Member searchFilters $null -P |
+    #    Add-Member sortOptions $null -P |
+    #    Add-Member summarizedHitCountsNeeded $false -P |
+        Add-Member filters (New-Object PSObject |
+            Add-Member 'Project' @($ProjectNames) -P |
+            Add-Member 'Repository' @($RepositoryNames) -P |
+            Add-Member 'Branch' @($BranchNames) -P
+        ) -P | ConvertTo-Json -Depth 10;
+  
+    $user = "";
+    $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(("{0}:{1}" -f $user,$AuthenticationPersonalAccessToken)));
+  
+    Write-Verbose $fullUri
+    Write-Verbose $postBody
+  
+    $result = (Invoke-RestMethod -Uri $fullUri -Method Post -ContentType "application/json" -Body $postBody -Headers @{Authorization=("Basic {0}" -f $base64AuthInfo)});
+  
+    Write-Verbose ("Results " + $SkipResults + " through " + ([int]$SkipResults + $result.Results.Count) + " of " + $result.count + " total.");
+  
+    if ($result.results.count -gt 0) {
+        switch ($OutputFormat) {
+            "Files" {
+                $files = $result.results.path;
+                if ($root) {
+                    $files | ForEach-Object { Join-Path $root $_ } | Sort-Object -Uniq | ForEach-Object { Get-Item $_ };
+                } else {
+                    $files;
+                }
+            }
+  
+            "FullName" {
+                $files = $result.results.path;
+                if ($root) {
+                    $files | ForEach-Object { Join-Path $root $_ } | Sort-Object -Uniq;
+                } else {
+                    $files;
+                }
+            }
+  
+            "PSObject" {
+                $result;
+            }
+        }
+    }
+}
