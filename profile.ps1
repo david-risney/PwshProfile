@@ -384,6 +384,10 @@ if ($Update -eq "On") {
 
   Write-Verbose "Update ripgrep";
   winget install BurntSushi.ripgrep.MSVC;
+  Write-Verbose "Install fd";
+  winget install sharkdp.fd;
+  Write-Verbose "Install PSGitHubSearch";
+  Install-Module -Name PSGitHubSearch;
   Write-Verbose "Update powershell";
   winget install --id Microsoft.Powershell --source winget;
   Write-Verbose "Update git";
