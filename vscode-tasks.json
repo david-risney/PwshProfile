@@ -12,7 +12,7 @@
                 "-NoProfile",
                 "-NonInteractive",
                 "-ExecutionPolicy", "Bypass",
-                "-File", "${env:PwshProfilePath}\\PwshProfile\\Get-AutoNinjaLog.ps1", "${workspaceFolder}",
+                "-File", "${env:PwshProfilePath}\\Get-AutoNinjaLog.ps1", "${workspaceFolder}",
             ],
             "group": "build",
             "presentation": {
@@ -30,6 +30,23 @@
                     "pattern": [
                         {
                             "regexp": "^(.*)\\((\\d+),(\\d+)\\):\\s+([^:]+):\\s+(.*)$",
+                            "file": 1,
+                            "line": 2,
+                            "column": 3,
+                            "severity": 4,
+                            "message": 5
+                        }
+                    ]
+                },
+                {
+                    "owner": "autoninja",
+                    "fileLocation": [
+                        "relative",
+                        "${workspaceFolder}\\a\\b"
+                    ],
+                    "pattern": [
+                        {
+                            "regexp": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.\\d{7}Z (.*):(\\d+):(\\d+):\\s+([^:]+):\\s+(.*)$",
                             "file": 1,
                             "line": 2,
                             "column": 3,
