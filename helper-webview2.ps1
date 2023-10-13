@@ -132,3 +132,51 @@ function Open-WebView2Docs {
       }
   }
 }
+
+function GetEdgeProcesses {
+    param(
+        [string[]] $Channels = @("Canary", "Beta", "Dev", "Stable Browser", "Stable WebView2 Runtime", "Unknown"),
+        [string[]] $ProcessKinds = @("Edge", "WebView2")
+    );
+
+    $processes = @();
+    if ($ProcessKinds.Contains("Edge")) {
+        $processes += Get-Process msedge;
+    }
+    if ($ProcessKinds.Contains("WebView2")) {
+        $processes += Get-Process msedgewebview2;
+    }
+
+    $processes | ForEach-Object {
+        $currentProcess = $_;
+
+        $MainModulePath = $_.MainModule.FileName.ToLower();
+        $currentProcess | Add-Member MainModulePath $MainModulePath;
+
+        $ProcessKind = "Edge";
+        if ($_.ProcessName -eq "msedge") {
+            $ProcessKind = "Edge";
+        } else {
+            $ProcessKind = "WebView2";
+        }
+        $currentProcess | Add-Member ProcessKind $ProcessKind;
+
+        $Channel = "Unknown";
+        if ($MainModulePath.Contains("\edge sxs\")) {
+            $Channel = "Canary";
+        } elseif ($MainModulePath.Contains("\edge beta\")) {
+            $Channel = "Beta";
+        } elseif ($MainModulePath.Contains("\edge dev\")) {
+            $Channel = "Dev";
+        } elseif ($MainModulePath.Contains("\edge\")) {
+            $Channel = "Stable Browser";
+        } elseif ($MainModulePath.Contains("\edgewebview\")) {
+            $Channel = "Stable WebView2 Runtime";
+        }
+        $currentProcess | Add-Member Channel $Channel;
+    }
+
+    $processes | `
+        Sort-Object ProcessKind,MainModulePath,Channel,Id | `
+        Select-Object ProcessKind,ProcessName,Channel,Id,MainModulePath;
+}
