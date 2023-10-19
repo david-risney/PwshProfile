@@ -88,13 +88,14 @@ function Build-AutoNinja {
   if (!($WhatIf)) {
     Write-Verbose "Starting autoninja -C $OutPath $gnRefs";
     "---START LOG note---" > $LogPath;
-    autoninja -C $OutPath $gnRefs | Tee-Object -Append -FilePath $LogPath -Encoding Utf8;
+    autoninja.bat -C $OutPath $gnRefs | Tee-Object -Append -FilePath $LogPath -Encoding Utf8;
     "---END LOG note---" >> $LogPath;
     "" >> $LogPath;
   } else {
     $gnRefs | ForEach-Object { Write-Output $_; };
   }
 }
+New-Alias autoninja Build-Autoninja;
 
 # Todo
 # * Merge vscode tasks and settings JSON
