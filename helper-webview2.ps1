@@ -135,16 +135,23 @@ function Open-WebView2Docs {
 
 function GetEdgeProcesses {
     param(
-        [string[]] $Channels = @("Canary", "Beta", "Dev", "Stable Browser", "Stable WebView2 Runtime", "Unknown"),
-        [string[]] $ProcessKinds = @("Edge", "WebView2")
+        [string[]] $Channels = @("All"),
+        [string[]] $ProcessKinds = @("Edge", "WebView2"),
+        [string[]] $EdgeProcessTypes = @("All")
     );
 
+    # Get-Process's CommandLine property is slow because it uses individual calls to Get-CimInstance.
+    # We can speed it up a bunch by running Get-CimInstance ourselves for all the processes we're
+    # interested in.
+    $cimProcesses = @();
     $processes = @();
     if ($ProcessKinds.Contains("Edge")) {
         $processes += Get-Process msedge;
+        $cimProcesses += Get-cimInstance Win32_Process -Filter "Name='msedge.exe'";
     }
     if ($ProcessKinds.Contains("WebView2")) {
         $processes += Get-Process msedgewebview2;
+        $cimProcesses += Get-cimInstance Win32_Process -Filter "Name='msedgewebview2.exe'";
     }
 
     $processes | ForEach-Object {
@@ -174,9 +181,28 @@ function GetEdgeProcesses {
             $Channel = "Stable WebView2 Runtime";
         }
         $currentProcess | Add-Member Channel $Channel;
+
+        $currentEdgeProcessType = "browser";
+        $currentCommandLine = ($cimProcesses | Where-Object { 
+            $_.ProcessId -eq $currentProcess.Id
+        }).CommandLine;
+
+        if ($currentCommandLine -match "--type=([^ ]+)") {
+            $currentEdgeProcessType = $Matches[1];
+        }
+        $currentProcess | Add-Member EdgeProcessType $currentEdgeProcessType;
+        $currentProcess | Add-Member -Force EdgeCommandLine $currentCommandLine;
     }
 
+    $processes = $processes | Where-Object {
+        $currentProcess = $_;
+        $channelMatches = $Channels -contains $currentProcess.Channel -or $Channels -contains "All";
+        $edgeProcessTypeMatches = $EdgeProcessTypes -contains $currentProcess.EdgeProcessType -or $EdgeProcessTypes -contains "All";
+
+        $channelMatches -and $edgeProcessTypeMatches;
+    };
+
     $processes | `
-        Sort-Object ProcessKind,MainModulePath,Channel,Id | `
-        Select-Object ProcessKind,ProcessName,Channel,Id,MainModulePath;
+        Sort-Object ProcessKind,MainModulePath,Channel,EdgeProcessType,Id | `
+        Select-Object ProcessKind,Channel,EdgeProcessType,Id,MainModulePath,EdgeCommandLine;
 }
