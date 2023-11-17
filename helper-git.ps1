@@ -58,7 +58,7 @@ function New-PullRequest {
   Start-Process (Get-GitPullRequestUri);
 }
 
-New-Alias Create-PullRequest New-PullRequest;
+New-Alias -f Create-PullRequest New-PullRequest;
 
 # Function to get the URI of the current git repo set
 # to the specificed path.
@@ -409,6 +409,10 @@ function Get-AdoPullRequestIssues {
       else {
         $BranchNames = (git rev-parse --abbrev-ref HEAD);
       }
+    }
+
+    if (!$PullRequestId) {
+        $PullRequestId = Get-AdoPullRequestForBranch;
     }
   
     $BranchNames = @($BranchNames);

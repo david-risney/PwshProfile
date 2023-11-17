@@ -19,7 +19,18 @@ if (Get-Command goma_ctl -ErrorAction Ignore) {
   # The fourth resets the color
   # See https://ninja-build.org/manual.html#:~:text=control%20its%20behavior%3A-,NINJA_STATUS,-%2C%20the%20progress%20status
   # for more info on the percent escape codes for NINJA_STATUS
-  $env:NINJA_STATUS = "`e[K`e[1;37;44m[`e]8;;$gomaUri`e\%f/%t`e]8;;`e\]`e[0m ";
+  # Use `e]9;4... to show progress https://learn.microsoft.com/en-us/windows/terminal/tutorials/progress-bar-sequences
+  $env:NINJA_STATUS = "`e[K`e[1;37;44m[`e]8;;$gomaUri`e\%f/%t`e]8;;`e\]`e[0m";
+}
+
+function Format-TerminalClickableString {
+  param(
+    $Uri,
+    $DisplayText);
+
+  $clickableFormatString = "`e]8;;{0}`e\{1}`e]8;;`e\"
+  $formattedString = ($clickableFormatString -F ($Uri,$DisplayText));
+  $formattedString;
 }
 
 function Build-AutoNinja {
@@ -86,16 +97,43 @@ function Build-AutoNinja {
   }
 
   if (!($WhatIf)) {
+    $foundError = $false;
+
     Write-Verbose "Starting autoninja -C $OutPath $gnRefs";
     "---START LOG note---" > $LogPath;
-    autoninja.bat -C $OutPath $gnRefs | Tee-Object -Append -FilePath $LogPath -Encoding Utf8;
+    autoninja.bat -C $OutPath $gnRefs | Tee-Object -Append -FilePath $LogPath -Encoding Utf8 | ForEach-Object {
+      $out = $_;
+      if ($_ -match "([0-9]+)/([0-9]+)") {
+        $percent = [int]$matches[1];
+        $total = [int]$matches[2];
+        $progress = [int]($percent * 100 / $total);
+        $state = "1";
+        if ($foundError) {
+          $state = "2";
+        }
+        # https://learn.microsoft.com/en-us/windows/terminal/tutorials/progress-bar-sequences
+        $out += "`e]9;4;$state;$progress`e\";
+      }
+      if ($_ -match ": error:") {
+        $out += "`e]133;D;1`e\";
+        if ($out -match "^([^ ]+)(\([0-9]+)") {
+          $path = Join-Path $OutPath $matches[1];
+          $clickableString = (Format-TerminalClickableString -Uri $path -DisplayText $matches[1]);
+          $out = $clickableString + $out.Substring($matches[1].Length);
+        }
+      }
+      $out;
+    };
     "---END LOG note---" >> $LogPath;
     "" >> $LogPath;
   } else {
     $gnRefs | ForEach-Object { Write-Output $_; };
   }
+
+  # Clear progress
+  Write-Host "`e]9;4;0;0`e\";
 }
-New-Alias autoninja Build-Autoninja;
+New-Alias -f autoninja Build-Autoninja;
 
 # Todo
 # * Merge vscode tasks and settings JSON
