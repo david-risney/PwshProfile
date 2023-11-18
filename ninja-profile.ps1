@@ -52,9 +52,9 @@ function Build-AutoNinja {
 
   if (!$OutPath) {
     # Check if we're in an out path
-    $prefix = "$gitRoot\out";
+    $prefix = "$gitRoot\out".Replace("/", "\");
     if ((Get-Location).Path.ToLower().StartsWith($prefix.ToLower())) {
-      $OutPath = (Get-Location).Path.Substring($prefix.Length + 1).Split("\")[0];
+      $OutPath = (Join-Path $prefix ((Get-Location).Path.Substring($prefix.Length + 1).Split("\")[0]));
     }
   }
 
