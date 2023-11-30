@@ -506,8 +506,7 @@ function Get-AdoPullRequestIssues {
     switch ($OutputFormat) {
         "ErrorText" {
             $results | ForEach-Object {
-                $path = "../../" + $_.file.TrimStart("/");
-                Write-Error ("$($path)($($_.line),$($_.column)): error: $($_.text)");
+                Write-Error ("$($_.file)($($_.line),$($_.column)): error: $($_.text)");
             }
         }
 

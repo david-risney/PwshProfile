@@ -146,10 +146,9 @@
             "command": "pwsh",
             "args": [
                 "-NoLogo",
-                "-NoProfile",
                 "-NonInteractive",
                 "-ExecutionPolicy", "Bypass",
-                "-Command", "\"& { Watch-AdoPullRequestIssues -Path ${workspaceFolder} }\""
+                "-Command", "Get-AdoPullRequestIssues -Path ${workspaceFolder}"
             ],
             "group": "build",
             "presentation": {
@@ -185,10 +184,9 @@
             "command": "pwsh",
             "args": [
                 "-NoLogo",
-                "-NoProfile",
                 "-NonInteractive",
                 "-ExecutionPolicy", "Bypass",
-                "-Command", "\"& { Watch-AdoPullRequestIssues -Path ${workspaceFolder} }\""
+                "-Command", "Watch-AdoPullRequestIssues -Path ${workspaceFolder}"
             ],
             "group": "build",
             "presentation": {
@@ -220,6 +218,6 @@
                     }
                 }
             ]
-        }
+        },
     ]
 }
