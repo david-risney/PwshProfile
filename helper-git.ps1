@@ -54,7 +54,7 @@ function Get-GitPullRequestUri {
   $repoUri;
 }
 
-function New-PullRequest {
+function Open-PullRequest {
   $uri = Get-AdoPullRequestForBranch -OutputFormat Uri -ErrorAction Ignore;
   if (!($uri)) {
     $uri = Get-GitPullRequestUri;
@@ -62,7 +62,7 @@ function New-PullRequest {
   Start-Process ($uri);
 }
 
-New-Alias -f Create-PullRequest New-PullRequest;
+New-Alias -f Create-PullRequest Open-PullRequest;
 
 # Function to get the URI of the current git repo set
 # to the specificed path.
@@ -371,19 +371,61 @@ function Search-GitCode {
     }
 }
 
+function Watch-AdoPullRequestIssues {
+    param(
+        [string] $Path = ".",
+        [Alias("prid")] [string] $PullRequestId = $null,
+        [string] $Organization = $null,# = "microsoft",
+        [string[]] $ProjectNames = $null,# = @("OS"),
+        [string[]] $RepositoryNames = $null,# = @("os"),
+        [string[]] $BranchNames = @(),
+        [string] $AuthenticationPersonalAccessToken = $null,
+        [ValidateSet("Text", "ErrorText", "PSObject")] [string] $OutputFormat = "Text",
+        [string] $ApiHost = "dev.azure.com",
+        [string] $ApiName = "_apis/git/repositories",
+        [int32] $WatchDelayInSeconds = 1 * 60
+        );
+
+    do {
+      "---START LOG note---";
+      ("Getting ADO PR Issues $PullRequestId at " + (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"));
+      "";
+
+      Get-AdoPullRequestIssues `
+        -Path $Path `
+        -PullRequestId $PullRequestId `
+        -Organization $Organization `
+        -ProjectNames $ProjectNames `
+        -RepositoryNames $RepositoryNames `
+        -BranchNames $BranchNames `
+        -AuthenticationPersonalAccessToken $AuthenticationPersonalAccessToken `
+        -OutputFormat $OutputFormat `
+        -ApiHost $ApiHost `
+        -ApiName $ApiName;
+
+      "---END LOG note---";
+      "";
+      Start-Sleep $WatchDelayInSeconds;
+    } while ($WatchDelayInSeconds -gt 0);
+    
+}
+
 function Get-AdoPullRequestIssues {
     param(
+        [string] $Path = ".",
         [Alias("prid")] [string] $PullRequestId,
         [string] $Organization,# = "microsoft",
         [string[]] $ProjectNames,# = @("OS"),
         [string[]] $RepositoryNames,# = @("os"),
         [string[]] $BranchNames = @(),
         [string] $AuthenticationPersonalAccessToken,
-        [ValidateSet("ErrorText", "PSObject")] [string] $OutputFormat = "ErrorText",
+        [ValidateSet("Text", "ErrorText", "PSObject")] [string] $OutputFormat = "Text",
         [string] $ApiHost = "dev.azure.com",
         [string] $ApiName = "_apis/git/repositories"
         );
     
+    pushd $Path;
+
     $root = Get-LocationRoot;
   
     $gitRemote = (git remote -v)[0].Split("`t")[1].Split(" ")[0];
@@ -432,7 +474,7 @@ function Get-AdoPullRequestIssues {
     Write-Verbose $fullUri
 
     $results = @();
-  
+    
     $result = (Invoke-RestMethod -Uri $fullUri -Method Get -ContentType "application/json" -Headers @{Authorization=("Basic {0}" -f $base64AuthInfo)});
     $result.value | Where-Object { 
         $_.status -eq "active" -and
@@ -464,14 +506,26 @@ function Get-AdoPullRequestIssues {
     switch ($OutputFormat) {
         "ErrorText" {
             $results | ForEach-Object {
-                Write-Error ("$($_.file)($($_.line):$($_.column)): error: $($_.text)");
+                $path = "../../" + $_.file.TrimStart("/");
+                Write-Error ("$($path)($($_.line),$($_.column)): error: $($_.text)");
+            }
+        }
+
+        "Text" {
+            $results | ForEach-Object {
+                $path = "../../" + $_.file.TrimStart("/");
+                $text = @($_.text) -join " ";
+                $text = $text.Replace("`r", " ").Replace("`n", " ");
+                ("$path($($_.line),$($_.column)): error: $text");
             }
         }
 
         "PSObject" {
             $results;
         }
-    }
+    } 
+
+    popd;
 }
 
 function Get-AdoPullRequestForBranch {

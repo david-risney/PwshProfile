@@ -139,6 +139,87 @@
                     }
                 }
             ]
+        },
+        {
+            "label": "ADO PR Issues",
+            "type": "process",
+            "command": "pwsh",
+            "args": [
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy", "Bypass",
+                "-Command", "\"& { Watch-AdoPullRequestIssues -Path ${workspaceFolder} }\""
+            ],
+            "group": "build",
+            "presentation": {
+                // Reveal the output only if unrecognized errors occur.
+                "reveal": "silent"
+            },
+            // Use the standard MS compiler pattern to detect errors, warnings and infos
+            "problemMatcher": [
+                {
+                    "owner": "adopullrequestissues",
+                    "fileLocation": [
+                        "relative",
+                        "${workspaceFolder}\\a\\b"
+                    ],
+                    "pattern": [
+                        {
+                            // ../../edge_embedded_browser/public/cpp/embedded_browser_utils_win.cc(170,5): error: indirection requires pointer operand ('IDataObject' invalid)
+                            "regexp": "^(.*)\\((\\d+),(\\d+)\\)\\s*:\\s+([^: ]+)[^:]*:\\s*(.*)$",
+                            "file": 1,
+                            "line": 2,
+                            "column": 3,
+                            "severity": 4,
+                            "message": 5
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "label": "Watch ADO PR Issues",
+            "isBackground": true,
+            "type": "process",
+            "command": "pwsh",
+            "args": [
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy", "Bypass",
+                "-Command", "\"& { Watch-AdoPullRequestIssues -Path ${workspaceFolder} }\""
+            ],
+            "group": "build",
+            "presentation": {
+                // Reveal the output only if unrecognized errors occur.
+                "reveal": "silent"
+            },
+            // Use the standard MS compiler pattern to detect errors, warnings and infos
+            "problemMatcher": [
+                {
+                    "owner": "adopullrequestissues",
+                    "fileLocation": [
+                        "relative",
+                        "${workspaceFolder}\\a\\b"
+                    ],
+                    "pattern": [
+                        {
+                            "regexp": "^(.*)\\((\\d+),(\\d+)\\)\\s*:\\s*([^: ]+)[^:]*:\\s*(.*)$",
+                            "file": 1,
+                            "line": 2,
+                            "column": 3,
+                            "severity": 4,
+                            "message": 5
+                        },
+                    ],
+                    "background": {
+                        "activeOnStart": true,
+                        "beginsPattern": "---START LOG note---",
+                        "endsPattern": "---END LOG note---",
+                    }
+                }
+            ]
         }
     ]
 }
