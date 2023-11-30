@@ -100,7 +100,8 @@ function Build-AutoNinja {
     $foundError = $false;
 
     Write-Verbose "Starting autoninja -C $OutPath $gnRefs";
-    "---START LOG note---" > $LogPath;
+    "" > $LogPath;
+    "---START LOG note---" >> $LogPath;
     autoninja.bat -C $OutPath $gnRefs | Tee-Object -Append -FilePath $LogPath -Encoding Utf8 | ForEach-Object {
       $out = $_;
       if ($_ -match "([0-9]+)/([0-9]+)") {
@@ -114,7 +115,7 @@ function Build-AutoNinja {
         # https://learn.microsoft.com/en-us/windows/terminal/tutorials/progress-bar-sequences
         $out += "`e]9;4;$state;$progress`e\";
       }
-      if ($_ -match ": error:") {
+      if ($_ -match ": error") {
         $out += "`e]133;D;1`e\";
         if ($out -match "^([^ ]+)(\([0-9]+)") {
           $path = Join-Path $OutPath $matches[1];

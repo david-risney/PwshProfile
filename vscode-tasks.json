@@ -29,12 +29,30 @@
                     ],
                     "pattern": [
                         {
-                            "regexp": "^(.*)\\((\\d+),(\\d+)\\):\\s+([^:]+):\\s+(.*)$",
+                            // ../../edge_embedded_browser/public/cpp/embedded_browser_utils_win.cc(170,5): error: indirection requires pointer operand ('IDataObject' invalid)
+                            "regexp": "^(.*)\\((\\d+),(\\d+)\\)\\s*:\\s+([^: ]+)[^:]*:\\s*(.*)$",
                             "file": 1,
                             "line": 2,
                             "column": 3,
                             "severity": 4,
                             "message": 5
+                        }
+                    ]
+                },
+                {
+                    "owner": "autoninja",
+                    "fileLocation": [
+                        "relative",
+                        "${workspaceFolder}\\a\\b"
+                    ],
+                    "pattern": [
+                        {
+                            // ..\..\edge_embedded_browser\client\win\current\webview2private.idl(425) : error MIDL2270 : duplicate UUID. Same as : ICoreWebView2Private2 [ Interface 'ICoreWebView2Private4'  ]
+                            "regexp": "^(.*)\\((\\d+)\\)\\s*:\\s*([^: ]+)[^:]*:\\s*(.*)$",
+                            "file": 1,
+                            "line": 2,
+                            "severity": 3,
+                            "message": 4
                         }
                     ]
                 },
@@ -67,7 +85,7 @@
                 "-NoProfile",
                 "-NonInteractive",
                 "-ExecutionPolicy", "Bypass",
-                "-File", "${env:PwshProfilePath}\\PwshProfile\\Get-AutoNinjaLog.ps1", "${workspaceFolder}", "-Watch",
+                "-File", "${env:PwshProfilePath}\\Get-AutoNinjaLog.ps1", "${workspaceFolder}", "-Watch",
             ],
             "group": "build",
             "presentation": {
@@ -84,12 +102,34 @@
                     ],
                     "pattern": [
                         {
-                            "regexp": "^(.*)\\((\\d+),(\\d+)\\):\\s+([^:]+):\\s+(.*)$",
+                            "regexp": "^(.*)\\((\\d+),(\\d+)\\)\\s*:\\s*([^: ]+)[^:]*:\\s*(.*)$",
                             "file": 1,
                             "line": 2,
                             "column": 3,
                             "severity": 4,
                             "message": 5
+                        },
+                    ],
+                    "background": {
+                        "activeOnStart": true,
+                        "beginsPattern": "---START LOG note---",
+                        "endsPattern": "---END LOG note---",
+                    }
+                },
+                {
+                    "owner": "autoninja",
+                    "fileLocation": [
+                        "relative",
+                        "${workspaceFolder}\\a\\b"
+                    ],
+                    "pattern": [
+                        {
+                            // ..\..\edge_embedded_browser\client\win\current\webview2private.idl(425) : error MIDL2270 : duplicate UUID. Same as : ICoreWebView2Private2 [ Interface 'ICoreWebView2Private4'  ]
+                            "regexp": "^(.*)\\((\\d+)\\)\\s*:\\s*([^: ]+)[^:]*:\\s*(.*)$",
+                            "file": 1,
+                            "line": 2,
+                            "severity": 3,
+                            "message": 4
                         }
                     ],
                     "background": {

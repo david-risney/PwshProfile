@@ -55,7 +55,11 @@ function Get-GitPullRequestUri {
 }
 
 function New-PullRequest {
-  Start-Process (Get-GitPullRequestUri);
+  $uri = Get-AdoPullRequestForBranch -OutputFormat Uri -ErrorAction Ignore;
+  if (!($uri)) {
+    $uri = Get-GitPullRequestUri;
+  }
+  Start-Process ($uri);
 }
 
 New-Alias -f Create-PullRequest New-PullRequest;
@@ -528,22 +532,24 @@ function Get-AdoPullRequestForBranch {
     Write-Verbose $fullUri
 
     $result = (Invoke-RestMethod -Uri $fullUri -Method Get -ContentType "application/json" -Headers @{Authorization=("Basic {0}" -f $base64AuthInfo)});
-    switch ($OutputFormat) {
-        "Id" {
-            $result.value | ForEach-Object {
-                $_.pullRequestId;
-            }
-        }
+    if ($result) {
+      switch ($OutputFormat) {
+          "Id" {
+              $result.value | ForEach-Object {
+                  $_.pullRequestId;
+              }
+          }
 
-        "Uri" {
-            $result.value | ForEach-Object {
-                $repoUri = (git config remote.origin.url);
-                ($repoUri + "/pullrequest/" + $_.pullRequestId);
-            }
-        }
+          "Uri" {
+              $result.value | ForEach-Object {
+                  $repoUri = (git config remote.origin.url);
+                  ($repoUri + "/pullrequest/" + $_.pullRequestId);
+              }
+          }
 
-        "PSObject" {
-            $result;
-        }
+          "PSObject" {
+              $result;
+          }
+      }
     }
 }
