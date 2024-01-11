@@ -99,10 +99,10 @@ function Build-AutoNinja {
   if (!($WhatIf)) {
     $foundError = $false;
 
-    Write-Verbose "Starting autoninja -C $OutPath $gnRefs";
+    Write-Verbose "Starting autoninja.bat $gnRefs -C $OutPath";
     "" > $LogPath;
     "---START LOG note---" >> $LogPath;
-    autoninja.bat -C $OutPath $gnRefs | Tee-Object -Append -FilePath $LogPath -Encoding Utf8 | ForEach-Object {
+    iex "autoninja.bat $gnRefs -C $OutPath" | Tee-Object -Append -FilePath $LogPath -Encoding Utf8 | ForEach-Object {
       $out = $_;
       if ($_ -match "([0-9]+)/([0-9]+)") {
         $percent = [int]$matches[1];
