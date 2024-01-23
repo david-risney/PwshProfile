@@ -206,3 +206,4 @@ function GetEdgeProcesses {
         Sort-Object ProcessKind,MainModulePath,Channel,EdgeProcessType,Id | `
         Select-Object ProcessKind,Channel,EdgeProcessType,Id,MainModulePath,EdgeCommandLine;
 }
+New-Alias -f Get-EdgeProcesses GetEdgeProcesses;
