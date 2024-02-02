@@ -88,7 +88,7 @@ if ($Update -eq "On") {
 if ($Update -eq "On") {
   IncrementProgress "Update PowerShellGet";
   Write-Verbose "Update PowerShellGet";
-  Install-Module -Name PowerShellGet -Force -Repository PSGallery -AllowPrerelease -Scope CurrentUser;
+  Install-Module -Name PowerShellGet -Force -Repository PSGallery -AllowPrerelease -Scope CurrentUser -SkipPublisherCheck;
   Import-Module PowerShellGet;
 }
 #endregion
@@ -99,7 +99,7 @@ if ($Update -eq "On") {
 IncrementProgress "PSReadLine";
 if ($Update -eq "On") {
   Write-Verbose "Update PSReadLine";
-  gsudo { Install-Module PSReadLine -AllowPrerelease -Force; };
+  gsudo { Install-Module PSReadLine -AllowPrerelease -Force -SkipPublisherCheck; };
 } else {
   Import-Module PSReadLine; # https://github.com/PowerShell/PSReadLine
 }
@@ -116,7 +116,7 @@ Set-PSReadLineKeyHandler Tab MenuComplete;
 IncrementProgress "Terminal-Icons";
 if ($Update -eq "On") {
   Write-Verbose "Update Terminal-Icons";
-  Install-Module -Name Terminal-Icons -Repository PSGallery -Force;
+  Install-Module -Name Terminal-Icons -Repository PSGallery -Force -SkipPublisherCheck;
 }
 Import-Module Terminal-Icons; # 
 #endregion
@@ -127,7 +127,7 @@ Import-Module Terminal-Icons; #
 IncrementProgress "cd-extras";
 if ($Update -eq "On") {
   Write-Verbose "Update cd-extras";
-  Install-Module cd-extras
+  Install-Module cd-extras -SkipPublisherCheck;
 }
 Import-Module cd-extras;
 setocd ColorCompletion; # Adds color to tab completion
@@ -142,7 +142,7 @@ Set-Alias fwd cd+;
 IncrementProgress "BurntToast";
 if ($Update -eq "On") {
   Write-Verbose "Updating BurntToast";
-  Install-Module -Name BurntToast
+  Install-Module -Name BurntToast -SkipPublisherCheck;
 }
 Import-Module BurntToast; 
 #endregion
@@ -319,7 +319,7 @@ $terminalSettingsPatchPath = (Join-Path $PSScriptRoot "terminal-settings.json");
 IncrementProgress "z";
 if ($Update -eq "On") {
   Write-Verbose "Updating z";
-  install-module z -AllowClobber
+  install-module z -AllowClobber -SkipPublisherCheck;
 }
 Import-Module z;
 #endregion
@@ -387,7 +387,7 @@ if ($Update -eq "On") {
   Write-Verbose "Install fd";
   winget install sharkdp.fd;
   Write-Verbose "Install PSGitHubSearch";
-  Install-Module -Name PSGitHubSearch;
+  Install-Module -Name PSGitHubSearch -SkipPublisherCheck;
   Write-Verbose "Update powershell";
   winget install --id Microsoft.Powershell --source winget;
   Write-Verbose "Update git";
