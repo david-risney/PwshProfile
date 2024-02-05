@@ -186,7 +186,7 @@
                 "-NoLogo",
                 "-NonInteractive",
                 "-ExecutionPolicy", "Bypass",
-                "-Command", "Watch-AdoPullRequestIssues -Path ${workspaceFolder}"
+                "-Command", "Watch-AdoPullRequestIssues -Path ${workspaceFolder} -BuildErrors include"
             ],
             "group": "build",
             "presentation": {
