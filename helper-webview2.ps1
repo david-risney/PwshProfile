@@ -136,8 +136,8 @@ function Open-WebView2Docs {
 function GetEdgeProcesses {
     param(
         [string[]] $Channels = @("All"),
-        [string[]] $ProcessKinds = @("Edge", "WebView2"),
-        [string[]] $EdgeProcessTypes = @("All")
+        [string[]] $HostKinds = @("Edge", "WebView2"),
+        [string[]] $ProcessKinds = @("All")
     );
 
     # Get-Process's CommandLine property is slow because it uses individual calls to Get-CimInstance.
@@ -145,11 +145,11 @@ function GetEdgeProcesses {
     # interested in.
     $cimProcesses = @();
     $processes = @();
-    if ($ProcessKinds.Contains("Edge")) {
+    if ($HostKinds.Contains("Edge")) {
         $processes += Get-Process msedge;
         $cimProcesses += Get-cimInstance Win32_Process -Filter "Name='msedge.exe'";
     }
-    if ($ProcessKinds.Contains("WebView2")) {
+    if ($HostKinds.Contains("WebView2")) {
         $processes += Get-Process msedgewebview2;
         $cimProcesses += Get-cimInstance Win32_Process -Filter "Name='msedgewebview2.exe'";
     }
@@ -160,13 +160,13 @@ function GetEdgeProcesses {
         $MainModulePath = $_.MainModule.FileName.ToLower();
         $currentProcess | Add-Member MainModulePath $MainModulePath;
 
-        $ProcessKind = "Edge";
+        $HostKind = "Edge";
         if ($_.ProcessName -eq "msedge") {
-            $ProcessKind = "Edge";
+            $HostKind = "Edge";
         } else {
-            $ProcessKind = "WebView2";
+            $HostKind = "WebView2";
         }
-        $currentProcess | Add-Member ProcessKind $ProcessKind;
+        $currentProcess | Add-Member HostKind $HostKind;
 
         $Channel = "Unknown";
         if ($MainModulePath.Contains("\edge sxs\")) {
@@ -176,34 +176,38 @@ function GetEdgeProcesses {
         } elseif ($MainModulePath.Contains("\edge dev\")) {
             $Channel = "Dev";
         } elseif ($MainModulePath.Contains("\edge\")) {
-            $Channel = "Stable Browser";
+            $Channel = "Stable";
         } elseif ($MainModulePath.Contains("\edgewebview\")) {
-            $Channel = "Stable WebView2 Runtime";
+            $Channel = "Stable";
         }
         $currentProcess | Add-Member Channel $Channel;
 
-        $currentEdgeProcessType = "browser";
+        $currentProcessKind = "browser";
         $currentCommandLine = ($cimProcesses | Where-Object { 
             $_.ProcessId -eq $currentProcess.Id
         }).CommandLine;
 
         if ($currentCommandLine -match "--type=([^ ]+)") {
-            $currentEdgeProcessType = $Matches[1];
+            $currentProcessKind = $Matches[1];
         }
-        $currentProcess | Add-Member EdgeProcessType $currentEdgeProcessType;
+
+        $version = (Get-Item $MainModulePath).VersionInfo.FileVersion;
+
+        $currentProcess | Add-Member ProcessKind $currentProcessKind;
         $currentProcess | Add-Member -Force EdgeCommandLine $currentCommandLine;
+        $currentProcess | Add-Member -Force Version $version;
     }
 
     $processes = $processes | Where-Object {
         $currentProcess = $_;
         $channelMatches = $Channels -contains $currentProcess.Channel -or $Channels -contains "All";
-        $edgeProcessTypeMatches = $EdgeProcessTypes -contains $currentProcess.EdgeProcessType -or $EdgeProcessTypes -contains "All";
+        $edgeProcessTypeMatches = $ProcessKinds -contains $currentProcess.ProcessKind -or $ProcessKinds -contains "All";
 
         $channelMatches -and $edgeProcessTypeMatches;
     };
 
     $processes | `
-        Sort-Object ProcessKind,MainModulePath,Channel,EdgeProcessType,Id | `
-        Select-Object ProcessKind,Channel,EdgeProcessType,Id,MainModulePath,EdgeCommandLine;
+        Sort-Object HostKind,MainModulePath,Version,Channel,ProcessKind,Id | `
+        Format-Table HostKind,Version,Channel,ProcessKind,Id,EdgeCommandLine;
 }
 New-Alias -f Get-EdgeProcesses GetEdgeProcesses;
