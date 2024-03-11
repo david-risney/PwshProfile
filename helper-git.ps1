@@ -502,14 +502,14 @@ function Get-AdoPullRequestIssues {
 
     if ($BuildErrors -eq "include") {
       $buildIds = @($result.value | ForEach-Object {
-        $_.comments | %{ 
+        $_.comments | ?{ $_.content } | %{ 
           $_.content.split("`n") | ?{ $_.Contains("Failed"); } | %{
               if ($_ -match "buildId=([0-9]+)") {
                 $matches[1];
               }
             }
           }
-        });
+        }) | ?{ $_ };
       $buildIds | %{
         $build = (Get-AdoBuild -BuildId $_);
         $timelineUri = $build._links.timeline.href;

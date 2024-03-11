@@ -22,6 +22,8 @@ $env:PwshProfilePath = $PSScriptRoot;
 
 IncrementProgress "Starting";
 
+Write-Verbose ("Update is " + $Update);
+
 # gsudo lets you easily run commands as administrator from PowerShell
 # https://github.com/gerardog/gsudo
 if ($Update -eq "On") {
@@ -370,6 +372,11 @@ if ($Update -eq "Async") {
     Write-Host "Starting async update...";
     [void](Start-Job -Name ProfileAsyncInstallOrUpdate -ScriptBlock {
       param($userProfilePath);
+      if (Get-Command pwsh -ErrorAction Ignore) {
+        gsudo { Start-Process pwsh -ArgumentList "C:\users\davris\PwshProfile\profile.ps1 -update on -verbose" }
+      } else {
+        gsudo { Start-Process powershell -ArgumentList "C:\users\davris\PwshProfile\profile.ps1 -update on -verbose" }
+      }
       sudo .$userProfilePath -Update On -Verbose;
       $success = $LASTEXITCODE -eq 0 -and $?;
       New-BurntToastNotification -Text "Profile Update",$success;
