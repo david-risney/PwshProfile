@@ -74,9 +74,9 @@ if ($Update -eq "On") {
   # Use ff-only to hopefully avoid cases where merge is required
   git pull --ff-only
 
-  $userProfilePath = (Join-Path $PSScriptRoot "profile.ps1");
+  $userProfilePath = (Join-Path $PSScriptRoot "profile.ps1").ToLower();
 
-  if (!(Get-Content $profile | Where-Object { $_.Contains($userProfilePath); })) {
+  if (!(Get-Content $profile | ForEach-Object { $_.ToLower(); } | Where-Object { $_.Contains($userProfilePath); })) {
       "`n. `"$userProfilePath`"" >> $profile;
   }
 }
