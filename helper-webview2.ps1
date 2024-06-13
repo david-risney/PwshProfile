@@ -134,10 +134,16 @@ function Open-WebView2Docs {
 }
 
 function GetEdgeProcesses {
+    [cmdletbinding()]
     param(
-        [string[]] $Channels = @("All"),
-        [string[]] $HostKinds = @("Edge", "WebView2"),
-        [string[]] $ProcessKinds = @("All")
+        [string] $CommandLineMatch = "",
+        [ValidateSet("All", "Canary", "Dev", "Beta", "Stable")]
+            [string[]] $Channels = @("All"),
+        [ValidateSet("Edge", "WebView2")]
+            [string[]] $HostKinds = @("Edge", "WebView2"),
+        [ValidateSet("All", "browser", "crashpad-handler", "gpu-process", "renderer", "utility")]
+            [string[]] $ProcessKinds = @("All"),
+        [switch] [alias("np")] $NoPretty
     );
 
     # Get-Process's CommandLine property is slow because it uses individual calls to Get-CimInstance.
@@ -202,12 +208,17 @@ function GetEdgeProcesses {
         $currentProcess = $_;
         $channelMatches = $Channels -contains $currentProcess.Channel -or $Channels -contains "All";
         $edgeProcessTypeMatches = $ProcessKinds -contains $currentProcess.ProcessKind -or $ProcessKinds -contains "All";
+        $commandLineMatches = $CommandLineMatch -eq "" -or $currentProcess.EdgeCommandLine -match $CommandLineMatch;
 
-        $channelMatches -and $edgeProcessTypeMatches;
+        $channelMatches -and $edgeProcessTypeMatches -and $commandLineMatches;
     };
 
-    $processes | `
-        Sort-Object HostKind,MainModulePath,Version,Channel,ProcessKind,Id | `
-        Format-Table HostKind,Version,Channel,ProcessKind,Id,EdgeCommandLine;
+    if ($NoPretty) {
+        $processes;
+    } else {
+        $processes | `
+            Sort-Object HostKind,MainModulePath,Version,Channel,ProcessKind,Id | `
+            Format-Table HostKind,Version,Channel,ProcessKind,Id,EdgeCommandLine;
+    }
 }
 New-Alias -f Get-EdgeProcesses GetEdgeProcesses;
