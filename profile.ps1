@@ -363,7 +363,7 @@ if ($Update -eq "Async") {
     $lastAsyncUpdate = (Get-Item $lastAsyncUpdatePath).LastWriteTime;
   }
 
-  if (!($lastAsyncUpdate) -or ((Get-Date) -gt $lastAsyncUpdate.AddMinutes(60))) {
+  if (!($lastAsyncUpdate) -or ((Get-Date) -gt $lastAsyncUpdate.AddDays(7))) {
     # Touch before starting update because the update may take a long time.
     touch $lastAsyncUpdatePath;
 
