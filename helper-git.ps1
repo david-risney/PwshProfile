@@ -172,6 +172,38 @@ function GitRebaseOnto {
   Write-Warning '    git push --force'
 }
 
+function GitAddAll {
+  <#
+  .SYNOPSIS
+  # GitAddAll does a git add on all modified or untracked files. Its different from git add * in that it doesn't interact with submodules. It only adds or removes things listed by git status.
+
+  #>
+  [CmdletBinding()]
+  param();
+
+  $gitStatus = git status -s;
+  $gitStatus | ForEach-Object {
+    $line = $_;
+    $info = $line.Substring(0, 2);
+    $path = $line.Substring(3);
+    
+    switch ($info) {
+      " M" {
+        git add $path;
+      }
+      "??" {
+        git add $path;
+      }
+      " D" {
+        git rm $path;
+      }
+      default {
+        Write-Error "Unknown info kind $info for $path";
+      }
+    }
+  }
+}
+
 function Get-GitChangePaths {
   [CmdletBinding()]
   param(
