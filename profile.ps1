@@ -399,6 +399,8 @@ if ($Update -eq "On") {
   winget install --id Microsoft.Powershell --source winget;
   Write-Verbose "Update git";
   winget install git --source winget;
+  Write-Verbose "Update remote desktop";
+  winget install --id Microsoft.RemoteDesktopClient;
   # The following installs could take a while and they aren't
   # requirements for anything else in this script
   # So run them in a different command prompt
