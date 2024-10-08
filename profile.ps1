@@ -11,7 +11,7 @@ param(
 . (Join-Path $PSScriptRoot "helper-progress.ps1");
 
 # Find via (findstr /c "^IncrementProgress" .\profile.ps1).Count
-$global:maxProgress = 17; # The count of IncrementProgress calls in this file.
+$global:maxProgress = 18; # The count of IncrementProgress calls in this file.
 
 if ($Update -eq "On") {
   $global:maxProgress += 4;
@@ -62,6 +62,9 @@ IncrementProgress "Loading Json Helpers";
 
 IncrementProgress "Loading WebView2 Helpers";
 . (Join-Path $PSScriptRoot "helper-webview2.ps1");
+
+IncrementProgress "Loading Web Helpers";
+. (Join-Path $PSScriptRoot "helper-web.ps1");
 
 #region profile update
 # Update this profile script and associated files asynchronously
