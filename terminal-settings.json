@@ -8,7 +8,9 @@
         { "keys": "ctrl+shift+s", "command": { "action": "selectOutput", "direction": "next" } },
 
         { "keys": "ctrl+alt+shift+w", "command": { "action": "selectCommand", "direction": "prev" } },
-        { "keys": "ctrl+alt+shift+s", "command": { "action": "selectCommand", "direction": "next" } }
+        { "keys": "ctrl+alt+shift+s", "command": { "action": "selectCommand", "direction": "next" } },
+
+        { "keys": "win+`", "command": { "action": "globalSummon", "name": "_quake", "dropdownDuration": 200, "toggleVisibility": true, "monitor": "toMouse", "desktop": "toCurrent" } }
     ],
     "profiles": 
     {

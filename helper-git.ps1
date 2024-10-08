@@ -291,6 +291,12 @@ function gitcd {
   Get-GitChangePaths -SetPathMatch $SetPathMatch;
 }
 
+function GetAdoAuthTokenForOrigin {
+  param([string] $OriginUri);
+
+  az account get-access-token --query accessToken --output tsv # --resource=$OriginUri;
+}
+
 function Search-GitCode {
     param(
         [string] $Query,
@@ -322,6 +328,10 @@ function Search-GitCode {
   
     if (!($AuthenticationPersonalAccessToken)) {
         $AuthenticationPersonalAccessToken = $env:AuthenticationPersonalAccessToken;
+    }
+
+    if (!($AuthenticationPersonalAccessToken)) {
+      $AuthenticationPersonalAccessToken = GetAdoAuthTokenForOrigin "https://$ApiHost";
     }
   
     if (!($AuthenticationPersonalAccessToken)) {
@@ -479,6 +489,10 @@ function Get-AdoPullRequestIssues {
     }
   
     if (!($AuthenticationPersonalAccessToken)) {
+      $AuthenticationPersonalAccessToken = GetAdoAuthTokenForOrigin "https://$ApiHost";
+    }
+  
+    if (!($AuthenticationPersonalAccessToken)) {
         throw "Must provide valid AuthenticationPersonalAccessToken parameter. See https://www.visualstudio.com/en-us/docs/integrate/get-started/auth/overview";
     }
   
@@ -633,6 +647,10 @@ function Get-AdoBuild {
     }
   
     if (!($AuthenticationPersonalAccessToken)) {
+      $AuthenticationPersonalAccessToken = GetAdoAuthTokenForOrigin "https://$ApiHost";
+    }
+  
+    if (!($AuthenticationPersonalAccessToken)) {
         throw "Must provide valid AuthenticationPersonalAccessToken parameter. See https://www.visualstudio.com/en-us/docs/integrate/get-started/auth/overview";
     }
   
@@ -702,6 +720,10 @@ function Get-AdoBuildLogs {
     }
   
     if (!($AuthenticationPersonalAccessToken)) {
+      $AuthenticationPersonalAccessToken = GetAdoAuthTokenForOrigin "https://$ApiHost";
+    }
+  
+    if (!($AuthenticationPersonalAccessToken)) {
         throw "Must provide valid AuthenticationPersonalAccessToken parameter. See https://www.visualstudio.com/en-us/docs/integrate/get-started/auth/overview";
     }
   
@@ -760,6 +782,10 @@ function Get-AdoPullRequestForBranch {
   
     if (!($AuthenticationPersonalAccessToken)) {
         $AuthenticationPersonalAccessToken = $env:AuthenticationPersonalAccessToken;
+    }
+  
+    if (!($AuthenticationPersonalAccessToken)) {
+      $AuthenticationPersonalAccessToken = GetAdoAuthTokenForOrigin "https://$ApiHost";
     }
   
     if (!($AuthenticationPersonalAccessToken)) {
