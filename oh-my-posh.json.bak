@@ -1,0 +1,98 @@
+{
+  "$schema": "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/schema.json",
+  "palette": {
+      "foreground-light": "#e0e0e0",
+      "foreground-dark": "#082336",
+      "background-path": "#ce5efe",
+      "background-git": "#fffa6a",
+      "background-dotnet": "#00fbac",
+      "background-root": "#ffb56a",
+      "background-time": "#00bfff",
+      "background-exit-success": "#00fbac",
+      "background-exit-fail": "#ff7092"
+  },
+  "blocks": [
+    {
+      "alignment": "left",
+      "segments": [
+        {
+          "type": "path",
+          "template": "📁 {{ path .Path .Location }} ",
+          "properties": {
+            "style": "full"
+          },
+          "background": "p:background-path",
+          "foreground": "p:foreground-light",
+          "style": "diamond",
+          "trailing_diamond": "\ue0b4",
+          "leading_diamond": "\ue0b6"
+        },
+        {
+          "type": "git",
+          "template": " {{ url .UpstreamIcon .UpstreamURL }}{{ url .HEAD .Env.OhMyPoshCustomBranchUri }}{{if .BranchStatus }} {{ .BranchStatus }}{{ end }}{{ if .Working.Changed }} \uF044 {{ .Working.String }}{{ end }}{{ if and (.Staging.Changed) (.Working.Changed) }} |{{ end }}{{ if .Staging.Changed }} \uF046 {{ .Staging.String }}{{ end }} ",
+          "properties": {
+            "fetch_stash_count": true,
+            "fetch_status": true,
+            "fetch_upstream_icon": true,
+            "ignore_status": [
+              "C:/s/0/src",
+              "C:/s/1/src",
+              "C:/s/2/src"
+            ]
+          },
+          "background": "p:background-git",
+          "foreground": "p:foreground-dark",
+          "style": "diamond",
+          "trailing_diamond": "\ue0b4"
+        },
+        {
+          "type": "dotnet",
+          "template": " \ue70c {{ if .Unsupported }}\uf071{{ else }}{{ .Full }}{{ end }} ",
+          "properties": {
+            "fetch_version": true
+          },
+          "background": "p:background-dotnet",
+          "foreground": "p:foreground-dark",
+          "style": "diamond",
+          "trailing_diamond": "\ue0b4"
+        },
+        {
+          "type": "executiontime",
+          "template": " ⏱️ {{ .FormattedMs }} ",
+          "properties": {
+            "style": "austin",
+            "threshold": 1000
+          },
+          "background": "p:background-time",
+          "foreground": "p:foreground-dark",
+          "style": "diamond",
+          "trailing_diamond": "\ue0b4"
+        },
+        {
+          "type": "exit",
+          "template": " {{.Meaning}} {{ if ne .Code 0 }}👎{{ else }}👍{{ end }} ",
+          "properties": {
+            "always_enabled": false
+          },
+          "background": "p:background-exit-success",
+          "foreground": "p:foreground-light",
+          "background_templates": [
+            "{{ if ne .Code 0 }}p:background-exit-fail{{ end }}"
+          ],
+          "style": "diamond",
+          "trailing_diamond": "\ue0b4"
+        },
+        {
+          "type": "root",
+          "background": "p:background-root",
+          "foreground": "p:foreground-dark",
+          "style": "diamond",
+          "trailing_diamond": "\ue0b4"
+        }
+      ],
+      "type": "prompt"
+    }
+  ],
+  "final_space": true,
+  "version": 2
+}
