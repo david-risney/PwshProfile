@@ -344,10 +344,17 @@ if (($Update -eq "On")) { # -or !(Get-Command bat -ErrorAction Ignore)) {
 # And then set the theme you want using:
 $env:BAT_THEME = "OneHalfDark";
 # Use some specific command line params with less:
-# -X - don't clear the screen on exit
-# -R - don't escape colors
+# -r - don't escape control characters - this includes ANSI escape sequences for colors and links.
 # -F - quit if less than one screen
-$env:BAT_PAGER = "less -RFX";
+# -X - don't clear the screen on exit
+$env:BAT_PAGER = "less -rFX";
+
+# Set the less prompt
+$prev = [Console]::OutputEncoding;
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new();
+$lessOhMyPoshJson = (Join-Path $PSScriptRoot "less-oh-my-posh.json");
+$env:LESS = ("-rFX --prompt=" + (oh-my-posh print primary --config $lessOhMyPoshJson).Replace("\", "\\").Replace(":", "\:").Replace("?", "\?").Replace(".", "\.") + '$');
+[Console]::OutputEncoding = $prev;
 
 # I'm never going to remember to use bat because my fingers
 # are too used to typing more. So just alias more to bat.
