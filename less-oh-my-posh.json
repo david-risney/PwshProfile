@@ -20,7 +20,7 @@
           "foreground": "p:foreground-dark",
           "background": "p:background-title",
           "type": "text",
-          "style": "powerline"
+          "style": "diamond"
         },
         {
           "trailing_diamond": "\ue0b4",
