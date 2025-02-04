@@ -1,0 +1,54 @@
+{
+  "$schema": "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/schema.json",
+  "palette": {
+    "background-title": "#4ade65",
+    "background-path": "#5e9bfe",
+    "background-status": "#c66aff",
+    "foreground-dark": "#082336",
+    "foreground-light": "#e0e0e0"
+  },
+  "blocks": [
+    {
+      "type": "prompt",
+      "alignment": "left",
+      "segments": [
+        {
+          "leading_diamond": "\ue0b6",
+          "trailing_diamond": "\ue0b4",
+          "powerline_symbol": "\ue0b4",
+          "template": "<b> less </b>",
+          "foreground": "p:foreground-dark",
+          "background": "p:background-title",
+          "type": "text",
+          "style": "diamond"
+        },
+        {
+          "trailing_diamond": "\ue0b4",
+          "test_template": " %F ",
+          "template": " 📄 <u>{{ path \"%F\" \"%f\" }}</u> ",
+          "foreground": "p:foreground-light",
+          "background": "p:background-path",
+          "type": "text",
+          "style": "diamond"
+        },
+        {
+          "trailing_diamond": "\ue0b4",
+          "template": " %Pb%\\% ",
+          "foreground": "p:foreground-light",
+          "background": "p:background-status",
+          "type": "text",
+          "style": "diamond"
+        }
+      ]
+    },
+    {
+      "type": "prompt",
+      "alignment": "right",
+      "segments": [
+        
+      ]
+    }
+  ],
+  "version": 3,
+  "final_space": true
+}
