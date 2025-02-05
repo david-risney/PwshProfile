@@ -837,3 +837,37 @@ function Get-AdoPullRequestForBranch {
       }
     }
 }
+
+function Get-NotesPath {
+  param(
+    [string] $RootPath = $env:NOTESPATH,
+    [string] $NotesFolder = (git rev-parse --abbrev-ref HEAD),
+    [string] $NotesFile = "notes.md"
+  );
+
+  if (!$RootPath) {
+    $RootPath = (Get-Item ~).FullName;
+  }
+
+  if (!$NotesFolder) {
+    $NotesFolder = "notes";
+  }
+
+  Join-Path $RootPath $NotesFolder $NotesFile;
+}
+
+function Open-Notes {
+  $notesPath = Get-NotesPath;
+  if (!(Test-Path $notesPath)) {
+    touch $notesPath;
+  }
+  . (Get-NotesPath);
+}
+
+function Get-Notes {
+  $notesPath = Get-NotesPath;
+  if (Test-Path $notesPath) {
+    glow $notesPath;
+  }
+}
+New-Alias notes Get-Notes;

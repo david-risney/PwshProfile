@@ -295,6 +295,42 @@ function Format-TerminalClickableFileInfo {
   }
 }
 
+# For each string that comes through, remove starting and trailing whitespace and colons and
+# test if its a path, and if so, make it clickable. Otherwise, return the string.
+function Clickify {
+  param(
+    [Parameter(Mandatory, ValueFromPipeline)]
+    [string] $String
+  );
+
+  process {
+    $trimmedString = $String.Trim();
+    $handled = $false;
+
+    if (Test-Path $trimmedString) {
+      $fullPath = (Get-Item $trimmedString).FullName;
+      Format-TerminalClickableString $fullPath $trimmedString;
+      $handled = $true;
+    }
+
+    if (!$handled -and $trimmedString.Contains(':')) {
+      $parts = $trimmedString.Split(':');
+      if (Test-Path $parts[0]) {
+        $fullPath = (Get-Item $parts[0]).FullName;
+        $parts[0] = (Format-TerminalClickableString $fullPath $parts[0]);
+        $trimmedString = $parts -join ":";
+        $trimmedString;
+        $handled = $true;
+      }
+    }
+
+    if (!$handle) {
+      $trimmedString;
+      $handled = $true;
+    }
+  }
+}
+
 # Run after Terminal-Icons to have both terminal-icons and clickable
 # paths.
 $terminableClickableFormatPath = (Join-Path $PSScriptRoot "TerminalClickable.format.ps1xml");
@@ -359,12 +395,29 @@ $env:LESS = ("-rFX --use-color --color=P-- --prompt=" + (oh-my-posh print primar
 
 $env:BAT_PAGER = ("less " + $env:LESS);
 
+Write-Verbose "Updating glow";
+winget install charmbracelet.glow;
+
+function BatGlowHelper {
+  param(
+    [string]$Path
+  );
+  # Format-TerminalClickableString $Path "$Path";
+
+  if ($Path.EndsWith(".md")) {
+    $glowConfig = (Join-Path $PSScriptRoot "glow.yml");
+    glow --config $glowConfig $Path;
+  } else {
+    bat $Path;
+  }
+}
+
 # I'm never going to remember to use bat because my fingers
 # are too used to typing more. So just alias more to bat.
 # Get-Content (gc) is the powershell version of cat that won't
 # add line numbers and extra decorations and can handle 
 # PowerShell specific paths like env: and function:
-Set-Alias more bat;
+Set-Alias more BatGlowHelper;
 #endregion
 
 #region asyncupdate
