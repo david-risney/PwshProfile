@@ -80,3 +80,11 @@ function Watch-Script {
 }
 # Example of calling Watch-Script:
 # Watch-Script { Get-Process | Sort-Object -Property CPU -Descending | Select-Object -First 5 } -Interval 1 -ShowDiff $true
+
+function Find-Replace {
+  param($Find, $Replace);
+  rg $Find --files | %{
+    rg $Find --replace=$Replace $_ > $env:TEMP\find-replace.tmp
+    mv $env:TEMP\find-replace.tmp $_;
+  }
+}
