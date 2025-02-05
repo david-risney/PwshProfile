@@ -81,10 +81,35 @@ function Watch-Script {
 # Example of calling Watch-Script:
 # Watch-Script { Get-Process | Sort-Object -Property CPU -Descending | Select-Object -First 5 } -Interval 1 -ShowDiff $true
 
+# RipGrep based Find and Replace function.
 function Find-Replace {
-  param($Find, $Replace);
-  rg $Find --files | %{
-    rg $Find --replace=$Replace $_ > $env:TEMP\find-replace.tmp
-    mv $env:TEMP\find-replace.tmp $_;
+  param(
+    [Parameter(Mandatory=$true)] $Find, 
+    [Parameter(Mandatory=$true)] $Replace, 
+    [Parameter(Mandatory=$false)] $Files,
+    [Parameter(Mandatory=$false)] $RgParams = "",
+    [switch] $WhatIf);
+
+  if (!($Files)) {
+    $Files = rg $Find --files;
+  }
+
+  $Files = $Files | %{
+    if ($_ | gm FullName) {
+      $_.FullName;
+    } else {
+      $_;
+    }
+  }
+  $TempPath = (gi $env:TEMP).FullName;
+
+  $Files | %{
+    $TempFile = Join-Path $TempPath ("find-replace-" + (Get-Random) + ".tmp");
+    rg $RgParams --passthru $Find --replace=$Replace $_ > $TempFile;
+    if ($WhatIf) {
+      diff (gc $_) (gc $TempFile);
+    } else {
+      mv $TempFile $_ -fo;
+    }
   }
 }
