@@ -298,6 +298,65 @@ function GetAdoAuthTokenForOrigin {
 }
 
 function Search-GitCode {
+  param([string] $Query,
+        [ValidateSet("Rg","Files","FullName","PSObject")] [string] $OutputFormat = "Rg");
+
+  $InnerOutputFormat = $OutputFormat;
+  if ($OutputFormat -eq "Rg") { $InnerOutputFormat = "FullName"; }
+
+  $gitServer = git remote get-url origin;
+  if ($gitServer -match "https://github.com/([^/]+)/([^/]+)\.git") {
+    $results = Search-GitHubCode $Query -OutputFormat $InnerOutputFormat;
+  } elseif ($gitServer -eq "https://chromium.googlesource.com/chromium/src.git") {
+    $results = Search-GitHubCode $Query -OutputFormat $InnerOutputFormat;
+  } else {
+    $results = Search-GitAdoCode $Query -OutputFormat $InnerOutputFormat;
+  }
+
+  if ($OutputFormat -eq "Rg") {
+    $results | ForEach-Object { 
+      rg -p -H $Query $_ | Clickify;
+      "";
+    };
+  } else {
+    $results;
+  }
+}
+
+function Search-GitHubCode {
+  param([string] $Query,
+        [ValidateSet("Files","FullName","PSObject")] [string] $OutputFormat = "Files");
+
+  $gitServer = git remote get-url origin;
+  if ($gitServer -match "https://github.com/([^/]+)/([^/]+)\.git") {
+    $Organization = $matches[1];
+    $Repository = $matches[2];
+  } elseif ($gitServer -eq "https://chromium.googlesource.com/chromium/src.git") {
+    $Organization = "chromium";
+    $Repository = "chromium";
+  } else {
+    throw "Unknown github server $gitServer";
+  }
+
+  $root = Get-LocationRoot;
+  $paths = gh search code $query --repo $Organization/$Repository --json path,textMatches | ConvertFrom-Json;
+
+  switch ($OutputFormat) {
+    "Files" {
+      $paths.path | ForEach-Object { Join-Path $root $_ } | Sort-Object -Uniq | ForEach-Object { Get-Item $_ };
+    }
+
+    "FullName" {
+      $paths.path | ForEach-Object { Join-Path $root $_ } | Sort-Object -Uniq;
+    }
+
+    "PSObject" {
+      $paths;
+    }
+  }
+}
+
+function Search-GitAdoCode {
     param(
         [string] $Query,
         [string] $Path,
