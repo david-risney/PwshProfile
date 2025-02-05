@@ -297,36 +297,49 @@ function Format-TerminalClickableFileInfo {
 
 # For each string that comes through, remove starting and trailing whitespace and colons and
 # test if its a path, and if so, make it clickable. Otherwise, return the string.
+# Eg to get the output of ripgrep searching for a string but make the paths clickable:
+#   rg Format -p | Clickify
 function Clickify {
   param(
-    [Parameter(Mandatory, ValueFromPipeline)]
-    [string] $String
+    [Parameter(ValueFromPipeline)]
+    $String
   );
 
   process {
-    $trimmedString = $String.Trim();
-    $handled = $false;
+    if ($String) {
+      $trimmedString = $String.Trim();
+      $handled = $false;
 
-    if (Test-Path $trimmedString) {
-      $fullPath = (Get-Item $trimmedString).FullName;
-      Format-TerminalClickableString $fullPath $trimmedString;
-      $handled = $true;
-    }
-
-    if (!$handled -and $trimmedString.Contains(':')) {
-      $parts = $trimmedString.Split(':');
-      if (Test-Path $parts[0]) {
-        $fullPath = (Get-Item $parts[0]).FullName;
-        $parts[0] = (Format-TerminalClickableString $fullPath $parts[0]);
-        $trimmedString = $parts -join ":";
-        $trimmedString;
+      if (Test-Path $trimmedString) {
+        $fullPath = (Get-Item $trimmedString).FullName;
+        Format-TerminalClickableString $fullPath $trimmedString;
         $handled = $true;
       }
-    }
 
-    if (!$handle) {
-      $trimmedString;
-      $handled = $true;
+      if (!$handled) {
+        # First remove any ANSI sequences from $String
+        $StrippedString = $String -replace "\x1B\[[0-?]*[ -/]*[@-~]", "";
+        # And also the \x1B]8;...\x1B\ style sequences
+        $StrippedString = $StrippedString -replace "\x1B\]8;.*?\x1B\\";
+
+        # Use regexp to find all posible absolute and relative paths in the string
+        $relativePathWithSpaceRegex = "([A-Za-z0-9 '`".+\-\\\/_]+)";
+        $relativePathWithoutSpaceRegex = "([A-Za-z0-9 '`".+\-\\\/_]+)";
+        $absolutePathRegex = "([A-Za-z]:\\[A-Za-z0-9 '`".+\-\\\/_]+)";
+
+        $regexs = @($relativePathWithSpaceRegex, $relativePathWithoutSpaceRegex, $absolutePathRegex);
+        $matches = $regexs | %{
+          $regex = $_;
+          [regex]::Matches($StrippedString, $regex);
+        };
+        $uniqueValues = $matches.Value | Sort Length -Uniq -Desc;
+        $uniqueValues | ?{ $_.Trim().Length -gt 0 } | ?{ Test-Path $_ } | %{
+          $String = $String.Replace($_, (Format-TerminalClickableString $_ $_));
+        }
+        $String;
+      }
+    } else {
+      "";
     }
   }
 }
