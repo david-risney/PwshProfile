@@ -61,6 +61,8 @@ function touch {
 # Takes a script block and an optional time interval and runs
 # the script block every time interval and showing the diff
 # between the last run and the current run.
+# Example of calling Watch-Script:
+# Watch-Script { Get-Process | Sort-Object -Property CPU -Descending | Select-Object -First 5 } -Interval 1 -ShowDiff $true
 function Watch-Script {
   param($ScriptBlock, $Interval = 1, $ShowDiff = $false);
   $last = & $ScriptBlock;
@@ -70,7 +72,7 @@ function Watch-Script {
     # Use Compare-Object to show the difference between the last
     # and current output.
     if ($ShowDiff) {
-    Compare-Object -ReferenceObject $last -DifferenceObject $current;
+      Compare-Object -ReferenceObject $last -DifferenceObject $current;
     } else {
       clear;
       $current;
@@ -78,8 +80,6 @@ function Watch-Script {
     $last = $current;
   }
 }
-# Example of calling Watch-Script:
-# Watch-Script { Get-Process | Sort-Object -Property CPU -Descending | Select-Object -First 5 } -Interval 1 -ShowDiff $true
 
 # RipGrep based Find and Replace function.
 function Find-Replace {
