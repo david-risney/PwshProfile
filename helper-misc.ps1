@@ -83,15 +83,17 @@ function Watch-Script {
 
 # RipGrep based Find and Replace function.
 function Find-Replace {
+  [CmdletBinding()]
   param(
     [Parameter(Mandatory=$true)] $Find, 
     [Parameter(Mandatory=$true)] $Replace, 
     [Parameter(Mandatory=$false)] $Files,
-    [Parameter(Mandatory=$false)] $RgParams = "",
     [switch] $WhatIf);
 
   if (!($Files)) {
-    $Files = rg $Find --files;
+    Write-Verbose "No files specified. Finding files...";
+    $Files = rg --files -e $Find;
+    Write-Verbose "Found $($Files.Length) files.";
   }
 
   $Files = $Files | %{
@@ -100,16 +102,23 @@ function Find-Replace {
     } else {
       $_;
     }
-  }
+  } | ?{ if (Test-Path $_) { $true; } else { Write-Warning "Path not found $_. Skipping."; } };
   $TempPath = (gi $env:TEMP).FullName;
 
+  $idx = 0;
   $Files | %{
     $TempFile = Join-Path $TempPath ("find-replace-" + (Get-Random) + ".tmp");
-    rg $RgParams --passthru $Find --replace=$Replace $_ > $TempFile;
+    ++$idx;
+    $percentComplete = [int]($idx / $Files.Length * 100);
+    Write-Verbose "Processing $_ $percentComplete%";
+    Write-Progress -Activity "Find and replace" -Status "Processing $_" -PercentComplete $percentComplete;
+    rg --passthru -e $Find --replace=$Replace $_ > $TempFile;
     if ($WhatIf) {
       diff (gc $_) (gc $TempFile);
     } else {
       mv $TempFile $_ -fo;
     }
   }
+
+  Write-Progress -Activity "Find and replace" -Complete;
 }
