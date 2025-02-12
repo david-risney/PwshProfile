@@ -210,44 +210,36 @@ function Get-GitChangePaths {
     $SetPathMatch,
     [switch] $FullPaths,
     [switch] $OnlyGitStatusFiles,
-    [switch] $RebuildCache,
     $BranchCommit);
 
-  if (!$global:gitChangePathsCache -or $RebuildCache) {
-    Write-Verbose "Rebuilding git change paths cache";
-    $gitRoot = (git rev-parse --show-toplevel);
-    Write-Verbose ("gitroot: " + $gitRoot);
+  Write-Verbose "Rebuilding git change paths cache";
+  $gitRoot = (git rev-parse --show-toplevel);
+  Write-Verbose ("gitroot: " + $gitRoot);
 
-    if (!$BranchCommit) {
-      $BranchCommit = (git merge-base origin/main HEAD);
+  if (!$BranchCommit) {
+    $BranchCommit = (git merge-base origin/main HEAD);
+  }
+  Write-Verbose ("Branch commit: " + $BranchCommit);
+
+  $gitStatusFiles = git status -s | ForEach-Object {
+    $path = $_.substring(3);
+    if (Test-Path $path) {
+      (Get-Item $path).FullName;
     }
-    Write-Verbose ("Branch commit: " + $BranchCommit);
+  };
+  Write-Verbose "Found $($gitStatusFiles.Count) git status files";
 
-    $gitStatusFiles = git status -s | ForEach-Object {
-      $path = $_.substring(3);
+  if (!$OnlyGitStatusFiles) {
+    $gitBranchFiles = git diff --name-only $BranchCommit | ForEach-Object {
+      $path = (Join-Path $gitRoot $_);
       if (Test-Path $path) {
         (Get-Item $path).FullName;
       }
     };
-    Write-Verbose "Found $($gitStatusFiles.Count) git status files";
-
-    if (!$OnlyGitStatusFiles) {
-      $gitBranchFiles = git diff --name-only $BranchCommit | ForEach-Object {
-        $path = (Join-Path $gitRoot $_);
-        if (Test-Path $path) {
-          (Get-Item $path).FullName;
-        }
-      };
-      Write-Verbose "Found $($gitBranchFiles.Count) git branch files";
-    }
-
-    $gitFiles = @($gitStatusFiles) + @($gitBranchFiles);
-    $global:gitChangePathsCache = $gitFiles;
-  } else {
-    Write-Verbose "Using cached git change paths";
+    Write-Verbose "Found $($gitBranchFiles.Count) git branch files";
   }
 
-  $gitFiles = $global:gitChangePathsCache;
+  $gitFiles = @($gitStatusFiles) + @($gitBranchFiles);
 
   if (!$FullPaths) {
     # Convert to containing folder paths
