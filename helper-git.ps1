@@ -188,14 +188,26 @@ function GitAddAll {
     $path = $line.Substring(3);
     
     switch ($info) {
-      " M" {
+      " M" { # Modified in working directory
         git add $path;
       }
-      "??" {
+      "MM" { # Modified in index and working directory
         git add $path;
       }
-      " D" {
+      "??" { # Untracked
+        git add $path;
+      }
+      " D" { # Deleted
         git rm $path;
+      }
+      "AD" { # Added to index and deleted
+        git rm $path;
+      }
+      "AM" { # Added to index and modified
+        git add $path;
+      }
+      "RM" { # Removed from index and modified
+        git add $path;
       }
       default {
         Write-Error "Unknown info kind $info for $path";
