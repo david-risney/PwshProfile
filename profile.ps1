@@ -388,10 +388,16 @@ if (($Update -eq "On")) { # -or !(Get-Command bat -ErrorAction Ignore)) {
   # bat relies on less for paging
   Write-Verbose "Updating less";
   winget install jftuga.less;
+
+  # Install ov https://github.com/noborus/ov?tab=readme-ov-file#winget(windows)
+  winget install -e --id noborus.ov
+
+  # Install delta https://github.com/dandavison/delta?tab=readme-ov-file
+  winget install dandavison.delta
 }
 # Use bat --list-themes to see all themes
 # And then set the theme you want using:
-$env:BAT_THEME = "OneHalfDark";
+$env:BAT_THEME = "ansi";
 
 # Use some specific command line params with less:
 # -r - don't escape control characters - this includes ANSI escape sequences for colors and links.
@@ -407,6 +413,21 @@ $env:LESS = ("-rFX --use-color --color=P-- --prompt=" + (oh-my-posh print primar
 [Console]::OutputEncoding = $prev;
 
 $env:BAT_PAGER = ("less " + $env:LESS);
+
+# Delta config
+git config --global core.pager "delta --hyperlinks"
+git config --global interactive.diffFilter "delta --color-only --hyperlinks"
+git config --global delta.navigate true
+git config --global merge.conflictStyle zdiff3
+$gitRemote = git remote get-url origin 2> $null;
+if ($gitRemote) {
+  $deltaFlags = '--hyperlinks';
+  if ($gitRemote -eq "https://chromium.googlesource.com/chromium/src.git") {
+    $deltaFlags += ' --hyperlinks-commit-link-format="https://source.chromium.org/chromium/chromium/src/+/{commit}"'
+  }
+  git config core.pager "delta $deltaFlags"
+  git config interactive.diffFilter "delta --color-only $deltaFlags"
+}
 
 Write-Verbose "Updating glow";
 winget install charmbracelet.glow;
