@@ -21,6 +21,9 @@ if (Get-Command goma_ctl -ErrorAction Ignore) {
   # for more info on the percent escape codes for NINJA_STATUS
   # Use `e]9;4... to show progress https://learn.microsoft.com/en-us/windows/terminal/tutorials/progress-bar-sequences
   $env:NINJA_STATUS = "`e[K`e[1;37;44m[`e]8;;$gomaUri`e\%f/%t`e]8;;`e\]`e[0m";
+} else {
+  # If goma isn't in use then just show the build progress
+  $env:NINJA_STATUS = "`e[K`e[1;37;44m[%f/%t %p %P]`e[0m";
 }
 
 function Format-TerminalClickableString {

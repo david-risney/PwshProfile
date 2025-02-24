@@ -415,18 +415,18 @@ $env:LESS = ("-rFX --use-color --color=P-- --prompt=" + (oh-my-posh print primar
 $env:BAT_PAGER = ("less " + $env:LESS);
 
 # Delta config
-git config --global core.pager "delta --hyperlinks"
-git config --global interactive.diffFilter "delta --color-only --hyperlinks"
+$deltaArgs = "--line-numbers --hyperlinks --hyperlinks-file-link-format=`"vscode://file/{path}:{line}`" --hunk-header-decoration-style=`"bold`" --file-decoration-style=`"ol white bold`""
+git config --global core.pager "delta $deltaArgs";
+git config --global interactive.diffFilter "delta --color-only $deltaArgs";
 git config --global delta.navigate true
 git config --global merge.conflictStyle zdiff3
 $gitRemote = git remote get-url origin 2> $null;
 if ($gitRemote) {
-  $deltaFlags = '--hyperlinks';
   if ($gitRemote -eq "https://chromium.googlesource.com/chromium/src.git") {
-    $deltaFlags += ' --hyperlinks-commit-link-format="https://source.chromium.org/chromium/chromium/src/+/{commit}"'
+    $deltaArgs += ' --hyperlinks-commit-link-format="https://source.chromium.org/chromium/chromium/src/+/{commit}"'
   }
-  git config core.pager "delta $deltaFlags"
-  git config interactive.diffFilter "delta --color-only $deltaFlags"
+  git config core.pager "delta $deltaArgs"
+  git config interactive.diffFilter "delta --color-only $deltaArgs"
 }
 
 Write-Verbose "Updating glow";
