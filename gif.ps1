@@ -87,15 +87,24 @@ function GifToAscii {
     $frameCount = $RawImage.GetFrameCount($frameDimension);
 
     # Save cursor position at start of writing image
-    "$e[s";
+    # "$e[s";
 
     for ($i = 0; $i -lt $frameCount; $i++) {
         # Restore cursor position before writing image
-        "$e[u";
+        # "$e[u";
+        if ($i -gt 0) {
+            # Move back to the start of the previous frame to overwrite it.
+            "$e[${heightInLines}F$e[0G";
+        }
         [void]$RawImage.SelectActiveFrame($frameDimension, $i);
-        $delay = [System.BitConverter]::ToUInt16($RawImage.GetPropertyItem(0x5100).Value, $i * 4) / 1000;
+
+        $propertyItem = $RawImage.GetPropertyItem(0x5100);
+        $delay = ($propertyItem.Value[0] + $propertyItem.Value[1] * 256) / 100;
+        # $delay = [System.BitConverter]::ToUInt16($RawImage.GetPropertyItem(0x5100).Value, $i * 4) / 1000;
         $clone = $RawImage.Clone();
-        GifBitmapToAscii -RawImage $clone -alphathreshold $alphathreshold -COLUMNS $COLUMNS -ascii:$ascii;
+        $asciiText = GifBitmapToAscii -RawImage $clone -alphathreshold $alphathreshold -COLUMNS $COLUMNS -ascii:$ascii;
+        $asciiText ;
+        $heightInLines = $asciiText.length + 1;
 
         # Get the pause time for the current animation frame
         # Pause for the delay time
@@ -103,7 +112,7 @@ function GifToAscii {
     }
 
     # Save cursor position at end of writing image so we don't overwrite it anymore
-    "$e[s";
+    # "$e[s";
 }
 
 GifToAscii -ImagePath $ImagePath -alphathreshold $alphathreshold -COLUMNS $COLUMNS -ascii:$ascii
