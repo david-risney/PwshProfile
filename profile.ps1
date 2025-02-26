@@ -1,6 +1,6 @@
 <#
 .Description
-[Dave Risney's profile.ps1](https://github.com/david-risney/PwshProfile). Install, load, and configure command line tools 
+[Dave Risney's profile.ps1](https://github.com/david-risney/PwshProfile). Install, load, and configure command line tools
 and such for PowerShell.
 #>
 [CmdletBinding()]
@@ -123,7 +123,7 @@ if ($Update -eq "On") {
   Write-Verbose "Update Terminal-Icons";
   Install-Module -Name Terminal-Icons -Repository PSGallery -Force -SkipPublisherCheck;
 }
-Import-Module Terminal-Icons; # 
+Import-Module Terminal-Icons; #
 #endregion
 
 #region cd-extras
@@ -149,7 +149,7 @@ if ($Update -eq "On") {
   Write-Verbose "Updating BurntToast";
   Install-Module -Name BurntToast -SkipPublisherCheck;
 }
-Import-Module BurntToast; 
+Import-Module BurntToast;
 #endregion
 
 #region ohmyposh
@@ -164,7 +164,7 @@ oh-my-posh init pwsh --config $ohmyposhConfigPath | Invoke-Expression;
 #endregion
 
 #region poshgit
-# Why are't I using [posh git](https://github.com/dahlbyk/posh-git)? Posh-Git does two things: 
+# Why are't I using [posh git](https://github.com/dahlbyk/posh-git)? Posh-Git does two things:
 # 1. **Pretty prompt**: I don't need the pretty prompt because I have oh-my-posh which does that and more.
 # 2. **Tab completion**: I don't want tab completion because in big projects git is slow and then tab completion is very slow and blocks the prompt.
 #
@@ -334,7 +334,12 @@ function Clickify {
         };
         $uniqueValues = $matches.Value | Sort Length -Uniq -Desc;
         $uniqueValues | ?{ $_.Trim().Length -gt 0 } | ?{ Test-Path $_ } | %{
-          $String = $String.Replace($_, (Format-TerminalClickableString $_ $_));
+          $curValue = $_;
+          # If the current value is a substring of something else then its
+          # already covered and we can skip it.
+          if (!($uniqueValues | ?{ $_ -ne $curValue -and $_.Contains($curValue) })) {
+            $String = $String.Replace($curValue, (Format-TerminalClickableString $curValue $curValue));
+          }
         }
         $String;
       }
@@ -449,7 +454,7 @@ function BatGlowHelper {
 # I'm never going to remember to use bat because my fingers
 # are too used to typing more. So just alias more to bat.
 # Get-Content (gc) is the powershell version of cat that won't
-# add line numbers and extra decorations and can handle 
+# add line numbers and extra decorations and can handle
 # PowerShell specific paths like env: and function:
 Set-Alias more BatGlowHelper;
 #endregion
