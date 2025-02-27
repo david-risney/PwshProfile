@@ -399,6 +399,9 @@ if (($Update -eq "On")) { # -or !(Get-Command bat -ErrorAction Ignore)) {
 
   # Install delta https://github.com/dandavison/delta?tab=readme-ov-file
   winget install dandavison.delta
+
+  Write-Verbose "Updating glow";
+  winget install charmbracelet.glow;
 }
 # Use bat --list-themes to see all themes
 # And then set the theme you want using:
@@ -411,11 +414,12 @@ $env:BAT_THEME = "ansi";
 # --use-color - use color
 # --color=P - change the prompt color
 # --prompt= - change the prompt
-$prev = [Console]::OutputEncoding;
-[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new();
-$lessOhMyPoshJson = (Join-Path $PSScriptRoot "less-oh-my-posh.json");
-$env:LESS = ("-rFX --use-color --color=P-- --prompt=" + (oh-my-posh print primary --config $lessOhMyPoshJson).Replace("\", "\\").Replace(":", "\:").Replace("?", "\?").Replace(".", "\.") + '$');
-[Console]::OutputEncoding = $prev;
+# Disable this for now. Other things like bat and delta get confused about encodings
+# $prev = [Console]::OutputEncoding;
+# [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new();
+# $lessOhMyPoshJson = (Join-Path $PSScriptRoot "less-oh-my-posh.json");
+# $env:LESS = ("-rFX --use-color --color=P-- --prompt=" + (oh-my-posh print primary --config $lessOhMyPoshJson).Replace("\", "\\").Replace(":", "\:").Replace("?", "\?").Replace(".", "\.") + '$');
+# [Console]::OutputEncoding = $prev;
 
 $env:BAT_PAGER = ("less " + $env:LESS);
 
@@ -433,9 +437,6 @@ if ($gitRemote) {
   git config core.pager "delta $deltaArgs"
   git config interactive.diffFilter "delta --color-only $deltaArgs"
 }
-
-Write-Verbose "Updating glow";
-winget install charmbracelet.glow;
 
 function BatGlowHelper {
   param(
