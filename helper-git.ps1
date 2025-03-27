@@ -941,4 +941,4 @@ function Get-Notes {
     glow $notesPath;
   }
 }
-New-Alias notes Get-Notes;
+New-Alias -f notes Get-Notes;

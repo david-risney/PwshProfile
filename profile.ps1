@@ -430,17 +430,17 @@ $env:BAT_PAGER = ("less " + $env:LESS);
 
 # Delta config
 $deltaArgs = "--line-numbers --hyperlinks --hyperlinks-file-link-format=`"vscode://file/{path}:{line}`" --hunk-header-decoration-style=`"bold`" --file-decoration-style=`"ol white bold`""
-git config --global core.pager "delta $deltaArgs";
-git config --global interactive.diffFilter "delta --color-only $deltaArgs";
-git config --global delta.navigate true
-git config --global merge.conflictStyle zdiff3
+git config --global core.pager "delta $deltaArgs" 2> $null;
+git config --global interactive.diffFilter "delta --color-only $deltaArgs" 2> $null;
+git config --global delta.navigate true 2> $null;
+git config --global merge.conflictStyle zdiff3 2> $null;
 $gitRemote = git remote get-url origin 2> $null;
 if ($gitRemote) {
   if ($gitRemote -eq "https://chromium.googlesource.com/chromium/src.git") {
     $deltaArgs += ' --hyperlinks-commit-link-format="https://source.chromium.org/chromium/chromium/src/+/{commit}"'
   }
-  git config core.pager "delta $deltaArgs"
-  git config interactive.diffFilter "delta --color-only $deltaArgs"
+  git config core.pager "delta $deltaArgs" 2> $null;
+  git config interactive.diffFilter "delta --color-only $deltaArgs" 2> $null;
 }
 
 function BatGlowHelper {
