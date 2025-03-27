@@ -301,6 +301,14 @@ function GetAdoAuthTokenForOrigin {
   az account get-access-token --query accessToken --output tsv # --resource=$OriginUri;
 }
 
+function Get-ReviewedBy {
+  param([string] $Path);
+  git log -- $Path | 
+    Select-String "Reviewed-by: (.*)" | 
+    Group | Sort Count -Descending | 
+    Select Name, Count;
+}
+
 function Search-GitCode {
   param([string] $Query,
         [ValidateSet("Rg","Files","FullName","PSObject")] [string] $OutputFormat = "Rg");
