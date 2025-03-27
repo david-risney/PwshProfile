@@ -35,6 +35,11 @@ if ($Update -eq "On") {
   gsudo config CacheMode Auto
 }
 
+if ($Update -eq "On") {
+  Write-Verbose "Updating TerminalPreview";
+  winget install Microsoft.WindowsTerminal.Preview;
+}
+
 # Update PATHs to include all the bin-like folders in your user folder
 $env:PATH = ($env:PATH.split(";") + @(Get-ChildItem ~\*bin) + @(Get-ChildItem ~\*bin\* -Directory) + @(Get-ChildItem ~\*bin\*bin -Directory)) -join ";";
 
