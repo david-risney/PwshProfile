@@ -536,7 +536,7 @@ IncrementProgress "Done";
 # We run it last AFTER all the IncrememntProgress calls because the
 # PowerShell progress indicator clears the WinFetch logo display
 if ($WinFetch -eq "Auto") {
-  if ((Get-Process -Id $PID).Parent.ProcessName -eq "WindowsTerminal") {
+  if ((Get-Process -Id $PID).Parent.ProcessName -ne "pwsh") {
     $WinFetch = "On";
   } else {
     $WinFetch = "Off";
