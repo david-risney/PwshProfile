@@ -484,38 +484,21 @@ function Search-GitAdoCode {
     }
 }
 
-function Watch-AdoPullRequestIssues {
+function Watch-PullRequestIssues {
     param(
         [string] $Path = ".",
         [Alias("prid")] [string] $PullRequestId = $null,
-        [string] $Organization = $null,# = "microsoft",
-        [string[]] $ProjectNames = $null,# = @("OS"),
-        [string[]] $RepositoryNames = $null,# = @("os"),
-        [string[]] $BranchNames = @(),
-        [string] $AuthenticationPersonalAccessToken = $null,
-        [ValidateSet("Text", "ErrorText", "PSObject")] [string] $OutputFormat = "Text",
-        [string] $ApiHost = "dev.azure.com",
-        [string] $ApiName = "_apis/git/repositories",
         [string] $BuildErrors = "exclude",
         [int32] $WatchDelayInSeconds = 1 * 60
         );
 
     do {
       "---START LOG note---";
-      ("Getting ADO PR Issues $PullRequestId at " + (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"));
+      ("Getting Issues $PullRequestId at " + (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"));
       "";
 
-      Get-AdoPullRequestIssues `
+      Get-PullRequestIssues `
         -Path $Path `
-        -PullRequestId $PullRequestId `
-        -Organization $Organization `
-        -ProjectNames $ProjectNames `
-        -RepositoryNames $RepositoryNames `
-        -BranchNames $BranchNames `
-        -AuthenticationPersonalAccessToken $AuthenticationPersonalAccessToken `
-        -OutputFormat $OutputFormat `
-        -ApiHost $ApiHost `
-        -ApiName $ApiName `
         -BuildErrors $BuildErrors;
 
       "---END LOG note---";
@@ -523,6 +506,87 @@ function Watch-AdoPullRequestIssues {
       Start-Sleep $WatchDelayInSeconds;
     } while ($WatchDelayInSeconds -gt 0);
     
+}
+
+function Get-PullRequestIssues {
+    param(
+        [string] $Path = ".",
+        [Alias("prid")] [string] $PullRequestId = $null,
+        [string] $BuildErrors = "exclude"
+        );
+
+  if (git cl 2>&1 | Where-Object { $_ -match 'is not a git command' }) {
+    Get-AdoPullRequestIssues @args;
+  } else {
+    Get-GerritPullRequestIssues @args;
+  }
+}
+
+function Get-GerritPullRequestIssues {
+  param(
+    [ValidateSet("Text", "ErrorText", "PSObject")] [string] $OutputFormat = "Text"
+  );
+
+  pushd $Path;
+
+  $msgOutput = git cl comments -m -j -;
+
+  popd;
+
+  $msgJson = $msgOutput[-1];
+  $msgs = $msgJson | ConvertFrom-Json;
+  $results = @();
+
+  $msgs | ForEach-Object {
+    $msg = $_;
+    $patchSet = -1;
+    $msgContentChunks = $msg.message.Split("`n`n");
+
+    if ($msgContentChunks.Count -gt 1 -and $msgContentChunks[0] -match "Patch Set ([0-9]+)") {
+      $patchSet = [int]$matches[1];
+    }
+
+    $msgContentChunks[2..($msgContentChunks.Count - 1)] | ForEach-Object {
+      $msgContentChunk = $_;
+      if ($msgContentChunk -match "([^:]+):([0-9]+):[^\n]+\n(.*)") {
+        $file = $matches[1];
+        $line = [int]$matches[2];
+        $column = 1;
+        $text = $matches[3];
+
+        $results += @(New-Object PSObject @{
+          "file"=$file;
+          "line"=$line;
+          "column"=$column;
+          "text"=$text;
+          "patchset"=$patchSet;
+          "sender"=$msg.sender;
+          "date"=([datetime]$msg.date);
+        });
+      }
+    }
+
+    switch ($OutputFormat) {
+        "ErrorText" {
+            $results | ForEach-Object {
+                Write-Error ("$($_.file)($($_.line),$($_.column)): error: $($_.text)");
+            }
+        }
+
+        "Text" {
+            $results | ForEach-Object {
+                $path = "../../" + $_.file.TrimStart("/");
+                $text = @($_.text) -join " ";
+                $text = $text.Replace("`r", " ").Replace("`n", " ");
+                ("$path($($_.line),$($_.column)): error: $text");
+            }
+        }
+
+        "PSObject" {
+            $results;
+        }
+    } 
+  }
 }
 
 function Get-AdoPullRequestIssues {
