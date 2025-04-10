@@ -305,8 +305,8 @@ function Get-ReviewedBy {
   param([string] $Path);
   git log -- $Path | 
     Select-String "Reviewed-by: (.*)" | 
-    Group | Sort Count -Descending | 
-    Select Name, Count;
+    Group-Object | Sort-Object Count -Descending | 
+    Select-Object Name, Count;
 }
 
 function Search-GitCode {
@@ -527,11 +527,11 @@ function Get-GerritPullRequestIssues {
     [ValidateSet("Text", "ErrorText", "PSObject")] [string] $OutputFormat = "Text"
   );
 
-  pushd $Path;
+  Push-Location $Path;
 
   $msgOutput = git cl comments -m -j -;
 
-  popd;
+  Pop-Location;
 
   $msgJson = $msgOutput[-1];
   $msgs = $msgJson | ConvertFrom-Json;
@@ -604,10 +604,8 @@ function Get-AdoPullRequestIssues {
         [string] $BuildErrors = "exclude"
         );
     
-    pushd $Path;
+    Push-Location $Path;
 
-    $root = Get-LocationRoot;
-  
     $gitRemote = (git remote -v)[0].Split("`t")[1].Split(" ")[0];
     if ($gitRemote -match "https\:\/\/([^\.]+)\.visualstudio.com\/([^/]+)\/_git\/(.*)") {
       $Organization = $matches[1].ToLower();
@@ -683,22 +681,22 @@ function Get-AdoPullRequestIssues {
 
     if ($BuildErrors -eq "include") {
       $buildIds = @($result.value | ForEach-Object {
-        $_.comments | ?{ $_.content } | %{ 
-          $_.content.split("`n") | ?{ $_.Contains("Failed"); } | %{
+        $_.comments | Where-Object { $_.content } | ForEach-Object {
+          $_.content.split("`n") | Where-Object { $_.Contains("Failed"); } | ForEach-Object {
               if ($_ -match "buildId=([0-9]+)") {
                 $matches[1];
               }
             }
           }
-        }) | ?{ $_ };
-      $buildIds | %{
+        }) | Where-Object { $_ };
+      $buildIds | ForEach-Object {
         $build = (Get-AdoBuild -BuildId $_);
         $timelineUri = $build._links.timeline.href;
         $timelineResult = (Invoke-RestMethod -Uri $timelineUri -Method Get -ContentType "application/json" -Headers @{Authorization=("Basic {0}" -f $base64AuthInfo)});
-        $timelineResult.records | ?{ $_.issues } | %{
+        $timelineResult.records | Where-Object { $_.issues } | ForEach-Object {
           $logUri = $_.log.url;
           $logResult = (Invoke-RestMethod -Uri $logUri -Method Get -ContentType "application/json" -Headers @{Authorization=("Basic {0}" -f $base64AuthInfo)});
-          $logResult.Split("`n") | ?{ $_.Contains(" error:") } | %{
+          $logResult.Split("`n") | Where-Object { $_.Contains(" error:") } | ForEach-Object {
             $spaceIdx = $_.IndexOf(" ");
             $line = $_.Substring($spaceIdx + 1);
             if ($line -match "([^:]+):([0-9]+):([0-9]+):[^:]+: (.*)") {
@@ -744,7 +742,7 @@ function Get-AdoPullRequestIssues {
         }
     } 
 
-    popd;
+    Pop-Location;
 }
 
 function Get-AdoBuild {
@@ -762,10 +760,8 @@ function Get-AdoBuild {
         [string] $ApiName = "_apis/build/builds"
         );
     
-    pushd $Path;
+    Push-Location $Path;
 
-    $root = Get-LocationRoot;
-  
     $gitRemote = (git remote -v)[0].Split("`t")[1].Split(" ")[0];
     if ($gitRemote -match "https\:\/\/([^\.]+)\.visualstudio.com\/([^/]+)\/_git\/(.*)") {
       $Organization = $matches[1].ToLower();
@@ -800,7 +796,7 @@ function Get-AdoBuild {
     $BranchNames = @($BranchNames);
     $ProjectNames = @($ProjectNames);
     $RepositoryNames = @($RepositoryNames);
-    $repoName = $RepositoryNames[0];
+    # $repoName = $RepositoryNames[0];
   
     # $fullUri = "https://$ApiHost/$Organization/$ProjectNames/$ApiName/$repoName/pullRequests/$PullRequestId/threads?api-version=7.1-preview.1";
     $fullUri = ("https://$ApiHost/$Organization/$ProjectNames/$ApiName/$BuildId" + "?api-version=7.1-preview.1");
@@ -816,7 +812,7 @@ function Get-AdoBuild {
 
     $result;
 
-    popd;
+    Pop-Location;
 }
 
 function Get-AdoBuildLogs {
@@ -835,10 +831,8 @@ function Get-AdoBuildLogs {
         [string] $ApiName = "_apis/build/builds"
         );
     
-    pushd $Path;
+    Push-Location $Path;
 
-    $root = Get-LocationRoot;
-  
     $gitRemote = (git remote -v)[0].Split("`t")[1].Split(" ")[0];
     if ($gitRemote -match "https\:\/\/([^\.]+)\.visualstudio.com\/([^/]+)\/_git\/(.*)") {
       $Organization = $matches[1].ToLower();
@@ -873,7 +867,7 @@ function Get-AdoBuildLogs {
     $BranchNames = @($BranchNames);
     $ProjectNames = @($ProjectNames);
     $RepositoryNames = @($RepositoryNames);
-    $repoName = $RepositoryNames[0];
+    # $repoName = $RepositoryNames[0];
   
     # $fullUri = "https://$ApiHost/$Organization/$ProjectNames/$ApiName/$repoName/pullRequests/$PullRequestId/threads?api-version=7.1-preview.1";
     $fullUri = ("https://$ApiHost/$Organization/$ProjectNames/$ApiName/$BuildId/logs/$LogId" + "?api-version=7.1-preview.2");
@@ -886,7 +880,7 @@ function Get-AdoBuildLogs {
     $result = (Invoke-RestMethod -Uri $fullUri -Method Get -ContentType "application/json" -Headers @{Authorization=("Basic {0}" -f $base64AuthInfo)});
     $result;
 
-    popd;
+    Pop-Location;
 }
 
 function Get-AdoPullRequestForBranch {
@@ -902,8 +896,6 @@ function Get-AdoPullRequestForBranch {
         [string] $ApiName = "_apis/git/repositories"
         );
     
-    $root = Get-LocationRoot;
-  
     $gitRemote = (git remote -v)[0].Split("`t")[1].Split(" ")[0];
     if ($gitRemote -match "https\:\/\/([^\.]+)\.visualstudio.com\/([^/]+)\/_git\/(.*)") {
       $Organization = $matches[1].ToLower();
