@@ -1,3 +1,4 @@
+[CmdletBinding()]
 param(
     [string]$ImagePath,
     [int]$alphathreshold = 50,
@@ -99,10 +100,10 @@ function GifToAscii {
     );
 
     Add-Type -AssemblyName 'System.Drawing'
-    $RawImage = if (Test-Path $image -PathType Leaf) {
+    $RawImage = if (Test-Path $ImagePath -PathType Leaf) {
         [Drawing.Bitmap]::FromFile((Resolve-Path $ImagePath))
     } else {
-        throw "Unsupported ImagePath type: $image";
+        throw "Unsupported ImagePath type: $ImagePath";
     }
 
     $frameDimension = New-Object System.Drawing.Imaging.FrameDimension($RawImage.FrameDimensionsList[0]);

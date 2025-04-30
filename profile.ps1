@@ -545,11 +545,16 @@ if ($WinFetch -eq "Auto") {
 
 if ($WinFetch -eq "On") {
   # Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -OutFile .\winfetch.ps1 -UseBasicParsing
-  $gifPath = (Join-Path $PSScriptRoot "gifs\kirby.ps1")
-  .$gifPath;
+  $gifContainerPath = (Join-Path $PSScriptRoot "gifs");
+  $gifFileOptions = Get-ChildItem $gifContainerPath -File -Filter *.ps1;
+  # pick a random gif file to use
+  $logoPs1File = $gifFileOptions | Get-Random;
+  $logoGifFile = (Join-Path $PSScriptRoot "gifs\$($logoPs1File.BaseName).gif");
+
+  .($logoPs1File.FullName);
   $winfetchPath = (Join-Path $PSScriptRoot "winfetch.ps1");
   $winfetchConfigPath = (Join-Path $PSScriptRoot "winfetch-config.ps1");
-  $winfetchLogoPath = (Join-Path $PSScriptRoot ".\gifs\kirby.gif");
+  $winfetchLogoPath = $logoGifFile;
   .$winfetchPath -config $winfetchConfigPath -image $winfetchLogoPath;
 }
 #endregion
