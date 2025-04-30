@@ -545,6 +545,9 @@ if ($WinFetch -eq "Auto") {
 
 if ($WinFetch -eq "On") {
   # Invoke-WebRequest "https://raw.githubusercontent.com/lptstr/winfetch/master/winfetch.ps1" -OutFile .\winfetch.ps1 -UseBasicParsing
+  $gifPath = (Join-Path $PSScriptRoot "gifs\kirby.ps1")
+  .$gifPath;
+  Clear-Host;
   $winfetchPath = (Join-Path $PSScriptRoot "winfetch.ps1");
   $winfetchConfigPath = (Join-Path $PSScriptRoot "winfetch-config.ps1");
   $winfetchLogoPath = (Join-Path $PSScriptRoot "logo.png");

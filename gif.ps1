@@ -2,7 +2,10 @@ param(
     [string]$ImagePath,
     [int]$alphathreshold = 50,
     [int]$COLUMNS = 35,
-    [switch] $ascii
+    [switch] $ascii,
+    [switch] $resetCursorAtEnd,
+    [single] $frameDelayScale = 1,
+    [string][ValidateSet("console", "script")] $OutputKind = "console" # Valid values: console, script
 )
 
 function GifBitmapToAscii {
@@ -68,12 +71,30 @@ function GifBitmapToAscii {
     $RawImage.Dispose()
 }
 
+function WriteOutputLine {
+    param($textLine);
+
+    if ($OutputKind -eq "console") {
+        $textLine;
+    } 
+    else {
+        $textLine -split "`n" | ForEach-Object {
+            # OutputKind is script
+            # Write asciiText out as a ' string with ' escaped
+            $escapedString = $_ -replace "'", "''" # Escape single quotes
+            "'$escapedString'"
+        }
+    }
+}
+
 function GifToAscii {
     param(
         [string]$ImagePath,
         [int]$alphathreshold,
         [int]$COLUMNS,
-        [switch] $ascii
+        [switch] $ascii,
+        [single] $frameDelayScale,
+        [switch] $resetCursorAtEnd
     );
 
     Add-Type -AssemblyName 'System.Drawing'
@@ -89,30 +110,44 @@ function GifToAscii {
     # Save cursor position at start of writing image
     # "$e[s";
 
+    # Hide the cursor
+    WriteOutputLine "$e[?25l";
+
     for ($i = 0; $i -lt $frameCount; $i++) {
         # Restore cursor position before writing image
         # "$e[u";
-        if ($i -gt 0) {
-            # Move back to the start of the previous frame to overwrite it.
-            "$e[${heightInLines}F$e[0G";
-        }
         [void]$RawImage.SelectActiveFrame($frameDimension, $i);
 
         $propertyItem = $RawImage.GetPropertyItem(0x5100);
         $delay = ($propertyItem.Value[0] + $propertyItem.Value[1] * 256) / 100;
         # $delay = [System.BitConverter]::ToUInt16($RawImage.GetPropertyItem(0x5100).Value, $i * 4) / 1000;
+        $delay = $delay * $frameDelayScale;
         $clone = $RawImage.Clone();
         $asciiText = GifBitmapToAscii -RawImage $clone -alphathreshold $alphathreshold -COLUMNS $COLUMNS -ascii:$ascii;
-        $asciiText ;
+        WriteOutputLine $asciiText;
+
         $heightInLines = $asciiText.length + 1;
 
         # Get the pause time for the current animation frame
         # Pause for the delay time
-        Start-Sleep -Seconds $delay;
+        if ($OutputKind -eq "console") {
+            Start-Sleep -Seconds $delay;
+        } else {
+            # Script output so we print out the command to sleep
+            "Start-Sleep -Seconds $delay;"
+        }
+
+        if ($i -lt $frameCount - 1 -or $resetCursorAtEnd) {
+            # Move back to the start of the previous frame to overwrite it.
+            WriteOutputLine "$e[${heightInLines}F$e[0G";
+        }
     }
 
     # Save cursor position at end of writing image so we don't overwrite it anymore
     # "$e[s";
+
+    # Display the cursor
+    WriteOutputLine "$e[?25h";
 }
 
-GifToAscii -ImagePath $ImagePath -alphathreshold $alphathreshold -COLUMNS $COLUMNS -ascii:$ascii
+GifToAscii -ImagePath $ImagePath -alphathreshold $alphathreshold -COLUMNS $COLUMNS -ascii:$ascii -resetCursorAtEnd:$resetCursorAtEnd -frameDelayScale:$frameDelayScale;
