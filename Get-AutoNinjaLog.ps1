@@ -4,20 +4,17 @@ param(
     [switch] $Watch);
 
 # find the most recently run folder under gitRoot\out
-$OutPath = (Get-ChildItem -Path "$Path\out" -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName;
-Write-Verbose "OutPath: $OutPath";
-
-$buildLogPath = "$OutPath\build.log";
+$buildLogPath = (Get-ChildItem @("$Path\out\*\siso_output","$Path\out\*\build.log") -File -ErrorAction Ignore | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName;
 Write-Verbose "BuildLogPath: $buildLogPath";
 
 if (!(Test-Path $buildLogPath)) {
     $thisScriptPath = $MyInvocation.MyCommand.Path;
-    "$thisScriptPath (1,1): error: build.log not found in $OutPath";
+    "$thisScriptPath (1,1): error: $buildLogPath not found";
     exit 1;
 } else {
     if (!($Watch)) {
-        findstr "error info warning note" "$OutPath\build.log"
+        findstr "error info warning note" "$buildLogPath"
     } else {
-        Get-Content $OutPath\build.log -Wait;
+        Get-Content $buildLogPath -Wait;
     }
 }

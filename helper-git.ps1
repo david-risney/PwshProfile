@@ -524,8 +524,15 @@ function Get-PullRequestIssues {
 
 function Get-GerritPullRequestIssues {
   param(
-    [ValidateSet("Text", "ErrorText", "PSObject")] [string] $OutputFormat = "Text"
+    [string] $Path = ".",
+    [ValidateSet("Text", "ErrorText", "PSObject")] [string] $OutputFormat = "Text",
+    [string] $BuildErrors = "exclude"
   );
+
+  # $BuildErrors: In the future consider using `git cl try-results -v -v --json=-` to get
+  # the build errors from the try job. Not sure if there's a good way to get build error
+  # details from that command. It has URL links to build details, but that doesn't look
+  # easily parseable and requires auth.
 
   Push-Location $Path;
 
