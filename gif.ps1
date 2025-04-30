@@ -2,6 +2,7 @@ param(
     [string]$ImagePath,
     [int]$alphathreshold = 50,
     [int]$COLUMNS = 35,
+    [int]$headerHeight = 2,
     [switch] $ascii,
     [switch] $resetCursorAtEnd,
     [single] $frameDelayScale = 1,
@@ -116,17 +117,24 @@ function GifToAscii {
     for ($i = 0; $i -lt $frameCount; $i++) {
         # Restore cursor position before writing image
         # "$e[u";
+
+        for ($headerLineIdx = 0; $headerLineIdx -lt $headerHeight; $headerLineIdx++) {
+            WriteOutputLine "";
+        }
         [void]$RawImage.SelectActiveFrame($frameDimension, $i);
 
         $propertyItem = $RawImage.GetPropertyItem(0x5100);
         $delay = ($propertyItem.Value[0] + $propertyItem.Value[1] * 256) / 100;
         # $delay = [System.BitConverter]::ToUInt16($RawImage.GetPropertyItem(0x5100).Value, $i * 4) / 1000;
+        if ($delay -le 0) {
+            $delay = 0.01;
+        }
         $delay = $delay * $frameDelayScale;
         $clone = $RawImage.Clone();
         $asciiText = GifBitmapToAscii -RawImage $clone -alphathreshold $alphathreshold -COLUMNS $COLUMNS -ascii:$ascii;
         WriteOutputLine $asciiText;
 
-        $heightInLines = $asciiText.length + 1;
+        $heightInLines = $asciiText.length + 1 + $headerHeight;
 
         # Get the pause time for the current animation frame
         # Pause for the delay time
