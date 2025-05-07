@@ -112,8 +112,8 @@
                     ],
                     "background": {
                         "activeOnStart": true,
-                        "beginsPattern": "---START LOG note---",
-                        "endsPattern": "---END LOG note---",
+                        "beginsPattern": "(---START LOG note---|FAILED: .*)",
+                        "endsPattern": "(---END LOG note---|[0-9]+ error(s)? generated.)",
                     }
                 },
                 {
@@ -134,8 +134,8 @@
                     ],
                     "background": {
                         "activeOnStart": true,
-                        "beginsPattern": "---START LOG note---",
-                        "endsPattern": "---END LOG note---",
+                        "beginsPattern": "(---START LOG note---|FAILED: .*)",
+                        "endsPattern": "(---END LOG note---|[0-9]+ error(s)? generated.)",
                     }
                 }
             ]
