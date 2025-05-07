@@ -57,9 +57,21 @@ function Get-GitPullRequestUri {
 function Open-PullRequest {
   $uri = Get-AdoPullRequestForBranch -OutputFormat Uri -ErrorAction Ignore;
   if (!($uri)) {
+    $uri = Get-GerritPullRequestUri -ErrorAction Ignore;
+  }
+  if (!($uri)) {
     $uri = Get-GitPullRequestUri;
   }
   Start-Process ($uri);
+}
+
+function Get-GerritPullRequestUri {
+  $result = (git cl issue --json - 2>&1);
+  if (!($result[0] -match "is not a git command")) {
+    $jsonString = $result[-1];
+    $json = $jsonString | ConvertFrom-Json;
+    $json.issue_url;
+  }
 }
 
 New-Alias -f Create-PullRequest Open-PullRequest;
