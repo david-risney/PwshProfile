@@ -4,8 +4,9 @@ param(
     [int]$alphathreshold = 50,
     [int]$COLUMNS = 35,
     [int]$headerHeight = 2,
+    [int]$leftPadding = 1,
     [switch] $ascii,
-    [switch] $resetCursorAtEnd,
+    [bool] $resetCursorAtEnd = $true,
     [single] $frameDelayScale = 1,
     [string][ValidateSet("console", "script")] $OutputKind = "console" # Valid values: console, script
 )
@@ -76,15 +77,20 @@ function GifBitmapToAscii {
 function WriteOutputLine {
     param($textLine);
 
+    # Create a string with leftPadding number of spaces called leftPaddingString
+    $leftPaddingString = " " * $leftPadding;
+
     if ($OutputKind -eq "console") {
-        $textLine;
+        $textLine -split "`n" | ForEach-Object {
+            "$leftPaddingString$_";
+        };
     } 
     else {
         $textLine -split "`n" | ForEach-Object {
             # OutputKind is script
             # Write asciiText out as a ' string with ' escaped
             $escapedString = $_ -replace "'", "''" # Escape single quotes
-            "'$escapedString'"
+            "'$leftPaddingString$escapedString'"
         }
     }
 }
@@ -133,7 +139,7 @@ function GifToAscii {
         $delay = $delay * $frameDelayScale;
         $clone = $RawImage.Clone();
         $asciiText = GifBitmapToAscii -RawImage $clone -alphathreshold $alphathreshold -COLUMNS $COLUMNS -ascii:$ascii;
-        WriteOutputLine $asciiText;
+        WriteOutputLine ($leftPaddingString + $asciiText);
 
         $heightInLines = $asciiText.length + 1 + $headerHeight;
 
