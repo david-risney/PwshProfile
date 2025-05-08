@@ -40,7 +40,11 @@
               "C:/s/1/src",
               "C:/s/2/src",
               "Q:/cr/src"
-            ]
+            ],
+            "upstream_icons": {
+              "Edge": "\uf282",
+              "chromium.googlesource.com": "\udb80\udeaf"
+            }
           },
           "trailing_diamond": "\ue0b4",
           "template": " {{ url .UpstreamIcon .UpstreamURL }}{{ url .HEAD .Env.OhMyPoshCustomBranchUri }}{{if .BranchStatus }} {{ .BranchStatus }}{{ end }}{{ if .Working.Changed }} \uf044 {{ .Working.String }}{{ end }}{{ if and (.Staging.Changed) (.Working.Changed) }} |{{ end }}{{ if .Staging.Changed }} \uf046 {{ .Staging.String }}{{ end }} ",
