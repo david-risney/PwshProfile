@@ -137,7 +137,7 @@ function Build-AutoNinja {
   # Clear progress
   Write-Host "`e]9;4;0;0`e\";
 }
-New-Alias -f autoninja Build-Autoninja;
+# New-Alias -f autoninja Build-Autoninja;
 
 # Todo
 # * Merge vscode tasks and settings JSON

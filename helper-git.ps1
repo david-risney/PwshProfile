@@ -332,6 +332,14 @@ function Get-ReviewedBy {
         $owners += $owner;
       }
     };
+  } else {
+    $ownersText = git ms owners $Path 2>&1;
+    if (!($ownersText -match "is not a git command")) {
+      $ownersText[1].Trim().Replace("Owners: ", "").Split("; ") | ForEach-Object {
+        $owner = $_.Split(":")[0].Trim();
+        $owners += $owner;
+      };
+    }
   }
 
   Write-Progress -Activity "Get-ReviewedBy" -Status "Getting history" -PercentComplete 40;
