@@ -338,14 +338,13 @@ function Get-ReviewedBy {
   $gitLog = git log -- $Path;
 
   Write-Progress -Activity "Get-ReviewedBy" -Status "Processing history" -PercentComplete 60;
-  $part1 = $gitLog | 
+  $gitLogProcessed = $gitLog | 
     Select-String "Reviewed-by: (.*)" | 
     Group-Object | 
-    Sort-Object Count -Descending |
     Select-Object Name, Count;
 
   Write-Progress -Activity "Get-ReviewedBy" -Status "Correlating history and owners" -PercentComplete 80;
-  $part2 = $part1 | 
+  $result = $gitLogProcessed | 
     Where-Object { !($_.Name.StartsWith(">")) } |
     ForEach-Object { 
       # Parse email out of name which looks like 'Reviewed-by: Name Othername <nothername@domain.org> '
@@ -363,17 +362,17 @@ function Get-ReviewedBy {
       }
 
       [pscustomobject]@{
-        ReviewCount = ($_.Count);
         Name = $fullName;
         Email = $email;
+        ReviewCount = ($_.Count);
         IsOwner = $isOwner;
       };
     } | 
-    Sort-Object IsOwner,ReviewCount -Descending;
+    Sort-Object ReviewCount -Descending;
 
   Write-Progress -Activity "Get-ReviewedBy" -Status "Done" -PercentComplete 100;
 
-  $part2;
+  $result;
 }
 
 function Search-GitCode {
