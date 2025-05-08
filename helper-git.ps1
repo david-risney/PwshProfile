@@ -315,10 +315,65 @@ function GetAdoAuthTokenForOrigin {
 
 function Get-ReviewedBy {
   param([string] $Path);
-  git log -- $Path | 
+  Write-Progress -Activity "Get-ReviewedBy" -Status "Getting owners" -PercentComplete 1;
+
+  # git cl owner --show-all output looks like the following:
+  # Owners for third_party/blink/renderer/core/loader/document_loader.cc:
+  #  - name@domain.org
+  #  - name2@domain2.org
+
+  $ownersText = git cl owner --show-all --batch $Path 2>&1;
+  $owners = @();
+  Write-Progress -Activity "Get-ReviewedBy" -Status "Processing owners" -PercentComplete 20;
+  if (!($ownersText -match "is not a git command")) {
+    $ownersText | ForEach-Object {
+      if (!($_ -match "Owners for (.*):")) {
+        $owner = $_.TrimStart("- ");
+        $owners += $owner;
+      }
+    };
+  }
+
+  Write-Progress -Activity "Get-ReviewedBy" -Status "Getting history" -PercentComplete 40;
+  $gitLog = git log -- $Path;
+
+  Write-Progress -Activity "Get-ReviewedBy" -Status "Processing history" -PercentComplete 60;
+  $part1 = $gitLog | 
     Select-String "Reviewed-by: (.*)" | 
-    Group-Object | Sort-Object Count -Descending | 
+    Group-Object | 
+    Sort-Object Count -Descending |
     Select-Object Name, Count;
+
+  Write-Progress -Activity "Get-ReviewedBy" -Status "Correlating history and owners" -PercentComplete 80;
+  $part2 = $part1 | 
+    Where-Object { !($_.Name.StartsWith(">")) } |
+    ForEach-Object { 
+      # Parse email out of name which looks like 'Reviewed-by: Name Othername <nothername@domain.org> '
+      $fullName = "";
+      $email = "";
+
+      if ($_.Name -match "Reviewed-by: ([^<]+) <([^>]+)>") {
+        $fullName = $matches[1].Trim();
+        $email = $matches[2].Trim();
+      }
+
+      $isOwner = $false;
+      if ($owners) {
+        $isOwner = ($owners | Where-Object { $_ -eq $email }).Count -gt 0;
+      }
+
+      [pscustomobject]@{
+        ReviewCount = ($_.Count);
+        Name = $fullName;
+        Email = $email;
+        IsOwner = $isOwner;
+      };
+    } | 
+    Sort-Object IsOwner,ReviewCount -Descending;
+
+  Write-Progress -Activity "Get-ReviewedBy" -Status "Done" -PercentComplete 100;
+
+  $part2;
 }
 
 function Search-GitCode {
