@@ -22,15 +22,19 @@ if (!(Test-Path $buildLogPath)) {
         findstr "error info warning note" "$buildLogPath"
     } else {
         $previousDate = $null;
-        $currentDate = (Get-ChildItem $buildLogPath).LastWriteTime;
+        $currentDate = $null;
+
         do {
+            $currentDate = (Get-ChildItem $buildLogPath).LastWriteTime;
+            Write-Host -NoNewline ".";
             if ($previousDate -ne $currentDate) {
                 $previousDate = $currentDate;
-                $currentDate = (Get-ChildItem $buildLogPath).LastWriteTime;
 
+                "";
                 "---START LOG note---";
                 Get-Content $buildLogPath;
                 "---END LOG note---";
+                "--$($currentDate)--";
             } else {
                 Start-Sleep -Seconds 1;
             }
