@@ -40,6 +40,11 @@ if ($Update -eq "On") {
   winget install Microsoft.WindowsTerminal.Preview;
 }
 
+if ($Update -eq "On") {
+  Write-Verbose "Updating SysInteranls";
+  winget install Microsoft.Sysinternals;
+}
+
 # Update PATHs to include all the bin-like folders in your user folder
 $env:PATH = ($env:PATH.split(";") + @(Get-ChildItem ~\*bin) + @(Get-ChildItem ~\*bin\* -Directory) + @(Get-ChildItem ~\*bin\*bin -Directory)) -join ";";
 
@@ -563,4 +568,3 @@ if ($WinFetch -eq "On") {
 # * Pull out prompt add-ons into separate functions
 # * Change winfetch logo for my edge repos
 # * Better icon for toast
-# * Check out https://github.com/dandavison/delta
