@@ -322,6 +322,15 @@ function Get-ReviewedBy {
   #  - name@domain.org
   #  - name2@domain2.org
 
+  # Ensure path is in the form git expects which is using forward slashes
+  # and is relative to the root of the git repository.
+  # eg C:\cr\src\content\renderer\a\b.cc -> content/renderer/a/b.cc
+  $Path = (Get-Item $Path).FullName.Replace("\", "/");
+  $gitRoot = (git rev-parse --show-toplevel).ToLower();
+  if ($Path.ToLower().StartsWith($gitRoot.ToLower())) {
+    $Path = $Path.Substring($gitRoot.Length).TrimStart("/");
+  }
+
   $ownersText = git cl owner --show-all --batch $Path 2>&1;
   $owners = @();
   Write-Progress -Activity "Get-ReviewedBy" -Status "Processing owners" -PercentComplete 20;
