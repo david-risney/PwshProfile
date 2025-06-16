@@ -45,6 +45,19 @@ if ($Update -eq "On") {
   winget install Microsoft.Sysinternals;
 }
 
+if ($Update -eq "On") {
+  Write-Verbose "Updating GH CLI";
+  winget install GitHub.cli
+
+  if (Get-Command gh -ErrorAction Ignore) {
+    # If gh is already installed, then update it
+    if (!(gh extension list | findstr copilot)) {
+      gh auth login;
+      gh extension install copilot;
+    }
+  }
+}
+
 # Update PATHs to include all the bin-like folders in your user folder
 $env:PATH = ($env:PATH.split(";") + @(Get-ChildItem ~\*bin) + @(Get-ChildItem ~\*bin\* -Directory) + @(Get-ChildItem ~\*bin\*bin -Directory)) -join ";";
 
