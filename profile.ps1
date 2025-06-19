@@ -233,6 +233,9 @@ function prompt {
     # Apply the [scrollbar marks](https://learn.microsoft.com/en-us/windows/terminal/tutorials/shell-integration).
     # This notes the start of the prompt
     Write-Host "`e]133;A$([char]07)" -NoNewline;
+    $loc = $($executionContext.SessionState.Path.CurrentLocation);
+    Write-Host "`e]9;9;`"$loc`"$([char]07)" -NoNewline;
+
 
     if (!$lastCommandSucceeded) {
         cmd /c "exit $previousLastExitCode";
