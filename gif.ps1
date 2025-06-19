@@ -8,6 +8,7 @@ param(
     [switch] $ascii,
     [bool] $resetCursorAtEnd = $true,
     [single] $frameDelayScale = 1,
+    [int] $repeatAnimationCount = 1,
     [string][ValidateSet("console", "script")] $OutputKind = "console" # Valid values: console, script
 )
 
@@ -121,9 +122,11 @@ function GifToAscii {
     # Hide the cursor
     WriteOutputLine "$e[?25l";
 
-    for ($i = 0; $i -lt $frameCount; $i++) {
+    for ($frameIdx = 0; $frameIdx -lt $frameCount * $repeatAnimationCount; $frameIdx++) {
         # Restore cursor position before writing image
         # "$e[u";
+
+        $i = $frameIdx % $frameCount;
 
         for ($headerLineIdx = 0; $headerLineIdx -lt $headerHeight; $headerLineIdx++) {
             WriteOutputLine "";
