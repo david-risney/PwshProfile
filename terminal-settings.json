@@ -4,7 +4,8 @@
         { "keys": "ctrl+up",   "command": { "action": "scrollToMark", "direction": "previous" } },
         { "keys": "ctrl+down", "command": { "action": "scrollToMark", "direction": "next" } },
 
-        { "keys": "win+`", "command": { "action": "globalSummon", "name": "_quake", "dropdownDuration": 200, "toggleVisibility": true, "monitor": "toMouse", "desktop": "toCurrent" } }
+        { "keys": "win+`", "command": { "action": "globalSummon", "name": "_quake", "dropdownDuration": 200, "toggleVisibility": true, "monitor": "toMouse", "desktop": "toCurrent" } },
+        { "keys": "ctrl+shift+f12", "command": { "action": "toggleShaderEffects" } }
     ],
     "profiles": 
     {
@@ -21,7 +22,8 @@
             "useAcrylic": false,
             "experimental.showMarksOnScrollbar": true,
             "experimental.autoMarkPrompts": true,
-            "experimental.rightClickContextMenu": true
+            "experimental.rightClickContextMenu": true,
+            "experimental.pixelShaderPath": "%USERPROFILE%\\PwshProfile\\terminal-shader-fancy-focus.hlsl"
         }
     },
     "schemes": 
