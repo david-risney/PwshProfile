@@ -53,7 +53,7 @@ if ($Update -eq "On") {
     # If gh is already installed, then update it
     if (!(gh extension list | findstr copilot)) {
       gh auth login;
-      gh extension install copilot;
+      gh extension install github/gh-copilot;
     }
   }
 }
