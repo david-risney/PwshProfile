@@ -549,6 +549,7 @@ if ($Update -eq "On") {
 
 IncrementProgress "Copying VSCode tasks.json";
 Copy-Item (Join-Path $PSScriptRoot "vscode-tasks.json") $env:APPDATA\code\user\tasks.json;
+function Diff-Code { code --diff $args; }
 
 IncrementProgress "Done";
 
