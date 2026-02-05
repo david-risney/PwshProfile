@@ -623,26 +623,60 @@ function Get-GerritPullRequestIssues {
 
   Pop-Location;
 
-  $msgJson = $msgOutput[-1];
+  if ($msgOutput.Count -gt 1) {
+    $msgJson = $msgOutput[-1];
+  } else {
+    $msgJson = $msgOutput;
+  }
+
   $msgs = $msgJson | ConvertFrom-Json;
   $results = @();
 
   $msgs | ForEach-Object {
     $msg = $_;
     $patchSet = -1;
-    $msgContentChunks = $msg.message.Split("`n`n");
+    # Format changed!
+    # $msgContentChunks = $msg.message.Split("`n`n");
 
-    if ($msgContentChunks.Count -gt 1 -and $msgContentChunks[0] -match "Patch Set ([0-9]+)") {
-      $patchSet = [int]$matches[1];
-    }
+    # if ($msgContentChunks.Count -gt 1 -and $msgContentChunks[0] -match "Patch Set ([0-9]+)") {
+    #   $patchSet = [int]$matches[1];
+    # }
 
-    $msgContentChunks[2..($msgContentChunks.Count - 1)] | ForEach-Object {
-      $msgContentChunk = $_;
-      if ($msgContentChunk -match "([^:]+):([0-9]+):[^\n]+\n(.*)") {
-        $file = $matches[1];
-        $line = [int]$matches[2];
+    # $msgContentChunks[2..($msgContentChunks.Count - 1)] | ForEach-Object {
+    #   $msgContentChunk = $_;
+    #   if ($msgContentChunk -match "([^:]+):([0-9]+):[^\n]+\n(.*)") {
+    #     $file = $matches[1];
+    #     $line = [int]$matches[2];
+    #     $column = 1;
+    #     $text = $matches[3];
+
+    #     $results += @(New-Object PSObject @{
+    #       "file"=$file;
+    #       "line"=$line;
+    #       "column"=$column;
+    #       "text"=$text;
+    #       "patchset"=$patchSet;
+    #       "sender"=$msg.sender;
+    #       "date"=([datetime]$msg.date);
+    #     });
+    #   }
+    # }
+
+    $msg.message | %{
+      if ($_.message -match "Patch Set ([0-9]+)") {
+        $messagePatchSet = [int]$matches[1];
+      }
+      $_.comments | %{
+        $patchSet = $messagePatchSet;
+        if ($_.patchset -and $_.patchset -match "PS([0-9]+)") {
+          $patchSet = [int]$matches[1];
+        }
+        $date = ([datetime]$msg.date);
+        $sender = $msg.sender;
+        $file = $_.path;
+        $line = $_.line;
         $column = 1;
-        $text = $matches[3];
+        $text = $_.content;
 
         $results += @(New-Object PSObject @{
           "file"=$file;
@@ -650,8 +684,8 @@ function Get-GerritPullRequestIssues {
           "column"=$column;
           "text"=$text;
           "patchset"=$patchSet;
-          "sender"=$msg.sender;
-          "date"=([datetime]$msg.date);
+          "sender"=$sender;
+          "date"=$date;
         });
       }
     }
