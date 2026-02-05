@@ -20,8 +20,8 @@
             "historySize": 65535,
             "opacity": 100,
             "useAcrylic": false,
-            "experimental.showMarksOnScrollbar": true,
-            "experimental.autoMarkPrompts": true,
+            "showMarksOnScrollbar": true,
+            "autoMarkPrompts": true,
             "experimental.rightClickContextMenu": true,
             "experimental.pixelShaderPath": "%USERPROFILE%\\PwshProfile\\terminal-shader-fancy-focus.hlsl"
         }
