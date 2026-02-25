@@ -233,6 +233,8 @@ function prompt {
     # Apply the [scrollbar marks](https://learn.microsoft.com/en-us/windows/terminal/tutorials/shell-integration).
     # This notes the start of the prompt
     Write-Host "`e]133;A$([char]07)" -NoNewline;
+
+    # Inform terminal of current path. See https://github.com/microsoft/terminal/issues/8166
     $loc = $($executionContext.SessionState.Path.CurrentLocation);
     Write-Host "`e]9;9;`"$loc`"$([char]07)" -NoNewline;
 
@@ -252,7 +254,6 @@ function prompt {
     # This notes the end of the prompt for scrollbar marks.
     Write-Host "`e]133;B$([char]07)" -NoNewLine;
 
-    # Use toasts to notify of completion of long running commands
     try {
       $lastCommandTookALongTime = $false;
       $lastCommandTime = 0;
@@ -262,6 +263,8 @@ function prompt {
           $lh = $h[$h.length - 1];
           $lastCommandTime = $lh.EndExecutionTime - $lh.StartExecutionTime;
           $lastCommandTookALongTime = $lastCommandTime.TotalSeconds -gt 10;
+
+          # Use toasts to notify of completion of long running commands
           if ($lh.ExecutionStatus -eq "Completed" -and $lastCommandTookALongTime) {
               $status = "Success: ";
               if (!$lastCommandSucceeded) {
