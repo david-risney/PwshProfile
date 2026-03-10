@@ -23,7 +23,7 @@
             "showMarksOnScrollbar": true,
             "autoMarkPrompts": true,
             "experimental.rightClickContextMenu": true,
-            "experimental.pixelShaderPath": "%USERPROFILE%\\PwshProfile\\terminal-shader-fancy-focus.hlsl"
+            // "experimental.pixelShaderPath": "%USERPROFILE%\\PwshProfile\\terminal-shader-fancy-focus.hlsl" // Disabling for now. It seems like there's a leak or something in terminal
         }
     },
     "schemes": 

@@ -8,6 +8,25 @@ param(
   [ValidateSet("On", "Off", "Async")] $Update = "Async",
   [ValidateSet("On", "Off", "Auto")] $WinFetch = "Auto");
 
+# If we're running in a non-interactive shell like say an AI is running a prompt
+# we don't to spend time on loading things helping us with auto complete or that
+# can confuse the AI. But we also want to still setup PATH and other things that
+# the AI does want.
+# Walk up the parent process tree. If we find something other than cmd, pwsh,
+# powershell before we get to WindowsTerimnal then we bail early.
+$checkProcess = Get-Process -Id $PID -ErrorAction Ignore;
+$foundUnknownProcessParent = $false;
+
+while (!($foundUnknownProcessParent) -and $checkProcess -and $checkProcess.ProcessName.ToLower() -ne "windowsterminal") {
+  if ($checkProcess.ProcessName.ToLower() -notin "cmd", "pwsh", "powershell", "windowsterminal") {
+    $foundUnknownProcessParent = $true;
+  }
+  $checkProcess = $checkProcess.Parent;
+}
+if ($foundUnknownProcessParent) {
+  return;
+}
+
 . (Join-Path $PSScriptRoot "helper-progress.ps1");
 
 # Find via (findstr /c "^IncrementProgress" .\profile.ps1).Count
