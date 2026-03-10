@@ -133,14 +133,14 @@ function Open-WebView2Docs {
   }
 }
 
-function GetEdgeProcesses {
+function GetBrowserProcesses {
     [cmdletbinding()]
     param(
         [string] $CommandLineMatch = "",
         [ValidateSet("All", "Canary", "Dev", "Beta", "Stable")]
             [string[]] $Channels = @("All"),
-        [ValidateSet("Edge", "WebView2")]
-            [string[]] $HostKinds = @("Edge", "WebView2"),
+        [ValidateSet("Chromium", "Chrome", "Edge", "WebView2")]
+            [string[]] $HostKinds = @("Chromium", "Chrome", "Edge", "WebView2"),
         [ValidateSet("All", "browser", "crashpad-handler", "gpu-process", "renderer", "utility")]
             [string[]] $ProcessKinds = @("All"),
         [switch] [alias("np")] $NoPretty
@@ -151,42 +151,56 @@ function GetEdgeProcesses {
     # interested in.
     $cimProcesses = @();
     $processes = @();
+    if ($HostKinds.Contains("Chrome") -or $HostKinds.Contains("Chromium")) {
+        $processes += Get-Process chrome -ErrorAction SilentlyContinue;
+        $cimProcesses += Get-cimInstance Win32_Process -Filter "Name='chrome.exe'";
+    }
     if ($HostKinds.Contains("Edge")) {
-        $processes += Get-Process msedge;
+        $processes += Get-Process msedge -ErrorAction SilentlyContinue;
         $cimProcesses += Get-cimInstance Win32_Process -Filter "Name='msedge.exe'";
     }
     if ($HostKinds.Contains("WebView2")) {
-        $processes += Get-Process msedgewebview2;
+        $processes += Get-Process msedgewebview2 -ErrorAction SilentlyContinue;
         $cimProcesses += Get-cimInstance Win32_Process -Filter "Name='msedgewebview2.exe'";
     }
 
-    $processes | ForEach-Object {
+    $processes = $processes | ForEach-Object {
         $currentProcess = $_;
 
         $MainModulePath = $_.MainModule.FileName.ToLower();
-        $currentProcess | Add-Member MainModulePath $MainModulePath;
+        [void]($currentProcess | Add-Member MainModulePath $MainModulePath);
 
         $HostKind = "Edge";
         if ($_.ProcessName -eq "msedge") {
             $HostKind = "Edge";
+        } elseif ($_.ProcessName -eq "chrome") {
+            if ($_.Product -eq "Chromium") {
+                $HostKind = "Chromium";
+            } else {
+                $HostKind = "Chrome";
+            }
         } else {
             $HostKind = "WebView2";
         }
-        $currentProcess | Add-Member HostKind $HostKind;
+        # Since chromium and chrome share the same executable name,
+        # Check if the HostKind doesn't match the HostKinds and if so
+        # skip this one
+        if (-not ($HostKinds -contains $HostKind)) {
+            return;
+        }
+        [void]($currentProcess | Add-Member HostKind $HostKind);
 
         $Channel = "Unknown";
-        if ($MainModulePath.Contains("\edge sxs\")) {
+        if ($MainModulePath.Contains("\edge sxs\") -or $MainModulePath.Contains("\chrome SxS\application\")) {
             $Channel = "Canary";
-        } elseif ($MainModulePath.Contains("\edge beta\")) {
+        } elseif ($MainModulePath.Contains("\edge beta\") -or $MainModulePath.Contains("\chrome beta\application\")) {
             $Channel = "Beta";
-        } elseif ($MainModulePath.Contains("\edge dev\")) {
+        } elseif ($MainModulePath.Contains("\edge dev\") -or $MainModulePath.Contains("\chrome dev\application\")) {
             $Channel = "Dev";
-        } elseif ($MainModulePath.Contains("\edge\")) {
-            $Channel = "Stable";
-        } elseif ($MainModulePath.Contains("\edgewebview\")) {
+        } elseif ($MainModulePath.Contains("\edge\") -or $MainModulePath.Contains("\edgewebview\") -or $MainModulePath.Contains("\chrome\application\")) {
             $Channel = "Stable";
         }
-        $currentProcess | Add-Member Channel $Channel;
+        [void]($currentProcess | Add-Member Channel $Channel);
 
         $currentProcessKind = "browser";
         $currentCommandLine = ($cimProcesses | Where-Object { 
@@ -199,9 +213,11 @@ function GetEdgeProcesses {
 
         $version = (Get-Item $MainModulePath).VersionInfo.FileVersion;
 
-        $currentProcess | Add-Member ProcessKind $currentProcessKind;
-        $currentProcess | Add-Member -Force EdgeCommandLine $currentCommandLine;
-        $currentProcess | Add-Member -Force Version $version;
+        [void]($currentProcess | Add-Member ProcessKind $currentProcessKind);
+        [void]($currentProcess | Add-Member -Force EdgeCommandLine $currentCommandLine);
+        [void]($currentProcess | Add-Member -Force Version $version);
+
+        $currentProcess;
     }
 
     $processes = $processes | Where-Object {
@@ -221,4 +237,4 @@ function GetEdgeProcesses {
             Format-Table HostKind,Version,Channel,ProcessKind,Id,EdgeCommandLine;
     }
 }
-New-Alias -f Get-EdgeProcesses GetEdgeProcesses;
+New-Alias -f Get-BrowserProcesses GetBrowserProcesses;
