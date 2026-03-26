@@ -109,6 +109,8 @@ function Get-GitUri {
         "?path=" + $uriEncodedCurrentPathInGit + `
         "&version=GB" + $uriEncodedCurrentBranch + `
         "&_a=contents";
+    } else {
+      $repoUri = $null;
     }
 
   }

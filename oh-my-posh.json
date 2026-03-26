@@ -47,7 +47,7 @@
             }
           },
           "trailing_diamond": "\ue0b4",
-          "template": " {{ url .UpstreamIcon .UpstreamURL }}{{ url .HEAD .Env.OhMyPoshCustomBranchUri }}{{if .BranchStatus }} {{ .BranchStatus }}{{ end }}{{ if .Working.Changed }} \uf044 {{ .Working.String }}{{ end }}{{ if and (.Staging.Changed) (.Working.Changed) }} |{{ end }}{{ if .Staging.Changed }} \uf046 {{ .Staging.String }}{{ end }} ",
+          "template": " {{ if .UpstreamURL }}{{ url .UpstreamIcon .UpstreamURL }}{{ else }}{{ .UpstreamIcon }}{{ end }}{{ if and .Env.OhMyPoshCustomBranchUri (contains .Env.OhMyPoshCustomBranchUri \"://\") }}{{ url .HEAD .Env.OhMyPoshCustomBranchUri }}{{ else }}{{ .HEAD }}{{ end }}{{if .BranchStatus }} {{ .BranchStatus }}{{ end }}{{ if .Working.Changed }} \uf044 {{ .Working.String }}{{ end }}{{ if and (.Staging.Changed) (.Working.Changed) }} |{{ end }}{{ if .Staging.Changed }} \uf046 {{ .Staging.String }}{{ end }} ",
           "foreground": "p:foreground-dark",
           "background": "p:background-git",
           "type": "git",
