@@ -241,9 +241,35 @@ function prompt {
       $currentPath = ((Get-Location).Path);
       # oh-my-posh can read environment variables so we put GIT related
       # info into environment variables to be read by our custom prompt
-      if ($env:OhMyPoshCustomBranchUriCachePath -ne $currentPath) {
+      if ((!$env:OhMyPoshCustomBranchUriCachePath) -or 
+          ($env:OhMyPoshCustomBranchUriCachePath -ne $currentPath)) {
         $env:OhMyPoshCustomBranchUri = Get-GitUri $currentPath;
         $env:OhMyPoshCustomBranchUriCachePath = $currentPath;
+
+        # Set tab title to repo name when inside a git folder, with a
+        # deterministic emoji picked from the repo path for quick visual distinction.
+        $gitRoot = Get-LocationRoot;
+        if ($gitRoot) {
+          if (!$env:DefaultWindowTitle) {
+            $env:DefaultWindowTitle = $Host.UI.RawUI.WindowTitle;
+          }
+          $repoEmoji = "📂","📦","🔀","🌿","⚙️","🛠️","🔧","💻","🗂️","📁","🚀","✨","🎯","🔥","💡","🏗️",
+            "🧪","🎨","🌐","🔒","📡","🧩","🪐","⚡","🦊","🐙","🔬","🎲","🧲","💎","🌀","🍀",
+            "🪄","🎵","🛡️","🦾","📌","🗺️","🧭","⛏️","🔑","🪵","🌊","🏔️","🎪","🧿","🪩","🫧",
+            "🐝","🦋","🐢","🐳","🦈","🦑","🦎","🐍","🦩","🦜","🐧","🦉","🐺","🦁","🐯","🐻",
+            "🍄","🌵","🌴","🎋","🌸","🌻","🍁","🍂","🍊","🍋","🍇","🍉","🥝","🥥","🌶️","🧅",
+            "🎸","🎺","🥁","🎻","🎹","🎷","📯","🪘","🧊","🔮","🪬","🧸","🎭","🎠","🎡","🎢",
+            "🏰","🗼","🗽","⛩️","🕌","🕍","⛪","🏛️","🛸","🚂","🚁","⛵","🚤","🏎️","🛻","🚜";
+          # Quick string hash using prime 31 (same as Java's String.hashCode) for good distribution.
+          # Mask with 0x7FFFFFFF each iteration to stay a positive int and avoid float promotion.
+          $hash = 0; foreach ($c in $gitRoot.ToCharArray()) { $hash = ($hash * 31 + [int]$c) -band 0x7FFFFFFF; }
+          $Host.UI.RawUI.WindowTitle = $repoEmoji[$hash % $repoEmoji.Length] + " " + (Split-Path $gitRoot -Leaf);
+        } else {
+          if (!$env:DefaultWindowTitle) {
+            $env:DefaultWindowTitle = "PowerShell";
+          }
+          $Host.UI.RawUI.WindowTitle = $env:DefaultWindowTitle
+        }
       }
     } catch {
       Write-Host ("Custom POSH env var prompt Error: " + $_);
