@@ -253,17 +253,24 @@ function prompt {
           if (!$env:DefaultWindowTitle) {
             $env:DefaultWindowTitle = $Host.UI.RawUI.WindowTitle;
           }
-          $repoEmoji = "📂","📦","🔀","🌿","⚙️","🛠️","🔧","💻","🗂️","📁","🚀","✨","🎯","🔥","💡","🏗️",
-            "🧪","🎨","🌐","🔒","📡","🧩","🪐","⚡","🦊","🐙","🔬","🎲","🧲","💎","🌀","🍀",
-            "🪄","🎵","🛡️","🦾","📌","🗺️","🧭","⛏️","🔑","🪵","🌊","🏔️","🎪","🧿","🪩","🫧",
-            "🐝","🦋","🐢","🐳","🦈","🦑","🦎","🐍","🦩","🦜","🐧","🦉","🐺","🦁","🐯","🐻",
-            "🍄","🌵","🌴","🎋","🌸","🌻","🍁","🍂","🍊","🍋","🍇","🍉","🥝","🥥","🌶️","🧅",
-            "🎸","🎺","🥁","🎻","🎹","🎷","📯","🪘","🧊","🔮","🪬","🧸","🎭","🎠","🎡","🎢",
-            "🏰","🗼","🗽","⛩️","🕌","🕍","⛪","🏛️","🛸","🚂","🚁","⛵","🚤","🏎️","🛻","🚜";
-          # Quick string hash using prime 31 (same as Java's String.hashCode) for good distribution.
-          # Mask with 0x7FFFFFFF each iteration to stay a positive int and avoid float promotion.
-          $hash = 0; foreach ($c in $gitRoot.ToCharArray()) { $hash = ($hash * 31 + [int]$c) -band 0x7FFFFFFF; }
-          $Host.UI.RawUI.WindowTitle = $repoEmoji[$hash % $repoEmoji.Length] + " " + (Split-Path $gitRoot -Leaf);
+          $gitOrigin = git remote get-url origin;
+          if ($gitOrigin -eq "https://chromium.googlesource.com/chromium/src.git") {
+            $Host.UI.RawUI.WindowTitle = "Chromium";
+          } elseif ($gitOrigin -match "https://[^.]+.visualstudio.com/[^/]+/([^/]+)/_git/.+") {
+            $Host.UI.RawUI.WindowTitle = $matches[1];
+          } else {
+            $repoEmoji = "📂","📦","🔀","🌿","⚙️","🛠️","🔧","💻","🗂️","📁","🚀","✨","🎯","🔥","💡","🏗️",
+              "🧪","🎨","🌐","🔒","📡","🧩","🪐","⚡","🦊","🐙","🔬","🎲","🧲","💎","🌀","🍀",
+              "🪄","🎵","🛡️","🦾","📌","🗺️","🧭","⛏️","🔑","🪵","🌊","🏔️","🎪","🧿","🪩","🫧",
+              "🐝","🦋","🐢","🐳","🦈","🦑","🦎","🐍","🦩","🦜","🐧","🦉","🐺","🦁","🐯","🐻",
+              "🍄","🌵","🌴","🎋","🌸","🌻","🍁","🍂","🍊","🍋","🍇","🍉","🥝","🥥","🌶️","🧅",
+              "🎸","🎺","🥁","🎻","🎹","🎷","📯","🪘","🧊","🔮","🪬","🧸","🎭","🎠","🎡","🎢",
+              "🏰","🗼","🗽","⛩️","🕌","🕍","⛪","🏛️","🛸","🚂","🚁","⛵","🚤","🏎️","🛻","🚜";
+            # Quick string hash using prime 31 (same as Java's String.hashCode) for good distribution.
+            # Mask with 0x7FFFFFFF each iteration to stay a positive int and avoid float promotion.
+            $hash = 0; foreach ($c in $gitRoot.ToCharArray()) { $hash = ($hash * 31 + [int]$c) -band 0x7FFFFFFF; }
+            $Host.UI.RawUI.WindowTitle = $repoEmoji[$hash % $repoEmoji.Length] + " " + (Split-Path $gitRoot -Leaf);
+          }
         } else {
           if (!$env:DefaultWindowTitle) {
             $env:DefaultWindowTitle = "PowerShell";
