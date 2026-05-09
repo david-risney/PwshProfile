@@ -1,0 +1,17 @@
+{
+  "name": "clippy2",
+  "frameCount": 29,
+  "widthInPixels": 352,
+  "heightInPixels": 498,
+  "widthInCharacters": {
+    "withoutPadding": 35,
+    "withPadding": 36
+  },
+  "heightInCharacters": {
+    "withoutPadding": 25,
+    "withPadding": 27
+  },
+  "ascii": false,
+  "alphaThreshold": 50,
+  "frameDelayScale": 1.0
+}

@@ -1,0 +1,17 @@
+{
+  "name": "cinnamoroll3",
+  "frameCount": 12,
+  "widthInPixels": 90,
+  "heightInPixels": 53,
+  "widthInCharacters": {
+    "withoutPadding": 35,
+    "withPadding": 36
+  },
+  "heightInCharacters": {
+    "withoutPadding": 11,
+    "withPadding": 13
+  },
+  "ascii": false,
+  "alphaThreshold": 50,
+  "frameDelayScale": 1.0
+}

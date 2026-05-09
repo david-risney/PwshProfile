@@ -1,0 +1,17 @@
+{
+  "name": "nyan-cat",
+  "frameCount": 12,
+  "widthInPixels": 500,
+  "heightInPixels": 198,
+  "widthInCharacters": {
+    "withoutPadding": 35,
+    "withPadding": 36
+  },
+  "heightInCharacters": {
+    "withoutPadding": 7,
+    "withPadding": 9
+  },
+  "ascii": false,
+  "alphaThreshold": 50,
+  "frameDelayScale": 1.0
+}

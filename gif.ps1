@@ -9,7 +9,7 @@ param(
     [bool] $resetCursorAtEnd = $true,
     [single] $frameDelayScale = 1,
     [int] $repeatAnimationCount = 1,
-    [string][ValidateSet("console", "script")] $OutputKind = "console" # Valid values: console, script
+    [string][ValidateSet("console", "script", "json")] $OutputKind = "console" # Valid values: console, script, json
 )
 
 function GifBitmapToAscii {
@@ -115,6 +115,43 @@ function GifToAscii {
 
     $frameDimension = New-Object System.Drawing.Imaging.FrameDimension($RawImage.FrameDimensionsList[0]);
     $frameCount = $RawImage.GetFrameCount($frameDimension);
+
+    if ($OutputKind -eq "json") {
+        [int]$ROWS = $RawImage.Height / $RawImage.Width * $COLUMNS / $(if ($ascii) { 2.2 } else { 1 })
+        # In block-character mode each pair of pixel rows becomes one character row
+        [int]$charRows = if ($ascii) { $ROWS } else { [Math]::Ceiling($ROWS / 2.0) }
+
+        $frameDelays = for ($i = 0; $i -lt $frameCount; $i++) {
+            [void]$RawImage.SelectActiveFrame($frameDimension, $i)
+            $propertyItem = $RawImage.GetPropertyItem(0x5100)
+            $rawDelay = ($propertyItem.Value[0] + $propertyItem.Value[1] * 256) / 100
+            if ($rawDelay -le 0) { $rawDelay = 0.01 }
+            [float]($rawDelay * $frameDelayScale)
+        }
+
+        $jsonData = [ordered]@{
+            name              = [System.IO.Path]::GetFileNameWithoutExtension($ImagePath)
+            frameCount        = $frameCount
+            widthInPixels     = $RawImage.Width
+            heightInPixels    = $RawImage.Height
+            widthInCharacters = [ordered]@{
+                withoutPadding = $COLUMNS
+                withPadding    = $COLUMNS + $leftPadding
+            }
+            heightInCharacters = [ordered]@{
+                withoutPadding = $charRows
+                withPadding    = $charRows + $headerHeight
+            }
+            ascii             = $ascii.IsPresent
+            alphaThreshold    = $alphathreshold
+            frameDelayScale   = $frameDelayScale
+        }
+
+        $outputPath = [System.IO.Path]::ChangeExtension((Resolve-Path $ImagePath).Path, "json")
+        $jsonData | ConvertTo-Json | Set-Content -Path $outputPath -Encoding UTF8
+
+        return;
+    }
 
     # Save cursor position at start of writing image
     # "$e[s";

@@ -1,0 +1,17 @@
+{
+  "name": "this-is-fine",
+  "frameCount": 17,
+  "widthInPixels": 220,
+  "heightInPixels": 221,
+  "widthInCharacters": {
+    "withoutPadding": 35,
+    "withPadding": 36
+  },
+  "heightInCharacters": {
+    "withoutPadding": 18,
+    "withPadding": 20
+  },
+  "ascii": false,
+  "alphaThreshold": 50,
+  "frameDelayScale": 1.0
+}

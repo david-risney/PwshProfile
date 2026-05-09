@@ -1,0 +1,17 @@
+{
+  "name": "cute-cat-white",
+  "frameCount": 3,
+  "widthInPixels": 480,
+  "heightInPixels": 420,
+  "widthInCharacters": {
+    "withoutPadding": 35,
+    "withPadding": 36
+  },
+  "heightInCharacters": {
+    "withoutPadding": 16,
+    "withPadding": 18
+  },
+  "ascii": false,
+  "alphaThreshold": 50,
+  "frameDelayScale": 1.0
+}

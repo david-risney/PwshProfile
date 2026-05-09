@@ -1,0 +1,17 @@
+{
+  "name": "kirby",
+  "frameCount": 40,
+  "widthInPixels": 600,
+  "heightInPixels": 600,
+  "widthInCharacters": {
+    "withoutPadding": 35,
+    "withPadding": 36
+  },
+  "heightInCharacters": {
+    "withoutPadding": 18,
+    "withPadding": 20
+  },
+  "ascii": false,
+  "alphaThreshold": 50,
+  "frameDelayScale": 1.0
+}
