@@ -16,10 +16,14 @@ param(
 # powershell before we get to WindowsTerimnal then we bail early.
 $checkProcess = Get-Process -Id $PID -ErrorAction Ignore;
 $foundUnknownProcessParent = $false;
+$foundZellijProcessParent = $false;
 
 while (!($foundUnknownProcessParent) -and $checkProcess -and $checkProcess.ProcessName.ToLower() -ne "windowsterminal") {
-  if ($checkProcess.ProcessName.ToLower() -notin "cmd", "pwsh", "powershell", "windowsterminal") {
+  if ($checkProcess.ProcessName.ToLower() -notin "cmd", "pwsh", "powershell", "windowsterminal", "zellij") {
     $foundUnknownProcessParent = $true;
+  }
+  if ($checkProcess.ProcessName.ToLower() -eq "zellij") {
+    $foundZellijProcessParent = $true;
   }
   $checkProcess = $checkProcess.Parent;
 }
@@ -192,6 +196,16 @@ if ($Update -eq "On") {
   Install-Module -Name BurntToast -SkipPublisherCheck;
 }
 Import-Module BurntToast;
+#endregion
+
+#region zellij
+# [Zellij](https://zellij.dev/) is a terminal multiplexer like tmux or screen. It lets you split your terminal into multiple panes and tabs.
+IncrementProgress "Zellij";
+if ($Update -eq "On") {
+  Write-Verbose "Updating Zellij";
+  winget install zellij.zellij;
+}
+$env:ZELLIJ_CONFIG_DIR = (Join-Path $PSScriptRoot "zellij");
 #endregion
 
 #region ohmyposh
@@ -628,7 +642,13 @@ if ($WinFetch -eq "On") {
   $logoPs1File = $gifFileOptions | Get-Random;
   $logoGifFile = (Join-Path $PSScriptRoot "gifs\$($logoPs1File.BaseName).gif");
 
-  .($logoPs1File.FullName);
+  if (!$foundZellijProcessParent) {
+    .($logoPs1File.FullName);
+  } else {
+    $logoJsonFile = (Join-Path $PSScriptRoot "gifs\$($logoPs1File.BaseName).json");
+    $logoInfo = Get-Content $logoJsonFile | ConvertFrom-Json;
+    [void](zellij run --floating --pinned true --x 2 --y 2 --width ($logoInfo.widthInCharacters.withPadding + 4) --height ([int](($logoInfo.heightInCharacters.withPadding + 4))) --close-on-exit -- pwsh --noprofile $logoPs1File.FullName);
+  }
   $winfetchPath = (Join-Path $PSScriptRoot "winfetch.ps1");
   $winfetchConfigPath = (Join-Path $PSScriptRoot "winfetch-config.ps1");
   $winfetchLogoPath = $logoGifFile;
