@@ -255,6 +255,10 @@ plugins {
 load_plugins {
     "zellij:link"
     "file:~/pwshprofile/zellij/layouts/zjstatus.wasm" {
+        // hide_frame_for_single_pane "true"
+        // hide_frame_except_for_search "true"
+        // hide_frame_except_for_fullscreen "true"
+        // hide_frame_except_for_scroll "true"
     }
     // "file:/path/to/my-plugin.wasm"
     // "https://example.com/my-plugin.wasm"
@@ -290,7 +294,7 @@ default_shell "C:/users/davris/pwshprofile/zellij/default-shell.cmd"
 //   - true (default)
 //   - false
 //
-pane_frames true
+pane_frames false
 
 // Toggle between having Zellij lay out panes according to a predefined set of layouts whenever possible
 // Options:

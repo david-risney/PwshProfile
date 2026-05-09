@@ -652,7 +652,11 @@ if ($WinFetch -eq "On") {
   $winfetchPath = (Join-Path $PSScriptRoot "winfetch.ps1");
   $winfetchConfigPath = (Join-Path $PSScriptRoot "winfetch-config.ps1");
   $winfetchLogoPath = $logoGifFile;
-  .$winfetchPath -config $winfetchConfigPath -image $winfetchLogoPath;
+  if (!$foundZellijProcessParent) {
+    . $winfetchPath -config $winfetchConfigPath -image $winfetchLogoPath;
+  } else {
+    . $winfetchPath -config $winfetchConfigPath -noimage;
+  }
 }
 #endregion
 
