@@ -392,12 +392,6 @@ plugins {
     welcome-screen location="zellij:session-manager" {
         welcome_screen true
     }
-    zjstatus-hints location="file:C:\\Users\\davris/pwshprofile/zellij/layouts/zjstatus-hints.wasm" {
-        hide_in_base_mode true
-        max_length "50"
-        overflow_str "..."
-        pipe_name "zjstatus_hints"
-    }
 }
 
 // Plugins to load in the background when a new session starts
@@ -406,7 +400,6 @@ plugins {
 load_plugins {
     zellij:link
     "file:C:\\Users\\davris/pwshprofile/zellij/layouts/zjstatus.wasm"
-    zjstatus-hints
 }
 ui {
     pane_frames {
