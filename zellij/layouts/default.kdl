@@ -22,7 +22,7 @@ layout {
 
                 format_left   "{mode}#[bg=$bg] {tabs}"
                 format_center "#[bg=$bg,fg=$hi_bg]#[bg=$hi_bg,fg=$bg,bold]  🤖  #[bg=$bg,fg=$hi_bg,bold]"
-                format_right  "#[bg=$bg,fg=$session_bg]#[bg=$session_bg,fg=$session_fg,bold] {session} #[bg=$datetime_bg,fg=$session_bg]#[bg=$datetime_bg,fg=$datetime_fg] 👻 #[bg=$bg,fg=$datetime_bg,bold]"
+                format_right  "#[bg=$bg,fg=$session_bg]#[bg=$session_bg,fg=$session_fg,bold] {session} #[fg=$datetime_bg,bg=$session_bg]#[bg=$datetime_bg,fg=$datetime_fg] 👻 #[bg=$bg,fg=$datetime_bg,bold]"
                 format_space  "#[bg=$bg]"
                 format_hide_on_overlength "true"
                 format_precedence "lcr"
