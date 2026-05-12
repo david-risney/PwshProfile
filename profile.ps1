@@ -586,6 +586,26 @@ if ($Update -eq "Async") {
 }
 #endregion
 
+#region copilot
+if ($Update -eq "On") {
+  IncrementProgress "Update GitHub Copilot";
+  Write-Verbose "Updating GitHub Copilot";
+  winget install GitHub.Copilot;
+}
+$copilotSettingsAdditionsPath = (Join-Path $PSScriptRoot "copilot" "settings-additions.json");
+$copilotSettingsAdditions = Get-Content $copilotSettingsAdditionsPath -Raw;
+$copilotSettingsAdditions = $copilotSettingsAdditions.Replace("%USERPROFILE%", $env:USERPROFILE);
+# Merge the additions into the existing copilot settings.json
+$copilotSettingsPath = (Join-Path $env:USERPROFILE ".copilot\settings.json");
+
+if (Test-Path $copilotSettingsPath) {
+  MergeJsonFilesAndStrings @($copilotSettingsPath) @($copilotSettingsAdditions) $copilotSettingsPath;
+} else {
+  Copy-Item $copilotSettingsAdditionsPath $copilotSettingsPath;
+}
+
+#endregion
+
 #region miscupdate
 if ($Update -eq "On") {
   IncrementProgress "Update various apps";

@@ -17,10 +17,14 @@ function MergeJson ($jsons) {
     $resultObject.ToString();
 }
 
-function MergeJsonFiles ($inJsonFilePaths, $outJsonFilePath, $encoding = "Utf8") {
-  $inJson = ($inJsonFilePaths | ForEach-Object { 
+function MergeJsonFilesAndStrings ($inJsonFilePaths, $inJsonStrings, $outJsonFilePath, $encoding = "Utf8") {
+  $inJson = @($inJsonFilePaths | ForEach-Object { 
     Get-Content $_ -Raw;
-  });
+  }) + @($inJsonStrings);
   $outJson = MergeJson $inJson;
   $outJson | Out-File $outJsonFilePath -Encoding $encoding;
+}
+
+function MergeJsonFiles ($inJsonFilePaths, $outJsonFilePath, $encoding = "Utf8") {
+  MergeJsonFilesAndStrings @($inJsonFilePaths) @() $outJsonFilePath $encoding;
 }

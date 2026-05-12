@@ -1,0 +1,22 @@
+   {
+    "footer": {
+      "showModelEffort": false,
+      "showDirectory": false,
+      "showBranch": false,
+      "showContextWindow": false,
+      "showQuota": false,
+      "showAgent": false,
+      "showCodeChanges": false,
+      "showUsername": false,
+      "showCustom": true
+    },
+     "statusLine": {
+       "type": "command",
+       "command": "C:\\users\\davris\\PwshProfile\\copilot\\statusline.cmd",
+       "padding": 2
+     },
+     "feature_flags": {
+        "enabled": [ "STATUS_LINE" ]
+     },
+     "experimental": true
+   }

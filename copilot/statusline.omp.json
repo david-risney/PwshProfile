@@ -1,0 +1,57 @@
+{
+  "$schema": "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/schema.json",
+  "palette": {
+    "background-dotnet": "#00fbac",
+    "background-exit-fail": "#ff7092",
+    "background-exit-success": "#00fbac",
+    "background-git": "#fffa6a",
+    "background-path": "#ce5efe",
+    "background-root": "#ffb56a",
+    "background-time": "#00bfff",
+    "foreground-dark": "#082336",
+    "foreground-light": "#e0e0e0"
+  },
+  "version": 3,
+  "final_space": true,
+  "blocks": [
+    {
+      "type": "prompt",
+      "alignment": "left",
+      "segments": [
+        {
+          "properties": {
+            "cache_duration": "none",
+            "style": "full"
+          },
+          "leading_diamond": "\ue0b6",
+          "trailing_diamond": "\ue0b4",
+          "template": "📁 {{ path .Path .Location }} ",
+          "foreground": "p:foreground-light",
+          "background": "p:background-path",
+          "type": "path",
+          "style": "diamond"
+        },
+        {
+          "type": "git",
+          "style": "diamond",
+          "trailing_diamond": "\ue0b4",
+          "foreground": "#082336",
+          "background": "#fffa6a",
+          "template": " {{ .HEAD }}{{ if .Working.Changed }} +{{ .Working.String }}{{ end }} ",
+          "properties": {
+            "fetch_status": true,
+            "fetch_upstream_icon": true
+          }
+        },
+        {
+          "type": "text",
+          "style": "diamond",
+          "foreground": "#082336",
+          "background": "#00bfff",
+          "trailing_diamond": "\ue0b4",
+          "template": " {{ .Env.COPILOT_STATUS_GAUGE }} {{ .Env.COPILOT_STATUS_CONTEXT }} "
+        }
+      ]
+    }
+  ]
+}
