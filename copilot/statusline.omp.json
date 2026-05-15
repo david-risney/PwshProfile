@@ -25,7 +25,7 @@
           },
           "leading_diamond": "\ue0b6",
           "trailing_diamond": "\ue0b4",
-          "template": "📁 {{ path .Path .Location }} ",
+          "template": "📁 {{ .Path }} ",
           "foreground": "p:foreground-light",
           "background": "p:background-path",
           "type": "path",
