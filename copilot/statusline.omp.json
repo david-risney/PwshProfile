@@ -19,13 +19,29 @@
       "alignment": "left",
       "segments": [
         {
+          "type": "text",
+          "style": "diamond",
+          "leading_diamond": "\ue0b6",
+          "trailing_diamond": "\ue0b4",
+          "foreground": "#082336",
+          "background": "#00ff88",
+          "template": " 🤖 "
+        },
+        {
+          "type": "text",
+          "style": "diamond",
+          "trailing_diamond": "\ue0b4",
+          "foreground": "#082336",
+          "background": "#00bfff",
+          "template": " {{ .Env.COPILOT_STATUS_GAUGE }} {{ .Env.COPILOT_STATUS_CONTEXT }} "
+        },
+        {
           "properties": {
             "cache_duration": "none",
             "style": "full"
           },
-          "leading_diamond": "\ue0b6",
           "trailing_diamond": "\ue0b4",
-          "template": "📁 {{ .Path }} ",
+          "template": " 📁 {{ .Path }} ",
           "foreground": "p:foreground-light",
           "background": "p:background-path",
           "type": "path",
@@ -42,14 +58,6 @@
             "fetch_status": true,
             "fetch_upstream_icon": true
           }
-        },
-        {
-          "type": "text",
-          "style": "diamond",
-          "foreground": "#082336",
-          "background": "#00bfff",
-          "trailing_diamond": "\ue0b4",
-          "template": " {{ .Env.COPILOT_STATUS_GAUGE }} {{ .Env.COPILOT_STATUS_CONTEXT }} "
         }
       ]
     }
