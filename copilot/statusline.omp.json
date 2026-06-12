@@ -25,7 +25,7 @@
           "trailing_diamond": "\ue0b4",
           "foreground": "#082336",
           "background": "#00ff88",
-          "template": " 🤖 "
+          "template": " \uf4b8 "
         },
         {
           "type": "text",

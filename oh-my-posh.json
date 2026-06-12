@@ -17,13 +17,21 @@
       "alignment": "left",
       "segments": [
         {
+          "type": "text",
+          "style": "diamond",
+          "leading_diamond": "\ue0b6",
+          "trailing_diamond": "\ue0b4",
+          "foreground": "p:foreground-dark",
+          "background": "p:background-time",
+          "template": " \ue683 "
+        },
+        {
           "properties": {
             "cache_duration": "none",
             "style": "full"
           },
-          "leading_diamond": "\ue0b6",
           "trailing_diamond": "\ue0b4",
-          "template": "📁 {{ path .Path .Location }} ",
+          "template": " 📁 {{ path .Path .Location }} ",
           "foreground": "p:foreground-light",
           "background": "p:background-path",
           "type": "path",
