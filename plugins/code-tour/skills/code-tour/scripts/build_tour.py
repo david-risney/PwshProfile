@@ -271,6 +271,12 @@ def validate_tour(tour: dict) -> list:
         elif end is not None:
             errors.append("%s has lineEnd without lineStart" % where)
 
+        if "code" in section and not isinstance(section.get("code"), str):
+            errors.append(
+                "%s field 'code' must be a string (got %s) - a renderer shows "
+                "it verbatim, so an object/array becomes '[object Object]'"
+                % (where, type(section.get("code")).__name__))
+
         for an_idx, anchor in enumerate(section.get("anchors") or []):
             awhere = "%s anchor[%d]" % (where, an_idx)
             afile = anchor.get("file") or sfile

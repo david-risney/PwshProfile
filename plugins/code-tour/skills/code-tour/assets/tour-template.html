@@ -88,6 +88,12 @@
   }
   header h1 { margin: 0 0 4px; font-size: 18px; }
   header p { margin: 0; color: var(--muted); font-size: 13px; }
+  .current-group {
+    margin: 6px 0 0; font-size: 12px; font-weight: 600; letter-spacing: .02em;
+    color: var(--accent);
+  }
+  .current-group[hidden] { display: none; }
+  .current-group::before { content: "\25B8\00a0"; }
   .header-inner {
     max-width: 980px; margin: 0 auto; display: flex; align-items: flex-start;
     justify-content: space-between; gap: 16px;
@@ -157,10 +163,29 @@
   a.group-toc-name:hover { text-decoration: underline; }
   .group-toc-desc { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
   .group-header {
-    border-top: 2px solid var(--border); margin: 48px 0 8px; padding-top: 16px;
+    border-top: 3px solid var(--accent); margin: 60px 0 10px; padding-top: 18px;
   }
-  .group-name { color: var(--accent); margin: 0; }
-  .group-desc { color: var(--muted); font-size: 14px; margin: 6px 0 0; }
+  .group-eyebrow {
+    display: block; font-size: 12px; font-weight: 700; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--muted); margin: 0 0 4px;
+  }
+  .group-name {
+    color: var(--accent); margin: 0; border-top: none; padding-top: 0;
+    font-size: 27px; font-weight: 700; letter-spacing: .005em;
+  }
+  .group-desc { color: var(--muted); font-size: 14px; margin: 8px 0 0; }
+  /* Section headings sit visually subordinate to group banners: smaller,
+     indented, with the number rendered as a rounded pill rather than inline
+     text — so groups and sections are never confused at a glance. */
+  h2.section-heading {
+    font-size: 18px; font-weight: 600; padding-left: 16px;
+  }
+  .sec-num {
+    display: inline-block; min-width: 1.5em; text-align: center;
+    font-size: 12px; font-weight: 700; line-height: 1.5; color: var(--accent);
+    border: 1px solid var(--accent); border-radius: 999px;
+    padding: 0 8px; margin-right: 10px; vertical-align: 2px;
+  }
   footer { color: var(--muted); font-size: 12px; margin-top: 50px; text-align: center; }
   .flow { font-size: 14px; }
   .flow b { color: var(--sig-fg); }
@@ -207,6 +232,7 @@
     <div>
       <h1 id="tour-title">Code tour</h1>
       <p id="tour-subtitle"></p>
+      <p id="tour-current-group" class="current-group" hidden></p>
     </div>
     <button id="theme-toggle" type="button" aria-label="Toggle color theme"
             title="Toggle light / dark / auto theme"></button>
@@ -378,6 +404,13 @@ function groupName(g) {
   return g.title || g.name || "";
 }
 
+// Strips a redundant leading ordinal (e.g. "1. ", "2) ") from an authored
+// group title, so the template can supply its own "Group N" label without
+// showing the number twice.
+function stripLeadingOrdinal(text) {
+  return (text || "").replace(/^\s*\d+[.)]\s*/, "");
+}
+
 function render(tour) {
   document.title = tour.title || "Code tour";
   document.getElementById("tour-title").textContent = tour.title || "Code tour";
@@ -460,7 +493,8 @@ function render(tour) {
         var name = document.createElement("a");
         name.className = "group-toc-name";
         name.href = "#" + (g.id || ("group-" + gi));
-        name.textContent = groupName(g);
+        name.textContent = "Group " + (gi + 1) + " \u00b7 "
+          + stripLeadingOrdinal(groupName(g));
         box.appendChild(name);
         if (g.description) {
           var desc = document.createElement("p");
@@ -512,16 +546,27 @@ function render(tour) {
   }
 
   // Sections (in rendered order), with a banner before each group's first one.
+  // While rendering, collect group-boundary markers (the banner that starts
+  // each group, plus the first ungrouped section after any groups) so the
+  // sticky header can show which group the reader is currently scrolled into.
+  var groupMarkers = [];
+  var sawGroup = false, sawOrphan = false;
   ordered.forEach(function (entry, i) {
     var s = entry.section;
     if (entry.groupStart) {
       var gi = groups.indexOf(entry.group);
+      var gnum = gi + 1;
+      var gtitle = stripLeadingOrdinal(groupName(entry.group));
       var banner = document.createElement("div");
       banner.className = "group-header";
       banner.id = entry.group.id || ("group-" + gi);
+      var eyebrow = document.createElement("span");
+      eyebrow.className = "group-eyebrow";
+      eyebrow.textContent = "Group " + gnum;
+      banner.appendChild(eyebrow);
       var gname = document.createElement("h2");
       gname.className = "group-name";
-      gname.textContent = groupName(entry.group);
+      gname.textContent = gtitle;
       banner.appendChild(gname);
       if (entry.group.description) {
         var gdesc = document.createElement("p");
@@ -530,13 +575,20 @@ function render(tour) {
         banner.appendChild(gdesc);
       }
       content.appendChild(banner);
+      groupMarkers.push({ el: banner, name: "Group " + gnum + ": " + gtitle });
+      sawGroup = true;
     }
 
     var h = document.createElement("h2");
+    h.className = "section-heading";
     h.id = s.id || ("section-" + i);
     var num = entry.number;
+    var secNum = document.createElement("span");
+    secNum.className = "sec-num";
+    secNum.textContent = num;
+    h.appendChild(secNum);
     var titleSpan = document.createElement("span");
-    titleSpan.innerHTML = (num + ". ") + renderInline(tour, s.file, s.title || "");
+    titleSpan.innerHTML = renderInline(tour, s.file, s.title || "");
     h.appendChild(titleSpan);
     if (s.file && s.lineStart) {
       h.appendChild(lineBadge(tour, s.file, s.lineStart, s.lineEnd));
@@ -549,12 +601,29 @@ function render(tour) {
     }
     content.appendChild(h);
 
+    // First ungrouped section after one or more groups: entering the "Other"
+    // region, so the header label should clear (name: null).
+    if (!entry.group && sawGroup && !sawOrphan) {
+      groupMarkers.push({ el: h, name: null });
+      sawOrphan = true;
+    }
     renderMarkdown(tour, s.file, s.body, content);
 
     if (s.code) {
-      var pre = document.createElement("pre");
-      pre.textContent = s.code; // textContent: never interprets code as HTML
-      content.appendChild(pre);
+      // `code` is specified as a string. Tolerate accidental non-string shapes
+      // ({ lines }/{ code }/{ text } or string[]) instead of rendering the
+      // useless placeholder that String(object) would produce.
+      var codeText = s.code;
+      if (typeof codeText !== "string") {
+        codeText = Array.isArray(codeText)
+          ? codeText.join("\n")
+          : (codeText.lines || codeText.code || codeText.text || "");
+      }
+      if (codeText) {
+        var pre = document.createElement("pre");
+        pre.textContent = codeText; // textContent: never interprets code as HTML
+        content.appendChild(pre);
+      }
     }
 
     renderCallouts(tour, s.file, s.callouts, content);
@@ -590,6 +659,56 @@ function render(tour) {
     + (tour.webUrlBase ? "web" : (tour.editor || "vscode")) + " protocol \u00b7 "
     + "if file paths change, edit the \"files\" map in the embedded JSON.";
   content.parentNode.insertBefore(footer, content.nextSibling);
+
+  setupGroupTracking(groupMarkers);
+}
+
+// --- Sticky-header group tracking -------------------------------------------
+
+// Updates the header's #tour-current-group label to the group the reader is
+// currently scrolled into. `markers` is an ordered list of { el, name } where
+// el is a group banner (or the first ungrouped section heading) and name is the
+// group's display name (or null to clear the label). Elements are in document
+// order, so their viewport tops increase monotonically.
+function setupGroupTracking(markers) {
+  var label = document.getElementById("tour-current-group");
+  if (!label || !markers || !markers.length) {
+    return;
+  }
+  var header = document.querySelector("header");
+
+  function update() {
+    // A marker is "passed" once its top scrolls up under the sticky header.
+    var threshold = (header ? header.getBoundingClientRect().bottom : 0) + 4;
+    var currentName = null;
+    for (var i = 0; i < markers.length; i++) {
+      if (markers[i].el.getBoundingClientRect().top <= threshold) {
+        currentName = markers[i].name;
+      } else {
+        break;
+      }
+    }
+    if (currentName) {
+      if (label.textContent !== currentName) {
+        label.textContent = currentName;
+      }
+      label.hidden = false;
+    } else {
+      label.hidden = true;
+      label.textContent = "";
+    }
+  }
+
+  var ticking = false;
+  function onScroll() {
+    if (!ticking) {
+      ticking = true;
+      window.requestAnimationFrame(function () { update(); ticking = false; });
+    }
+  }
+  window.addEventListener("scroll", onScroll, { passive: true });
+  window.addEventListener("resize", onScroll);
+  update();
 }
 
 // --- Theme toggle -----------------------------------------------------------
