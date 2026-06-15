@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Copilot Wrapped</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d;
+    --fg: #e6edf3; --muted: #8b949e; --accent: #a371f7; --accent2: #2f81f7;
+    --hot: #f778ba; --good: #3fb950;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  /* ---- scroll-snap deck: each slide fills the screen ---- */
+  .deck {
+    height: 100dvh; overflow-y: auto; overflow-x: hidden;
+    scroll-snap-type: y mandatory; scroll-behavior: smooth;
+    scrollbar-width: none;
+  }
+  .deck::-webkit-scrollbar { width: 0; height: 0; }
+
+  .slide {
+    min-height: 100dvh; scroll-snap-align: start; scroll-snap-stop: always;
+    display: grid; place-items: center; padding: 6dvh 20px;
+    position: relative;
+  }
+  .slide-inner { width: 100%; max-width: 960px; }
+  .slide h2 {
+    font-size: clamp(24px, 4.2vw, 40px); margin: 0 0 18px; text-align: center;
+    letter-spacing: -.5px;
+  }
+
+  /* ---- scroll-driven reveal animation (progressive enhancement) ---- */
+  @media (prefers-reduced-motion: no-preference) {
+    @supports (animation-timeline: view()) {
+      .reveal {
+        animation: reveal linear both;
+        animation-timeline: view();
+        animation-range: entry 2% cover 32%;
+      }
+      .hero-slide .reveal { animation-range: cover 0% cover 14%; }
+    }
+  }
+  @keyframes reveal {
+    from { opacity: 0; transform: translateY(64px) scale(.95); filter: blur(6px); }
+    to   { opacity: 1; transform: none; filter: none; }
+  }
+
+  /* ---- scroll-marker nav dots (CSS carousel; ignored where unsupported) ---- */
+  .deck { scroll-marker-group: after; }
+  .deck::scroll-marker-group {
+    position: fixed; right: 18px; top: 50%; transform: translateY(-50%);
+    display: flex; flex-direction: column; gap: 11px; z-index: 20;
+  }
+  .slide::scroll-marker {
+    content: ""; width: 10px; height: 10px; border-radius: 50%;
+    background: transparent; border: 1.5px solid var(--muted);
+    transition: background .2s, border-color .2s, transform .2s; cursor: pointer;
+  }
+  .slide::scroll-marker:hover { border-color: var(--accent); }
+  .slide::scroll-marker:target-current {
+    background: var(--accent); border-color: var(--accent); transform: scale(1.35);
+  }
+
+  /* ---- hero ---- */
+  .hero-slide {
+    background: radial-gradient(circle at 50% 30%, rgba(163,113,247,.30), transparent 62%);
+    text-align: center;
+  }
+  .hero-slide h1 {
+    margin: 0; font-size: clamp(44px, 11vw, 104px); letter-spacing: -2px; line-height: 1;
+    background: linear-gradient(90deg, var(--accent), var(--accent2), var(--hot));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .range { color: var(--muted); margin-top: 14px; font-size: clamp(14px, 2vw, 18px); }
+  .archetype { margin-top: 22px; font-size: 18px; }
+  .archetype b { color: var(--accent); font-size: clamp(22px, 4vw, 32px); }
+  .archetype .blurb { color: var(--muted); font-size: 15px; margin-top: 4px; }
+  .scroll-hint {
+    margin-top: 42px; color: var(--muted); font-size: 13px;
+    text-transform: uppercase; letter-spacing: 2px;
+    animation: bob 1.8s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) { .scroll-hint { animation: none; } }
+  @keyframes bob { 0%,100% { transform: translateY(0); opacity: .6; } 50% { transform: translateY(8px); opacity: 1; } }
+
+  /* ---- components ---- */
+  .grid { display: grid; gap: 16px; }
+  .totals { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 18px 20px;
+  }
+  .stat { text-align: center; }
+  .stat .num {
+    font-size: clamp(36px, 6vw, 60px); font-weight: 800; color: var(--accent); line-height: 1.05;
+  }
+  .stat .lbl { color: var(--muted); font-size: 13px; text-transform: uppercase;
+    letter-spacing: .5px; margin-top: 6px; }
+  .sub { color: var(--muted); font-size: 13px; margin: -6px 0 16px; text-align: center; }
+  /* heatmap */
+  .heat { overflow-x: auto; }
+  table.heat-tbl { border-collapse: collapse; margin: 0 auto; }
+  table.heat-tbl td, table.heat-tbl th {
+    width: 22px; height: 22px; text-align: center; font-size: 10px; color: var(--muted);
+  }
+  table.heat-tbl td.cell { border-radius: 3px; border: 1px solid #00000033; }
+  table.heat-tbl th.rowlbl { width: 34px; text-align: right; padding-right: 6px; }
+  /* bars */
+  .bar-row { display: grid; grid-template-columns: 160px 1fr 56px; align-items: center;
+    gap: 10px; margin: 8px 0; }
+  .bar-row .name { color: var(--fg); font-size: 13px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  .bar-track { background: #21262d; border-radius: 6px; height: 18px; overflow: hidden; }
+  .bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent2), var(--accent)); }
+  .bar-row .val { text-align: right; color: var(--muted); font-size: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .chip { background: #21262d; border: 1px solid var(--border); border-radius: 999px;
+    padding: 6px 14px; font-size: 14px; }
+  .chip b { color: var(--accent); }
+  .insight { display: flex; gap: 14px; align-items: flex-start; margin: 12px 0; }
+  .insight .badge { flex: none; min-width: 56px; text-align: center;
+    background: rgba(247,120,186,.15); color: var(--hot); font-weight: 700;
+    border-radius: 10px; padding: 10px 8px; font-size: 18px; }
+  .insight .body .t { font-weight: 600; }
+  .insight .body .tip { color: var(--muted); font-size: 14px; }
+  footer { text-align: center; color: var(--muted); font-size: 13px; }
+  .empty { color: var(--muted); font-style: italic; }
+  /* politeness & apologies slide */
+  .polite-hero { text-align: center; margin-bottom: 22px; }
+  .big-pct {
+    font-size: clamp(64px, 16vw, 150px); font-weight: 800; line-height: 1;
+    background: linear-gradient(90deg, var(--good), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .apology-card { max-height: 52dvh; overflow-y: auto; }
+  .apology-head { font-weight: 600; margin-bottom: 12px; color: var(--hot); text-align: center; }
+  .apology {
+    border-left: 3px solid var(--hot); background: #21262d;
+    border-radius: 0 8px 8px 0; padding: 10px 14px; margin: 10px 0;
+    font-size: 14px; color: var(--fg);
+  }
+  .apology .len { color: var(--muted); font-size: 11px; display: block; margin-top: 6px; }
+  /* emoji podium */
+  .emoji-podium { display: flex; justify-content: center; gap: clamp(16px, 6vw, 56px); margin: 8px 0 18px; }
+  .emoji-big { display: flex; flex-direction: column; align-items: center; }
+  .emoji-big .g { font-size: clamp(48px, 12vw, 104px); line-height: 1; }
+  .emoji-big .n { margin-top: 6px; font-weight: 700; color: var(--accent2); font-size: clamp(16px, 3vw, 24px); }
+  .emoji-rest { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  /* pie chart */
+  .pie-wrap { display: flex; gap: 32px; align-items: center; justify-content: center; flex-wrap: wrap; }
+  .pie {
+    width: clamp(160px, 34vw, 230px); aspect-ratio: 1; border-radius: 50%;
+    flex: 0 0 auto; box-shadow: 0 0 0 6px #161b2233, 0 8px 30px #0008;
+  }
+  .pie-legend { display: flex; flex-direction: column; gap: 9px; min-width: 220px; max-width: 360px; }
+  .leg-row { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+  .leg-row .sw { width: 14px; height: 14px; border-radius: 3px; flex: 0 0 auto; }
+  .leg-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .leg-val { color: var(--muted); white-space: nowrap; }
+  .leg-pct { color: var(--fg); font-weight: 600; margin-left: 2px; }
+  /* two-column card grid (skills + MCP) */
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+  .card-h { margin: 0 0 12px; font-size: 16px; color: var(--accent2); }
+  /* prev/next nav buttons */
+  .deck-nav {
+    position: fixed; right: clamp(12px, 3vw, 28px); bottom: clamp(16px, 4vh, 34px);
+    display: flex; flex-direction: column; gap: 10px; z-index: 50;
+  }
+  .nav-btn {
+    width: 48px; height: 48px; border-radius: 50%; cursor: pointer;
+    border: 1px solid var(--border); background: #161b22cc; color: var(--fg);
+    font-size: 20px; line-height: 1; backdrop-filter: blur(6px);
+    transition: background .15s, border-color .15s, transform .15s, opacity .15s;
+  }
+  .nav-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .nav-btn:disabled { opacity: .3; cursor: default; transform: none; }
+  .nav-btn:active:not(:disabled) { transform: scale(.92); }
+  @media (max-width: 640px) { .nav-btn { width: 42px; height: 42px; font-size: 18px; } }
+</style>
+</head>
+<body>
+<main class="deck">
+  <section class="slide hero-slide">
+    <div class="slide-inner reveal">
+      <h1>Copilot<br>Wrapped</h1>
+      <div class="range" id="range"></div>
+      <div class="archetype" id="archetype"></div>
+      <div class="scroll-hint">scroll &darr;</div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="slide-inner reveal">
+      <h2>By the numbers</h2>
+      <div class="grid totals" id="totals"></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="slide-inner reveal">
+      <h2>When you code with Copilot</h2>
+      <div class="sub" id="heat-sub"></div>
+      <div class="card heat"><div id="heatmap"></div></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="slide-inner reveal">
+      <h2>Top projects</h2>
+      <div class="card"><div id="projects"></div></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="slide-inner reveal">
+      <h2>What you worked on</h2>
+      <div class="card"><div id="themes"></div></div>
+    </div>
+  </section>
+
+  <section class="slide" id="kw-sec">
+    <div class="slide-inner reveal">
+      <h2>Your vocabulary</h2>
+      <div class="card"><div class="chips" id="keywords"></div></div>
+    </div>
+  </section>
+
+  <section class="slide" id="files-sec">
+    <div class="slide-inner reveal">
+      <h2>Files &amp; tools</h2>
+      <div class="card"><div id="files"></div></div>
+    </div>
+  </section>
+
+  <section class="slide" id="where-sec">
+    <div class="slide-inner reveal">
+      <h2>Where you ran</h2>
+      <div class="sub">Environment the session ran in (machine names aren't recorded locally).</div>
+      <div id="where"></div>
+    </div>
+  </section>
+
+  <section class="slide" id="toolkit-sec">
+    <div class="slide-inner reveal">
+      <h2>Your toolkit</h2>
+      <div class="sub" id="toolkit-sub"></div>
+      <div class="card"><div id="tools"></div></div>
+    </div>
+  </section>
+
+  <section class="slide" id="skills-mcp-sec">
+    <div class="slide-inner reveal">
+      <h2>Skills &amp; MCP servers</h2>
+      <div class="grid2">
+        <div class="card" id="skills-card"><h3 class="card-h">Skills you summoned</h3><div class="chips" id="skills"></div></div>
+        <div class="card" id="mcp-card"><h3 class="card-h">MCP servers you tapped</h3><div class="chips" id="mcp"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="models-sec">
+    <div class="slide-inner reveal">
+      <h2>Models that did the work</h2>
+      <div id="models"></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="slide-inner reveal">
+      <h2>Session shape</h2>
+      <div class="grid totals" id="shape"></div>
+    </div>
+  </section>
+
+  <section class="slide" id="voice-sec">
+    <div class="slide-inner reveal">
+      <h2>Copilot's voice</h2>
+      <div class="sub" id="voice-sub"></div>
+      <div class="card">
+        <div id="exclaim"></div>
+        <div style="margin:14px 0 8px;color:var(--muted);text-align:center">Most-used emoji</div>
+        <div id="emoji"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="polite-sec">
+    <div class="slide-inner reveal">
+      <h2>How polite are you?</h2>
+      <div class="polite-hero">
+        <div class="big-pct" id="polite-pct"></div>
+        <div class="sub" id="polite-detail"></div>
+      </div>
+      <div class="card apology-card">
+        <div class="apology-head" id="apology-count"></div>
+        <div id="apology-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" id="style-sec">
+    <div class="slide-inner reveal">
+      <h2>Your style</h2>
+      <div class="grid totals" id="style"></div>
+    </div>
+  </section>
+
+  <section class="slide" id="insights-sec">
+    <div class="slide-inner reveal">
+      <h2>How to get even more out of Copilot</h2>
+      <div class="card"><div id="insights"></div></div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="slide-inner reveal">
+      <footer>
+        Built locally from your Copilot session store &mdash; nothing left your machine.
+        <span id="gen"></span>
+      </footer>
+    </div>
+  </section>
+</main>
+
+<nav class="deck-nav" aria-label="Slide navigation">
+  <button id="nav-prev" type="button" class="nav-btn" aria-label="Previous slide" title="Previous (\u2191)">&uarr;</button>
+  <button id="nav-next" type="button" class="nav-btn" aria-label="Next slide" title="Next (\u2193)">&darr;</button>
+</nav>
+
+<script>
+const WRAPPED_DATA = /*__WRAPPED_DATA__*/null;
+
+(function () {
+  const D = WRAPPED_DATA;
+  if (!D) { document.body.innerHTML = "<p style='padding:40px'>No data.</p>"; return; }
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+  // header
+  const m = D.meta || {};
+  $("range").textContent =
+    (m.first_session && m.last_session)
+      ? `${m.first_session} \u2192 ${m.last_session} \u00b7 ${m.active_days} active days`
+      : "your Copilot history";
+  $("gen").textContent = m.generated_at ? ` \u00b7 generated ${m.generated_at}` : "";
+
+  // totals
+  const t = D.totals || {};
+  const cards = [
+    ["sessions", t.sessions], ["turns", t.turns], ["files touched", t.files],
+    ["projects", t.projects], ["day streak", D.streak_days],
+  ];
+  $("totals").innerHTML = cards.map(([lbl, n]) =>
+    `<div class="card stat"><div class="num">${n ?? 0}</div><div class="lbl">${lbl}</div></div>`
+  ).join("");
+
+  // heatmap
+  const DOW = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+  const heat = D.heatmap || [];
+  let hmax = 1;
+  heat.forEach(r => r.forEach(v => { if (v > hmax) hmax = v; }));
+  const color = (v) => {
+    if (!v) return "#161b22";
+    const a = 0.15 + 0.85 * (v / hmax);
+    return `rgba(163,113,247,${a.toFixed(3)})`;
+  };
+  let html = '<table class="heat-tbl"><tr><th></th>';
+  for (let h = 0; h < 24; h++) html += `<th>${h % 6 === 0 ? h : ""}</th>`;
+  html += "</tr>";
+  for (let d = 0; d < 7; d++) {
+    html += `<tr><th class="rowlbl">${DOW[d]}</th>`;
+    for (let h = 0; h < 24; h++) {
+      const v = (heat[d] && heat[d][h]) || 0;
+      html += `<td class="cell" style="background:${color(v)}" title="${DOW[d]} ${h}:00 \u2014 ${v} turns"></td>`;
+    }
+    html += "</tr>";
+  }
+  html += "</table>";
+  $("heatmap").innerHTML = html;
+  const b = D.busiest || {};
+  $("heat-sub").textContent = b.dow
+    ? `Peak: ${b.dow} around ${b.hour}:00. Busiest single day was ${b.date} (${b.date_turns} turns). Times shown in ${m.tz || "local time"}.`
+    : "";
+
+  // generic horizontal bars
+  function bars(el, rows, nameKey, valKey) {
+    const max = Math.max(1, ...rows.map(r => r[valKey]));
+    el.innerHTML = rows.length ? rows.map(r => {
+      const w = (100 * r[valKey] / max).toFixed(1);
+      const extra = r.sessions != null ? ` <span style="color:var(--muted)">(${r.sessions} sess)</span>` : "";
+      return `<div class="bar-row"><div class="name" title="${esc(r[nameKey])}">${esc(r[nameKey])}${extra}</div>`
+        + `<div class="bar-track"><div class="bar-fill" style="width:${w}%"></div></div>`
+        + `<div class="val">${r[valKey]}</div></div>`;
+    }).join("") : '<div class="empty">No data.</div>';
+  }
+  bars($("projects"), D.top_projects || [], "name", "turns");
+  bars($("themes"), D.themes || [], "name", "count");
+
+  // keywords
+  const kw = D.top_keywords || [];
+  if (kw.length) {
+    $("keywords").innerHTML = kw.map(k => `<span class="chip">${esc(k.word)} <b>${k.count}</b></span>`).join("");
+  } else { $("kw-sec").style.display = "none"; }
+
+  // files
+  const f = D.files || {};
+  const ext = f.by_ext || [], tools = f.by_tool || [];
+  if ((ext.length + tools.length) === 0) { $("files-sec").style.display = "none"; }
+  else {
+    let fh = "";
+    if (ext.length) fh += '<div style="margin-bottom:8px;color:var(--muted)">By file type</div>'
+      + '<div class="chips">' + ext.map(e => `<span class="chip">${esc(e.ext)} <b>${e.count}</b></span>`).join("") + "</div>";
+    if (tools.length) fh += '<div style="margin:14px 0 8px;color:var(--muted)">By tool</div>'
+      + '<div class="chips">' + tools.map(e => `<span class="chip">${esc(e.tool)} <b>${e.count}</b></span>`).join("") + "</div>";
+    $("files").innerHTML = fh;
+  }
+
+  // session shape
+  const sh = D.session_shape || {};
+  const shapeCards = [
+    ["avg turns / session", sh.avg_turns],
+    ["longest session (turns)", sh.longest_session_turns],
+    ["one-shot sessions", sh.single_turn_sessions],
+  ];
+  $("shape").innerHTML = shapeCards.map(([lbl, n]) =>
+    `<div class="card stat"><div class="num">${n ?? 0}</div><div class="lbl">${lbl}</div></div>`
+  ).join("");
+
+  // ---- archetype banner ----
+  const arc = D.archetype;
+  if (arc) {
+    $("archetype").innerHTML =
+      `You are <b>${esc(arc.title)}</b><div class="blurb">${esc(arc.blurb)}</div>`;
+  }
+
+  // ---- chips helper ----
+  function chips(el, rows, nameKey, sectionId) {
+    if (!rows || !rows.length) { if (sectionId) $(sectionId).style.display = "none"; return; }
+    el.innerHTML = rows.map(r =>
+      `<span class="chip">${esc(r[nameKey])} <b>${r.count}</b></span>`).join("");
+  }
+
+  // ---- pie chart helper (conic-gradient + legend, no deps) ----
+  const PIE_COLORS = ["#a371f7","#3fb950","#58a6ff","#d29922","#db61a2",
+    "#f85149","#56d4dd","#bc8cff","#7ee787","#ffa657","#79c0ff","#ff7b72"];
+  function pie(el, rows, nameKey, valKey, sectionId) {
+    if (!rows || !rows.length) { if (sectionId) $(sectionId).style.display = "none"; return; }
+    const total = rows.reduce((s, r) => s + (r[valKey] || 0), 0) || 1;
+    let acc = 0; const stops = [];
+    const legend = rows.map((r, i) => {
+      const c = PIE_COLORS[i % PIE_COLORS.length];
+      const frac = (r[valKey] || 0) / total;
+      const start = acc * 100, end = (acc + frac) * 100; acc += frac;
+      stops.push(`${c} ${start.toFixed(2)}% ${end.toFixed(2)}%`);
+      const pct = (frac * 100).toFixed(frac < 0.1 ? 1 : 0);
+      return `<div class="leg-row"><span class="sw" style="background:${c}"></span>`
+        + `<span class="leg-name" title="${esc(r[nameKey])}">${esc(r[nameKey])}</span>`
+        + `<span class="leg-val">${r[valKey]} <span class="leg-pct">${pct}%</span></span></div>`;
+    }).join("");
+    el.innerHTML = `<div class="pie-wrap"><div class="pie" style="background:conic-gradient(${stops.join(",")})"></div>`
+      + `<div class="pie-legend">${legend}</div></div>`;
+  }
+
+  // ---- where you ran ----
+  pie($("where"), D.where_you_ran, "name", "count", "where-sec");
+
+  // ---- usage from events.jsonl (tools / skills / mcp / models) ----
+  const u = D.usage || {};
+  if (u.top_tools && u.top_tools.length) {
+    bars($("tools"), u.top_tools, "tool", "count");
+    $("toolkit-sub").textContent =
+      `${u.total_tool_calls || 0} tool calls across ${u.sessions_scanned || 0} logged sessions.`;
+  } else { $("toolkit-sec").style.display = "none"; }
+  const haveSkills = u.skills_used && u.skills_used.length;
+  const haveMcp = u.mcp_servers && u.mcp_servers.length;
+  if (!haveSkills && !haveMcp) { $("skills-mcp-sec").style.display = "none"; }
+  else {
+    if (haveSkills) chips($("skills"), u.skills_used, "name"); else $("skills-card").style.display = "none";
+    if (haveMcp) chips($("mcp"), u.mcp_servers, "name"); else $("mcp-card").style.display = "none";
+  }
+  pie($("models"), u.models, "name", "count", "models-sec");
+
+  // ---- Copilot's voice ----
+  const v = D.voice || {};
+  if (v.exclamations && v.exclamations.length) {
+    bars($("exclaim"), v.exclamations, "word", "count");
+  } else { $("exclaim").innerHTML = '<div class="empty">No exclamations \u2014 a stoic assistant.</div>'; }
+  if (v.top_emoji && v.top_emoji.length) {
+    const big = v.top_emoji.slice(0, 3), rest = v.top_emoji.slice(3);
+    let eh = '<div class="emoji-podium">' + big.map(e =>
+      `<div class="emoji-big"><span class="g">${esc(e.emoji)}</span><span class="n">${e.count}</span></div>`
+    ).join("") + "</div>";
+    if (rest.length) eh += '<div class="emoji-rest">' + rest.map(e =>
+      `<span class="chip">${esc(e.emoji)} <b>${e.count}</b></span>`).join("") + "</div>";
+    $("emoji").innerHTML = eh;
+  } else { $("emoji").innerHTML = '<span class="chip">no emoji \u00b7 all business</span>'; }
+  const vbits = [];
+  if (v.catchphrase) vbits.push(`Favorite phrase: "${v.catchphrase}" (${v.catchphrase_count}\u00d7)`);
+  if (v.emoji_turns) vbits.push(`${v.emoji_turns} emoji-laden replies`);
+  $("voice-sub").textContent = vbits.join(" \u00b7 ");
+
+  // ---- politeness & apologies ----
+  $("polite-pct").textContent = (v.polite_pct ?? 0) + "%";
+  $("polite-detail").textContent =
+    `You said "please" or "thanks" in ${v.polite_turns || 0} of ${v.total_turns || 0} turns.`;
+  const quotes = v.apology_quotes || [];
+  $("apology-count").textContent = v.apologies
+    ? `Meanwhile, Copilot apologized or conceded "you're right" ${v.apologies} times. Its wordiest mea culpas:`
+    : "Copilot never once apologized. Flawless, or just stubborn?";
+  $("apology-list").innerHTML = quotes.length
+    ? quotes.map(q =>
+        `<div class="apology">${esc(q)}<span class="len">${q.length} chars</span></div>`).join("")
+    : (v.apologies ? "" : '<div class="empty">Nothing to see here \u2014 zero apologies.</div>');
+
+  // ---- your style ----
+  const styleCards = [
+    ["talk ratio (you : copilot)", v.talk_ratio ? v.talk_ratio + "\u00d7" : 0],
+    ["longest prompt (chars)", v.longest_prompt_chars],
+    ["avg reply (chars)", v.avg_assistant_chars],
+  ];
+  $("style").innerHTML = styleCards.map(([lbl, n]) =>
+    `<div class="card stat"><div class="num">${n ?? 0}</div><div class="lbl">${lbl}</div></div>`
+  ).join("");
+
+  // insights
+  const ins = D.insights || [];
+  if (ins.length) {
+    $("insights").innerHTML = ins.map(i =>
+      `<div class="insight"><div class="badge">${esc(i.metric)}</div>`
+      + `<div class="body"><div class="t">${esc(i.title)}</div><div class="tip">${esc(i.tip)}</div></div></div>`
+    ).join("");
+  } else {
+    $("insights").innerHTML = '<div class="empty">No rough edges detected \u2014 nice work!</div>';
+  }
+
+  // ---- prev/next slide navigation ----
+  const deck = document.querySelector(".deck");
+  const prevBtn = $("nav-prev"), nextBtn = $("nav-next");
+  const visibleSlides = () =>
+    Array.from(deck.querySelectorAll(".slide")).filter(s => s.offsetParent !== null);
+  function currentIndex(slides) {
+    const deckTop = deck.getBoundingClientRect().top;
+    let idx = 0, best = Infinity;
+    slides.forEach((s, i) => {
+      const d = Math.abs(s.getBoundingClientRect().top - deckTop);
+      if (d < best) { best = d; idx = i; }
+    });
+    return idx;
+  }
+  function go(delta) {
+    const slides = visibleSlides();
+    const i = Math.min(slides.length - 1, Math.max(0, currentIndex(slides) + delta));
+    slides[i].scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  function updateBtns() {
+    const slides = visibleSlides();
+    const i = currentIndex(slides);
+    prevBtn.disabled = i <= 0;
+    nextBtn.disabled = i >= slides.length - 1;
+  }
+  prevBtn.addEventListener("click", () => go(-1));
+  nextBtn.addEventListener("click", () => go(1));
+  deck.addEventListener("scroll", updateBtns, { passive: true });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown" || e.key === "PageDown") { e.preventDefault(); go(1); }
+    else if (e.key === "ArrowUp" || e.key === "PageUp") { e.preventDefault(); go(-1); }
+  });
+  updateBtns();
+})();
+</script>
+</body>
+</html>

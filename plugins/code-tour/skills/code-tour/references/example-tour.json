@@ -1,0 +1,80 @@
+{
+  "title": "greeter.py — guided walkthrough",
+  "subtitle": "A tiny example tour. Click any line badge to jump to that line in your editor.",
+  "files": {
+    "greeter.py": "/path/to/your/repo/greeter.py"
+  },
+  "editor": "vscode",
+  "intro": "`greeter.py` is a two-function module: it builds a greeting and prints it. This example shows the shape of a tour — replace the file path in `files`, the line numbers, and the prose with your own.",
+  "diagrams": [
+    {
+      "title": "Module at a glance",
+      "code": "graph TD\n  A[main argv] --> B[build_greeting]\n  B --> C[greeting string]\n  C --> D[print]"
+    }
+  ],
+  "designNotes": [
+    "**One responsibility per function.** `build_greeting` is pure (easy to test); `main` does the I/O.",
+    "**No globals.** Everything flows through arguments and return values."
+  ],
+  "sections": [
+    {
+      "id": "imports",
+      "title": "Imports",
+      "file": "greeter.py",
+      "lineStart": 1,
+      "lineEnd": 2,
+      "body": "Standard library only — `sys` for `argv`. Keeping the dependency surface small means no install step."
+    },
+    {
+      "id": "build-greeting",
+      "title": "build_greeting(name)",
+      "file": "greeter.py",
+      "lineStart": 5,
+      "lineEnd": 9,
+      "body": "Returns the greeting string for `name`, defaulting to `\"world\"` when empty. The default is applied at [[6]] so callers never have to pass one.",
+      "code": "def build_greeting(name):\n    name = name or \"world\"\n    return f\"Hello, {name}!\"",
+      "callouts": [
+        { "type": "good", "text": "Pure function: no printing, no globals — trivially unit-testable." }
+      ],
+      "diagrams": [
+        "flowchart LR\n  in([name]) --> guard{empty?}\n  guard -- yes --> def[name = world]\n  guard -- no --> keep[name]\n  def --> out([Hello, name!])\n  keep --> out"
+      ]
+    },
+    {
+      "id": "main",
+      "title": "main(argv)",
+      "file": "greeter.py",
+      "lineStart": 12,
+      "lineEnd": 16,
+      "body": "Reads the first CLI argument (if any) and prints the greeting. The argument parsing is at [[13]] and the single side effect — `print` — is at [[15]].",
+      "callouts": [
+        { "type": "warn", "text": "`argv[1]` is guarded by a length check; indexing it directly would crash on no args." }
+      ],
+      "anchors": [
+        { "lineStart": 13, "label": "arg parse" },
+        { "lineStart": 15, "label": "print" }
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "id": "setup",
+      "title": "Module setup",
+      "description": "What the module pulls in before any logic runs.",
+      "sections": ["imports"]
+    },
+    {
+      "id": "core",
+      "title": "Greeting logic",
+      "description": "The pure core that turns a name into a greeting string.",
+      "sections": ["build-greeting"]
+    },
+    {
+      "id": "entry",
+      "title": "Command-line entry",
+      "description": "The I/O shell that wires the core up to `argv` and `print`.",
+      "sections": ["main"]
+    }
+  ],
+  "dataFlow": "**main** reads `argv` → calls **build_greeting** → prints the result. The pure core (**build_greeting**) is isolated from the I/O shell (**main**)."
+}

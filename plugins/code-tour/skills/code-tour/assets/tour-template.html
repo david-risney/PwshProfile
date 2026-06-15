@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<!--
+  code-tour viewer template.
+
+  This file is a REUSABLE template. The code-tour skill produces a JSON "tour"
+  document (see references/tour-schema.md) and embeds it by replacing the single
+  placeholder token in the <script id="tour-data"> element below. The result is
+  a single self-contained HTML file -- no network, no build step.
+
+  Nothing else in this file needs to change per tour: all content, line
+  numbers, and editor links are derived from the embedded JSON at runtime.
+-->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Code tour</title>
+<style>
+  :root {
+    /* Dark theme (default; also used by "auto" when the OS prefers dark). */
+    --bg: #1e1e1e; --panel: #252526; --fg: #d4d4d4; --muted: #9d9d9d;
+    --accent: #4fc1ff; --accent-hover: #79d0ff;
+    --accent2: #c586c0; --accent2-hover: #d6a4d6;
+    --green: #6a9955; --orange: #ce9178;
+    --keyword: #569cd6; --border: #3c3c3c; --warn: #f0a500; --danger: #f48771;
+    --callout-bg: #2d2d30; --code-bg: #2a2a2a; --pre-bg: #1b1b1b;
+    --sig-fg: #dcdcaa; --error-bg: #3a1d1d; --error-fg: #f5c0b8;
+  }
+  /* Light palette: applied when forced via data-theme="light" ... */
+  html[data-theme="light"] {
+    --bg: #ffffff; --panel: #f3f3f3; --fg: #1f1f1f; --muted: #6a6a6a;
+    --accent: #0066b8; --accent-hover: #1a7fd4;
+    --accent2: #9b298f; --accent2-hover: #b5429f;
+    --green: #2e7d32; --orange: #b5500a;
+    --keyword: #0000ff; --border: #d0d0d0; --warn: #b8860b; --danger: #c0392b;
+    --callout-bg: #f6f6f6; --code-bg: #eef0f2; --pre-bg: #f5f5f5;
+    --sig-fg: #7a5b00; --error-bg: #fdecea; --error-fg: #8b1f17;
+  }
+  /* ... or via "auto" when the OS itself prefers a light color scheme. */
+  @media (prefers-color-scheme: light) {
+    html[data-theme="auto"] {
+      --bg: #ffffff; --panel: #f3f3f3; --fg: #1f1f1f; --muted: #6a6a6a;
+      --accent: #0066b8; --accent-hover: #1a7fd4;
+      --accent2: #9b298f; --accent2-hover: #b5429f;
+      --green: #2e7d32; --orange: #b5500a;
+      --keyword: #0000ff; --border: #d0d0d0; --warn: #b8860b; --danger: #c0392b;
+      --callout-bg: #f6f6f6; --code-bg: #eef0f2; --pre-bg: #f5f5f5;
+      --sig-fg: #7a5b00; --error-bg: #fdecea; --error-fg: #8b1f17;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.6 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    transition: background 0.2s ease, color 0.2s ease;
+  }
+  header {
+    position: sticky; top: 0; z-index: 10; background: var(--panel);
+    border-bottom: 1px solid var(--border); padding: 14px 22px;
+  }
+  header h1 { margin: 0 0 4px; font-size: 18px; }
+  header p { margin: 0; color: var(--muted); font-size: 13px; }
+  .header-inner {
+    max-width: 980px; margin: 0 auto; display: flex; align-items: flex-start;
+    justify-content: space-between; gap: 16px;
+  }
+  #theme-toggle {
+    flex: none; cursor: pointer; font: inherit; font-size: 13px;
+    color: var(--fg); background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 12px; white-space: nowrap;
+    transition: background 0.2s ease, border-color 0.2s ease;
+  }
+  #theme-toggle:hover { border-color: var(--accent); }
+  #theme-toggle .ico { margin-right: 6px; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 22px 80px; }
+  .callout {
+    background: var(--callout-bg); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+    border-radius: 6px; padding: 12px 16px; margin: 18px 0; font-size: 14px;
+  }
+  .callout.warn { border-left-color: var(--warn); }
+  .callout.danger { border-left-color: var(--danger); }
+  .callout.good { border-left-color: var(--green); }
+  .callout code { color: var(--orange); }
+  h2 {
+    margin: 38px 0 6px; padding-top: 14px; border-top: 1px solid var(--border);
+    font-size: 20px; color: var(--accent);
+  }
+  h2:first-of-type { border-top: none; }
+  .sig {
+    font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+    color: var(--sig-fg); font-size: 14px;
+  }
+  a.line {
+    display: inline-block; font-family: "Cascadia Code", Consolas, monospace;
+    font-size: 12px; text-decoration: none; color: var(--bg);
+    background: var(--accent); border-radius: 4px; padding: 1px 8px;
+    margin-left: 6px; vertical-align: middle; white-space: nowrap;
+  }
+  a.line:hover { background: var(--accent-hover); }
+  a.line.range { background: var(--accent2); }
+  a.line.range:hover { background: var(--accent2-hover); }
+  code {
+    font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+    background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-size: 13px;
+    color: var(--orange);
+  }
+  pre {
+    background: var(--pre-bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 12px 14px; overflow-x: auto; font-size: 13px; line-height: 1.5;
+    font-family: "Cascadia Code", Consolas, "Courier New", monospace; color: var(--fg);
+    white-space: pre;
+  }
+  .filetag {
+    font-family: "Cascadia Code", Consolas, monospace; font-size: 12px;
+    color: var(--muted); margin-left: 8px;
+  }
+  ul { margin: 6px 0 6px; padding-left: 22px; }
+  li { margin: 3px 0; }
+  .toc { columns: 2; column-gap: 30px; font-size: 14px; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .group-toc {
+    border-left: 3px solid var(--accent); padding: 6px 0 6px 14px; margin: 14px 0;
+  }
+  .group-toc-name {
+    display: block; font-weight: 600; font-size: 15px; color: var(--accent);
+    text-decoration: none; margin-bottom: 2px;
+  }
+  a.group-toc-name:hover { text-decoration: underline; }
+  .group-toc-desc { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
+  .group-header {
+    border-top: 2px solid var(--border); margin: 48px 0 8px; padding-top: 16px;
+  }
+  .group-name { color: var(--accent); margin: 0; }
+  .group-desc { color: var(--muted); font-size: 14px; margin: 6px 0 0; }
+  footer { color: var(--muted); font-size: 12px; margin-top: 50px; text-align: center; }
+  .flow { font-size: 14px; }
+  .flow b { color: var(--sig-fg); }
+  pre.mermaid {
+    background: #f6f6f6; color: #1b1b1b; border: 1px solid var(--border);
+    text-align: center; line-height: normal; white-space: normal;
+    padding: 16px;
+  }
+  pre.mermaid:not([data-processed]) {
+    /* Before Mermaid runs (or if it cannot load), show the raw source. */
+    background: var(--pre-bg); color: var(--muted); text-align: left; white-space: pre;
+    font-family: "Cascadia Code", Consolas, "Courier New", monospace; font-size: 13px;
+  }
+  .diagram-title {
+    color: var(--muted); font-size: 13px; margin: 14px 0 4px; font-style: italic;
+  }
+  #error {
+    background: var(--error-bg); border: 1px solid var(--danger); border-radius: 6px;
+    padding: 16px; margin: 24px; color: var(--error-fg); font-size: 14px;
+  }
+</style>
+<script>
+  // Apply the saved theme as early as possible to avoid a flash of the wrong
+  // colors. Valid values: "auto" (follow the OS), "light", "dark".
+  (function () {
+    try {
+      var saved = localStorage.getItem("codeTourTheme");
+      if (saved === "light" || saved === "dark" || saved === "auto") {
+        document.documentElement.setAttribute("data-theme", saved);
+      }
+    } catch (e) { /* localStorage may be unavailable (e.g. file:// + strict mode) */ }
+  })();
+</script>
+</head>
+<body>
+
+<!-- The tour content is embedded here as JSON. The code-tour skill replaces
+     the single placeholder token below with a real tour document. The exact
+     token appears nowhere else in this file, so a plain text replace is safe. -->
+<script id="tour-data" type="application/json">__TOUR_JSON__</script>
+
+<header>
+  <div class="header-inner">
+    <div>
+      <h1 id="tour-title">Code tour</h1>
+      <p id="tour-subtitle"></p>
+    </div>
+    <button id="theme-toggle" type="button" aria-label="Toggle color theme"
+            title="Toggle light / dark / auto theme"></button>
+  </div>
+</header>
+
+<div class="wrap" id="content"></div>
+
+<script>
+"use strict";
+
+// --- Load the embedded tour -------------------------------------------------
+
+function loadTour() {
+  var raw = document.getElementById("tour-data").textContent;
+  // The placeholder token, split so this guard does not itself contain it.
+  var placeholder = "__TOUR" + "_JSON__";
+  if (raw.indexOf(placeholder) !== -1) {
+    throw new Error("This template has not been filled in: the JSON " +
+      "placeholder is still present. Run the code-tour skill to embed a tour.");
+  }
+  return JSON.parse(raw);
+}
+
+// --- Editor / web link building ---------------------------------------------
+// A tour names each file logically and maps it to an absolute path in
+// tour.files. Line badges become vscode://file/<abs>:<line> links (or
+// vscode-insiders, or a web URL if tour.webUrlBase is set).
+
+function fileAbsPath(tour, file) {
+  if (tour.files && Object.prototype.hasOwnProperty.call(tour.files, file)) {
+    return tour.files[file];
+  }
+  return file; // fall back to the logical name if unmapped
+}
+
+function lineHref(tour, file, start) {
+  if (tour.webUrlBase) {
+    // GitHub/ADO-style web link; fragment syntax varies by host.
+    return tour.webUrlBase + encodeURIComponent(file) + "#L" + start;
+  }
+  var scheme = tour.editor === "vscode-insiders"
+    ? "vscode-insiders://file/" : "vscode://file/";
+  return scheme + fileAbsPath(tour, file) + ":" + start;
+}
+
+function lineBadge(tour, file, start, end, label) {
+  var a = document.createElement("a");
+  var isRange = end && end !== start;
+  a.className = isRange ? "line range" : "line";
+  a.href = lineHref(tour, file, start);
+  a.textContent = label || (isRange ? ("lines " + start + "\u2013" + end)
+                                    : ("line " + start));
+  a.title = "Open " + file + " at line " + start + " in the editor";
+  return a;
+}
+
+// --- Minimal, injection-safe markdown ---------------------------------------
+// HTML is escaped FIRST, so embedded text can never inject markup. Then a small
+// set of conveniences is layered on:
+//   `code`            inline code
+//   **bold**          strong
+//   [text](url)       link (http/https/vscode schemes only)
+//   [[12]] [[12-20]]  line badge for the section's file
+//   [[file:12-20]]    line badge for an explicit file
+// Blank lines split paragraphs; lines starting with "- " become a list.
+
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function safeUrl(url) {
+  return /^(https?:|vscode(-insiders)?:|#|mailto:)/i.test(url) ? url : "#";
+}
+
+function renderInline(tour, file, text) {
+  var html = escapeHtml(text);
+  // [[file:start-end]] or [[start-end]] line badges (operate before other
+  // inline rules; tokens contain only safe characters).
+  html = html.replace(/\[\[([^\]]+)\]\]/g, function (_m, body) {
+    var f = file, range = body;
+    var colon = body.indexOf(":");
+    if (colon !== -1) { f = body.slice(0, colon); range = body.slice(colon + 1); }
+    var parts = range.split("-");
+    var start = parseInt(parts[0], 10);
+    var end = parts[1] ? parseInt(parts[1], 10) : null;
+    if (isNaN(start)) { return _m; }
+    return lineBadge(tour, f, start, end).outerHTML;
+  });
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function (_m, label, url) {
+    return '<a href="' + safeUrl(url) + '">' + label + "</a>";
+  });
+  return html;
+}
+
+// Render a markdown block (paragraphs + "- " bullet lists) into a container.
+function renderMarkdown(tour, file, text, container) {
+  if (!text) { return; }
+  var blocks = String(text).split(/\n\s*\n/);
+  blocks.forEach(function (block) {
+    var lines = block.split("\n");
+    var isList = lines.every(function (l) { return /^\s*-\s+/.test(l) || l.trim() === ""; })
+                 && lines.some(function (l) { return /^\s*-\s+/.test(l); });
+    if (isList) {
+      var ul = document.createElement("ul");
+      lines.forEach(function (l) {
+        var m = l.match(/^\s*-\s+(.*)$/);
+        if (m) {
+          var li = document.createElement("li");
+          li.innerHTML = renderInline(tour, file, m[1]);
+          ul.appendChild(li);
+        }
+      });
+      container.appendChild(ul);
+    } else {
+      var p = document.createElement("p");
+      p.innerHTML = renderInline(tour, file, block.replace(/\n/g, " "));
+      container.appendChild(p);
+    }
+  });
+}
+
+function renderCallouts(tour, file, callouts, container) {
+  (callouts || []).forEach(function (c) {
+    var div = document.createElement("div");
+    div.className = "callout" + (c.type ? " " + c.type : "");
+    renderMarkdown(tour, file, c.text, div);
+    container.appendChild(div);
+  });
+}
+
+// --- Mermaid diagrams -------------------------------------------------------
+// A tour may attach Mermaid diagrams to its intro and to any section. Each
+// diagram is either a raw Mermaid string or an object { title?, code }. We emit
+// a <pre class="mermaid"> holding the Mermaid SOURCE as textContent (never
+// interpreted as HTML); the module bootstrap at the end of <body> turns those
+// blocks into rendered SVG via the local Mermaid copy. If Mermaid cannot load,
+// the source stays visible as a plain code block.
+
+function diagramSource(d) {
+  if (typeof d === "string") { return d; }
+  if (d && typeof d === "object") { return d.code || d.mermaid || ""; }
+  return "";
+}
+
+function renderDiagrams(diagrams, container) {
+  (diagrams || []).forEach(function (d) {
+    var src = diagramSource(d);
+    if (!src) { return; }
+    if (d && typeof d === "object" && d.title) {
+      var cap = document.createElement("p");
+      cap.className = "diagram-title";
+      cap.textContent = d.title;
+      container.appendChild(cap);
+    }
+    var pre = document.createElement("pre");
+    pre.className = "mermaid";
+    pre.textContent = src; // textContent: Mermaid source is data, never markup
+    container.appendChild(pre);
+  });
+}
+
+// --- Top-level render -------------------------------------------------------
+
+// A group's display name accepts either "title" or the "name" alias.
+function groupName(g) {
+  return g.title || g.name || "";
+}
+
+function render(tour) {
+  document.title = tour.title || "Code tour";
+  document.getElementById("tour-title").textContent = tour.title || "Code tour";
+  var sub = document.getElementById("tour-subtitle");
+  sub.textContent = tour.subtitle || "Click any line badge to jump to that line in your editor.";
+
+  var content = document.getElementById("content");
+  var sections = tour.sections || [];
+
+  // Intro
+  if (tour.intro) {
+    var introWrap = document.createElement("div");
+    renderMarkdown(tour, null, tour.intro, introWrap);
+    content.appendChild(introWrap);
+  }
+  renderDiagrams(tour.diagrams, content);
+
+  // Optional "design notes" good-callout with bullets
+  if (tour.designNotes && tour.designNotes.length) {
+    var dn = document.createElement("div");
+    dn.className = "callout good";
+    var ul = document.createElement("ul");
+    tour.designNotes.forEach(function (note) {
+      var li = document.createElement("li");
+      li.innerHTML = renderInline(tour, null, note);
+      ul.appendChild(li);
+    });
+    dn.appendChild(ul);
+    content.appendChild(dn);
+  }
+
+  // Table of contents + sections, honoring optional groups.
+  var sectionsById = {};
+  sections.forEach(function (s, i) { sectionsById[s.id || ("section-" + i)] = s; });
+
+  // Rendered order: grouped sections first (in group + listed order), then any
+  // ungrouped sections in their original order. Each entry carries its display
+  // number and whether it starts a new group.
+  var groups = tour.groups || [];
+  var ordered = [];
+  var used = {};
+  groups.forEach(function (g) {
+    (g.sections || []).forEach(function (sid) {
+      var s = sectionsById[sid];
+      if (s && !used[sid]) { used[sid] = true; ordered.push({ section: s, group: g }); }
+    });
+  });
+  sections.forEach(function (s, i) {
+    var sid = s.id || ("section-" + i);
+    if (!used[sid]) { used[sid] = true; ordered.push({ section: s, group: null }); }
+  });
+  var prevGroup;
+  ordered.forEach(function (entry, idx) {
+    entry.number = entry.section.number != null ? entry.section.number : (idx + 1);
+    entry.groupStart = entry.group && entry.group !== prevGroup;
+    prevGroup = entry.group;
+  });
+  var numberById = {};
+  ordered.forEach(function (entry, i) {
+    numberById[entry.section.id || ("section-" + i)] = entry.number;
+  });
+
+  function tocLink(s, sid) {
+    var a = document.createElement("a");
+    a.href = "#" + sid;
+    a.textContent = (numberById[sid] != null ? numberById[sid] : "") + ". " + (s.title || "");
+    return a;
+  }
+
+  if (ordered.length) {
+    var tocH = document.createElement("h2");
+    tocH.textContent = "Contents";
+    content.appendChild(tocH);
+
+    if (groups.length) {
+      // Grouped table of contents: each group is a named, described bucket.
+      groups.forEach(function (g, gi) {
+        var box = document.createElement("div");
+        box.className = "group-toc";
+        var name = document.createElement("a");
+        name.className = "group-toc-name";
+        name.href = "#" + (g.id || ("group-" + gi));
+        name.textContent = groupName(g);
+        box.appendChild(name);
+        if (g.description) {
+          var desc = document.createElement("p");
+          desc.className = "group-toc-desc";
+          desc.innerHTML = renderInline(tour, null, g.description);
+          box.appendChild(desc);
+        }
+        var toc = document.createElement("div");
+        toc.className = "toc";
+        (g.sections || []).forEach(function (sid) {
+          var s = sectionsById[sid];
+          if (!s) { return; }
+          toc.appendChild(tocLink(s, sid));
+          toc.appendChild(document.createElement("br"));
+        });
+        box.appendChild(toc);
+        content.appendChild(box);
+      });
+      // Any sections not placed in a group.
+      var orphans = ordered.filter(function (e) { return !e.group; });
+      if (orphans.length) {
+        var box2 = document.createElement("div");
+        box2.className = "group-toc";
+        var nm = document.createElement("span");
+        nm.className = "group-toc-name";
+        nm.textContent = "Other";
+        box2.appendChild(nm);
+        var toc2 = document.createElement("div");
+        toc2.className = "toc";
+        orphans.forEach(function (e, i) {
+          var sid = e.section.id || ("section-" + i);
+          toc2.appendChild(tocLink(e.section, sid));
+          toc2.appendChild(document.createElement("br"));
+        });
+        box2.appendChild(toc2);
+        content.appendChild(box2);
+      }
+    } else {
+      // Flat table of contents.
+      var toc = document.createElement("div");
+      toc.className = "toc";
+      ordered.forEach(function (entry, i) {
+        var sid = entry.section.id || ("section-" + i);
+        toc.appendChild(tocLink(entry.section, sid));
+        toc.appendChild(document.createElement("br"));
+      });
+      content.appendChild(toc);
+    }
+  }
+
+  // Sections (in rendered order), with a banner before each group's first one.
+  ordered.forEach(function (entry, i) {
+    var s = entry.section;
+    if (entry.groupStart) {
+      var gi = groups.indexOf(entry.group);
+      var banner = document.createElement("div");
+      banner.className = "group-header";
+      banner.id = entry.group.id || ("group-" + gi);
+      var gname = document.createElement("h2");
+      gname.className = "group-name";
+      gname.textContent = groupName(entry.group);
+      banner.appendChild(gname);
+      if (entry.group.description) {
+        var gdesc = document.createElement("p");
+        gdesc.className = "group-desc";
+        gdesc.innerHTML = renderInline(tour, null, entry.group.description);
+        banner.appendChild(gdesc);
+      }
+      content.appendChild(banner);
+    }
+
+    var h = document.createElement("h2");
+    h.id = s.id || ("section-" + i);
+    var num = entry.number;
+    var titleSpan = document.createElement("span");
+    titleSpan.innerHTML = (num + ". ") + renderInline(tour, s.file, s.title || "");
+    h.appendChild(titleSpan);
+    if (s.file && s.lineStart) {
+      h.appendChild(lineBadge(tour, s.file, s.lineStart, s.lineEnd));
+    }
+    if (s.file) {
+      var ft = document.createElement("span");
+      ft.className = "filetag";
+      ft.textContent = s.file;
+      h.appendChild(ft);
+    }
+    content.appendChild(h);
+
+    renderMarkdown(tour, s.file, s.body, content);
+
+    if (s.code) {
+      var pre = document.createElement("pre");
+      pre.textContent = s.code; // textContent: never interprets code as HTML
+      content.appendChild(pre);
+    }
+
+    renderCallouts(tour, s.file, s.callouts, content);
+
+    renderDiagrams(s.diagrams, content);
+
+    // Optional explicit "jump to" anchors (labeled sub-line links)
+    if (s.anchors && s.anchors.length) {
+      var jump = document.createElement("p");
+      jump.appendChild(document.createTextNode("Jump to: "));
+      s.anchors.forEach(function (an) {
+        jump.appendChild(lineBadge(tour, an.file || s.file, an.lineStart,
+                                   an.lineEnd, an.label));
+      });
+      content.appendChild(jump);
+    }
+  });
+
+  // Optional data-flow summary
+  if (tour.dataFlow) {
+    var fh = document.createElement("h2");
+    fh.textContent = "Putting it together \u2014 the data flow";
+    content.appendChild(fh);
+    var flow = document.createElement("div");
+    flow.className = "flow";
+    renderMarkdown(tour, null, tour.dataFlow, flow);
+    content.appendChild(flow);
+  }
+
+  // Footer
+  var footer = document.createElement("footer");
+  footer.textContent = "Generated code tour \u00b7 line badges use the "
+    + (tour.webUrlBase ? "web" : (tour.editor || "vscode")) + " protocol \u00b7 "
+    + "if file paths change, edit the \"files\" map in the embedded JSON.";
+  content.parentNode.insertBefore(footer, content.nextSibling);
+}
+
+// --- Theme toggle -----------------------------------------------------------
+
+// Cycle the header button through "auto" -> "light" -> "dark" -> "auto",
+// persisting the choice in localStorage. "auto" follows the OS color scheme
+// via the CSS media query; "light"/"dark" force a palette regardless of the OS.
+function setupThemeToggle() {
+  var btn = document.getElementById("theme-toggle");
+  if (!btn) { return; }
+  var ORDER = ["auto", "light", "dark"];
+  var LABEL = {
+    auto: { ico: "\uD83D\uDDA5\uFE0F", text: "Auto" },   // desktop
+    light: { ico: "\u2600\uFE0F", text: "Light" },        // sun
+    dark: { ico: "\uD83C\uDF19", text: "Dark" }           // crescent moon
+  };
+
+  function current() {
+    var t = document.documentElement.getAttribute("data-theme");
+    return (t === "light" || t === "dark") ? t : "auto";
+  }
+  function paint(theme) {
+    var meta = LABEL[theme] || LABEL.auto;
+    btn.innerHTML = "";
+    var ico = document.createElement("span");
+    ico.className = "ico";
+    ico.textContent = meta.ico;
+    btn.appendChild(ico);
+    btn.appendChild(document.createTextNode(meta.text));
+    btn.setAttribute("title", "Theme: " + meta.text + " (click to change)");
+  }
+  function apply(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    try { localStorage.setItem("codeTourTheme", theme); } catch (e) { /* ignore */ }
+    paint(theme);
+  }
+
+  paint(current());
+  btn.addEventListener("click", function () {
+    var next = ORDER[(ORDER.indexOf(current()) + 1) % ORDER.length];
+    apply(next);
+  });
+}
+
+// --- Boot -------------------------------------------------------------------
+
+try {
+  render(loadTour());
+} catch (err) {
+  var e = document.createElement("div");
+  e.id = "error";
+  e.textContent = "Could not render this code tour: " + err.message;
+  document.body.appendChild(e);
+}
+setupThemeToggle();
+</script>
+
+<!-- Mermaid bootstrap (classic script: works when the file is opened directly
+     via file:// as well as when served over http). Runs only if the tour
+     produced any <pre class="mermaid"> blocks. Prefers the local ES module
+     (mermaid.esm.min.mjs) when modules are allowed; falls back to loading the
+     self-contained UMD bundle (mermaid.min.js) via a classic <script> tag,
+     because Chromium blocks ES module loads from file:// origins. Both files
+     are placed next to this HTML by the build script. If neither loads, the
+     Mermaid source stays visible as a code block. -->
+<script>
+(function () {
+  "use strict";
+  var blocks = document.querySelectorAll("pre.mermaid");
+  if (!blocks.length) { return; }
+
+  function run(mermaid) {
+    if (!mermaid) { return; }
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      theme: "neutral"
+    });
+    mermaid.run({ nodes: blocks });
+  }
+
+  function fail(err) {
+    if (window.console) {
+      console.error("Mermaid could not be loaded; showing diagram source.", err);
+    }
+  }
+
+  function loadClassic() {
+    var s = document.createElement("script");
+    s.src = "./mermaid.min.js";
+    s.onload = function () { run(window.mermaid); };
+    s.onerror = fail;
+    document.head.appendChild(s);
+  }
+
+  // ES modules cannot be fetched from a file:// origin in Chromium, so use the
+  // classic UMD bundle there; otherwise prefer the local ES module.
+  if (location.protocol === "file:" || typeof Function.prototype.bind !== "function") {
+    loadClassic();
+  } else {
+    try {
+      import("./mermaid.esm.min.mjs")
+        .then(function (m) { run(m && m.default ? m.default : window.mermaid); })
+        .catch(loadClassic);
+    } catch (err) {
+      loadClassic();
+    }
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+{
+  "name": "copilot-wrapped",
+  "version": "1.2.0",
+  "description": "Generate a 'Copilot Wrapped': a fun, Spotify-Wrapped-style recap of your own Copilot CLI usage, built locally from the on-disk session store. Produces a self-contained HTML report with a day-of-week x time-of-day heatmap, top projects, task themes, files touched, streaks, and a personalized 'how to use Copilot better' section. Use when asked for 'copilot wrapped', 'my copilot usage recap', 'copilot year in review', 'copilot stats', 'how do I use copilot', or 'summarize my copilot history'.",
+  "repository": "https://github.com/david-risney/PwshProfile"
+}
