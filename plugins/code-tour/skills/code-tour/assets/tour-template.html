@@ -12,6 +12,34 @@
   numbers, and editor links are derived from the embedded JSON at runtime.
 -->
 <head>
+<script>
+  // Pin an explicit, fragment-less base URL before anything else is parsed.
+  //
+  // Section navigation puts the current section id in location.hash (e.g.
+  // ...tour.html#plugin-observer). Chromium resolves an SVG's internal
+  // references (url(#id) markers/gradients/filters/clip-paths) against the
+  // document baseURI, which otherwise carries that #hash. For file:// URLs --
+  // treated as unique security origins -- the resolved reference then looks
+  // like an external sub-resource pointing back at the page itself, producing:
+  //   "Unsafe attempt to load URL file:///...#section from frame with URL
+  //    file:///...#section. 'file:' URLs are treated as unique security
+  //    origins."
+  // every time a Mermaid diagram is on a section. Setting <base> to the URL
+  // with the fragment stripped makes baseURI fragment-less, so those internal
+  // references resolve as local document references and the warning disappears.
+  // In-page #section anchors and the relative ./mermaid.* loads still resolve
+  // correctly against this base.
+  (function () {
+    try {
+      var head = document.head || document.documentElement;
+      if (!document.querySelector("base")) {
+        var b = document.createElement("base");
+        b.href = location.href.split("#")[0];
+        head.insertBefore(b, head.firstChild);
+      }
+    } catch (e) {}
+  })();
+</script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Code tour</title>

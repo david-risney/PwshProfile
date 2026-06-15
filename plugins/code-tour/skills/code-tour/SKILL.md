@@ -104,14 +104,40 @@ must be available before you render.
      `intro` or any section where a picture genuinely helps — control/data flow,
      state machines, sequence/architecture. Each entry is a Mermaid string or
      `{ "title": "...", "code": "graph TD ..." }`. Keep them small; the source
-     is data, not markup. Two hard rules:
+     is data, not markup. Apply this decision test, then the two hard rules:
+     - **Decision test — does it cross a boundary the reader can't see in one
+       place?** Diagram-worthiness is about *span*, not whether the flow is
+       linear. Add a diagram when the structure spans things a reader cannot
+       hold in their head from a single screen: multiple files, processes,
+       threads, layers, or components; an IPC/Mojo or network hop; an async
+       hand-off (callback, observer, posted task, message); or 3+ collaborating
+       types. A flow that is "linear" but threads through renderer → IPC →
+       browser → another object across many files **is** diagram-worthy — the
+       hops are the non-obvious part. Concretely, lean toward a diagram when the
+       tour touches **~4+ files** or **crosses a process/IPC boundary**, even if
+       each individual step is simple. Conversely, a flow that stays inside one
+       file or one function — however many steps — usually is not.
+       - *Worked example (do add):* a feature where a renderer plugin reads a
+         value, sends it over Mojo, a browser-side host forwards it to a
+         connector, the connector performs an action and caches a result, and a
+         fourth object reads that result back through a delegate. Two small
+         diagrams capture it well: a **sequence diagram** of the write path
+         (renderer → Mojo → host → connector → action) and a **call graph** of
+         the read path (caller → delegate accessor → connector getter). Each
+         crosses process and object boundaries the prose can only describe one
+         hop at a time.
+       - *Counter-example (do not add):* a single function that validates input,
+         transforms it, and returns — the prose and `code` snippets already make
+         the order clear.
      - **Only add non-obvious diagrams.** A diagram must reveal structure the
        reader can't see at a glance — a non-trivial control/data flow, state
        machine, or cross-component interaction. Good examples: a **class
        diagram** showing how multiple classes connect and through which
-       members, or a **call graph** showing which methods call which across
-       files. Do **not** diagram a linear sequence of steps, a trivial call, or
-       anything the prose already makes clear. When in doubt, leave it out.
+       members, a **call graph** showing which methods call which across files,
+       or a **sequence diagram** of a cross-process/async hand-off. Do **not**
+       diagram a trivial call, or a single-file/single-function step sequence
+       the prose already makes clear. When in doubt, apply the decision test
+       above; if it still ties, leave it out.
      - **Only add accurate diagrams.** Every node, edge, and label must match
        the actual code (real function names, real branches, real ordering).
        A wrong diagram is worse than none — never guess or invent flow.
