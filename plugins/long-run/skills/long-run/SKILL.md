@@ -15,11 +15,10 @@ never by blocking on the command.
 
 ## When to use
 
-Use when the user wants a long command (more than ~30s) run in a real terminal
-they can watch and that won't die with the agent turn — e.g. "run this build in
-the background", "kick off the tests in a new window", "run it in zellij", or
-"don't let it die if you get interrupted". Good fits: `autoninja` builds, gtest
-sweeps, `gclient sync`, long lints. For quick commands, just use the shell tool.
+(Skill selection is driven by the frontmatter `description`; this is just a
+sanity check once the skill is loaded.) Good fits: commands expected to run more
+than ~30s — `autoninja` builds, gtest sweeps, `gclient sync`, long lints. Don't
+use it for quick commands — run those directly with the shell tool.
 
 ## Requirements
 
