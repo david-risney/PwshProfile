@@ -20,6 +20,12 @@
       "description": "Generate a 'Copilot Wrapped': a fun, Spotify-Wrapped-style recap of your own Copilot CLI usage, built locally from the on-disk session store. Produces a self-contained HTML report with a day-of-week x time-of-day heatmap, top projects, task themes, files touched, streaks, and a personalized 'how to use Copilot better' section. Use when asked for 'copilot wrapped', 'my copilot usage recap', 'copilot year in review', 'copilot stats', 'how do I use copilot', or 'summarize my copilot history'.",
       "version": "1.2.0",
       "source": "./plugins/copilot-wrapped"
+    },
+    {
+      "name": "long-run",
+      "description": "Run a long-running command (build, test suite, sync) inside a detached zellij terminal session and open a live viewer window (a new tab in Windows Terminal when already inside it, otherwise a new window). The job is decoupled from the Copilot session, so it survives interrupts; the agent tracks completion and exit code through plain status/log files. Use when asked to 'run this in the background', 'kick off a long build', 'run it in zellij', 'watch the build in a terminal', 'run tests in a separate window', or 'don't let it die if the session is interrupted'.",
+      "version": "1.0.0",
+      "source": "./plugins/long-run"
     }
   ]
 }

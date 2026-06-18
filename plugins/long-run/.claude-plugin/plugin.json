@@ -1,0 +1,6 @@
+{
+  "name": "long-run",
+  "version": "1.0.0",
+  "description": "Run a long-running command (build, test suite, sync) inside a detached zellij terminal session and open a live viewer window (a new tab in Windows Terminal when already inside it, otherwise a new window). The job is decoupled from the Copilot session, so it survives interrupts; the agent tracks completion and exit code through plain status/log files. Use when asked to 'run this in the background', 'kick off a long build', 'run it in zellij', 'watch the build in a terminal', 'run tests in a separate window', or 'don't let it die if the session is interrupted'.",
+  "repository": "https://github.com/david-risney/PwshProfile"
+}
