@@ -44,15 +44,25 @@ State lives under `%TEMP%\long-run\<session>\`:
 - `log.txt` — full captured output (live)
 - `command.ps1`, `wrapper.ps1`, `run.kdl` — generated job files
 
+> **Why a wrapper instead of just asking zellij?** zellij can dump a pane with
+> `zellij --session <s> action dump-screen --full --path <file>` (non-attaching,
+> safe from the agent's shell), but that only yields a point-in-time snapshot
+> bounded by the scrollback buffer (a long build overflows it), it disappears
+> when the session ends, and zellij has **no exit-code mechanism**. So the
+> wrapper tees a complete, persistent `log.txt` and records the exit code in
+> `status.txt`. Use `dump-screen` as a complement to grab exactly what's on
+> screen (e.g. output a child process printed straight to the console).
+
 ### The one hard rule
 
 **Never run an *attaching* zellij command from the agent's shell** (`zellij
 attach`, `zellij -s NAME -n …`, `zellij run …`) — the agent's shell has no TTY,
 so these block forever. All session hosting happens in the viewer window via the
 provided scripts. From the agent's shell, only ever run the scripts or
-**non-attaching** queries: `zellij list-sessions -n`, `zellij kill-session`,
-`zellij delete-session <name> --force`. The source of truth for "is it done / did
-it pass" is **`status.txt`**, not zellij.
+**non-attaching** commands: `zellij list-sessions -n`, `zellij kill-session`,
+`zellij delete-session <name> --force`, and `zellij --session <s> action
+dump-screen …`. The source of truth for "is it done / did it pass" is
+**`status.txt`**, not zellij.
 
 ## Usage
 
@@ -89,6 +99,7 @@ safe in the agent's shell and interrupting it never affects the job.
 ```powershell
 Get-Content <LONGRUN_STATUS>             # PENDING / RUNNING / DONE <code>
 Get-Content <LONGRUN_LOG> -Tail 40       # latest output
+zellij --session <session> action dump-screen --full --path <file>  # exact on-screen snapshot
 zellij kill-session <session>            # stop a still-running job
 zellij delete-session <session> --force  # forget a finished one
 ```
