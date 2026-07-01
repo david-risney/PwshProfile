@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "description": "Time each Copilot turn and toast when it runs long.",
+  "hooks": {
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "powershell": "& \"$env:COPILOT_PLUGIN_ROOT/hooks/Turn-Toast.ps1\" -Phase Start",
+        "timeoutSec": 10
+      }
+    ],
+    "agentStop": [
+      {
+        "type": "command",
+        "powershell": "& \"$env:COPILOT_PLUGIN_ROOT/hooks/Turn-Toast.ps1\" -Phase Stop",
+        "timeoutSec": 10
+      }
+    ]
+  }
+}
