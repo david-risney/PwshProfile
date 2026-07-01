@@ -19,7 +19,7 @@ $foundUnknownProcessParent = $false;
 $foundZellijProcessParent = $false;
 
 while (!($foundUnknownProcessParent) -and $checkProcess -and $checkProcess.ProcessName.ToLower() -ne "windowsterminal") {
-  if ($checkProcess.ProcessName.ToLower() -notin "cmd", "pwsh", "powershell", "windowsterminal", "zellij") {
+  if ($checkProcess.ProcessName.ToLower() -notin "cmd", "pwsh", "powershell", "windowsterminal", "zellij", "psmux") {
     $foundUnknownProcessParent = $true;
   }
   if ($checkProcess.ProcessName.ToLower() -eq "zellij") {
@@ -34,7 +34,7 @@ if ($foundUnknownProcessParent) {
 . (Join-Path $PSScriptRoot "helper-progress.ps1");
 
 # Find via (findstr /c "^IncrementProgress" .\profile.ps1).Count
-$global:maxProgress = 18; # The count of IncrementProgress calls in this file.
+$global:maxProgress = 20; # The count of IncrementProgress calls in this file.
 
 if ($Update -eq "On") {
   $global:maxProgress += 4;
@@ -206,6 +206,20 @@ if ($Update -eq "On") {
   winget install zellij.zellij;
 }
 $env:ZELLIJ_CONFIG_DIR = (Join-Path $PSScriptRoot "zellij");
+#endregion
+
+#region psmux
+# [psmux](https://github.com/psmux/psmux) is a tmux-style terminal multiplexer for Windows, bringing split panes and sessions to the terminal.
+# It reads a tmux-compatible config; PSMUX_CONFIG_FILE points it at the themed
+# config in this repo (mirroring ZELLIJ_CONFIG_DIR above).
+IncrementProgress "psmux";
+if ($Update -eq "On") {
+  Write-Verbose "Updating psmux";
+  winget install marlocarlo.psmux;
+}
+$env:PSMUX_CONFIG_FILE = (Join-Path $PSScriptRoot "psmux\psmux.conf");
+# The Prefix+w quick-actions picker (display-popup) launches this script.
+$env:PSMUX_PICKER_SCRIPT = (Join-Path $PSScriptRoot "psmux\psmux-picker.ps1");
 #endregion
 
 #region ohmyposh
