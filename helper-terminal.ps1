@@ -66,6 +66,9 @@ function Update-TerminalProfiles ($settingsPath) {
 
   $json.profiles.list = @($list);
 
+  # Make the pwsh (PowerShell Core) profile the default profile.
+  $json | Add-Member -NotePropertyName defaultProfile -NotePropertyValue $pwshGuid -Force;
+
   $outJson = $json | ConvertTo-Json -Depth 32;
   Out-FileAtomic $outJson $settingsPath;
 }
