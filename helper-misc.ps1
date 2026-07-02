@@ -122,3 +122,41 @@ function Find-Replace {
 
   Write-Progress -Activity "Find and replace" -Complete;
 }
+
+function New-UuidV5 {
+    param([Guid]$Namespace = [Guid]::Empty, [object]$NameStringOrBytes)
+
+    if ($Namespace -eq [Guid]::Empty) {
+        $Namespace = [Guid]'f65ddb7e-706b-4499-8a50-40313caf510a';
+    }
+
+    if ($NameStringOrBytes -is [string]) {
+        $NameBytes = [System.Text.Encoding]::Unicode.GetBytes($NameStringOrBytes)
+    } elseif ($NameStringOrBytes -is [byte[]]) {
+        $NameBytes = $NameStringOrBytes
+    } else {
+        throw "Name must be a string or byte array."
+    }
+
+    # Namespace GUID in big-endian (RFC 4122) byte order
+    $b = $Namespace.ToByteArray()
+    $ns = [byte[]]@($b[3],$b[2],$b[1],$b[0], $b[5],$b[4], $b[7],$b[6],
+                    $b[8],$b[9],$b[10],$b[11],$b[12],$b[13],$b[14],$b[15])
+
+    $sha1 = [System.Security.Cryptography.SHA1]::Create()
+    try { $hash = $sha1.ComputeHash($ns + $NameBytes) } finally { $sha1.Dispose() }
+
+    $g = $hash[0..15]
+    $g[6] = ($g[6] -band 0x0F) -bor 0x50   # version 5
+    $g[8] = ($g[8] -band 0x3F) -bor 0x80   # RFC 4122 variant
+
+    $le = [byte[]]@($g[3],$g[2],$g[1],$g[0], $g[5],$g[4], $g[7],$g[6],
+                    $g[8],$g[9],$g[10],$g[11],$g[12],$g[13],$g[14],$g[15])
+    return [Guid][byte[]]$le
+}
+
+$WellKnownGuids = @{
+    "EdgeDev" = New-UuidV5 -NameStringOrBytes "EdgeDev";
+    "Edge" = New-UuidV5 -Namespace (New-UuidV5 -NameStringOrBytes "EdgeDev") -NameStringOrBytes "Edge";
+    "Chromium" = New-UuidV5 -Namespace (New-UuidV5 -NameStringOrBytes "EdgeDev") -NameStringOrBytes "Chromium";
+}

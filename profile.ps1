@@ -106,6 +106,9 @@ IncrementProgress "Loading Misc Helpers";
 IncrementProgress "Loading Json Helpers";
 . (Join-Path $PSScriptRoot "helper-json.ps1");
 
+IncrementProgress "Loading Terminal Helpers";
+. (Join-Path $PSScriptRoot "helper-terminal.ps1");
+
 IncrementProgress "Loading WebView2 Helpers";
 . (Join-Path $PSScriptRoot "helper-webview2.ps1");
 
@@ -481,6 +484,9 @@ $terminalSettingsPatchPath = (Join-Path $PSScriptRoot "terminal-settings.json");
   # Ensure the pwsh profile is present and hide cmd / Windows PowerShell /
   # Azure Cloud Shell / Visual Studio profiles.
   Update-TerminalProfiles $terminalSettingsPath;
+  # Add Edge / Chromium dev-environment profiles for local enlistments and prune
+  # any stale ones whose src folder no longer exists.
+  Update-TerminalDevEnvironmentProfiles $terminalSettingsPath;
 }
 #endregion
 
