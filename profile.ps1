@@ -464,6 +464,9 @@ $terminalSettingsPatchPath = (Join-Path $PSScriptRoot "terminal-settings.json");
 } | ForEach-Object {
   $terminalSettingsPath = $_;
   MergeJsonFiles -inJsonFilePaths $terminalSettingsPath,$terminalSettingsPatchPath -outJsonFilePath (($terminalSettingsPath));
+  # Ensure the pwsh profile is present and hide cmd / Windows PowerShell /
+  # Azure Cloud Shell / Visual Studio profiles.
+  Update-TerminalProfiles $terminalSettingsPath;
 }
 #endregion
 
