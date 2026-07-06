@@ -621,6 +621,22 @@ if (Test-Path $copilotSettingsPath) {
   Copy-Item $copilotSettingsAdditionsPath $copilotSettingsPath;
 }
 
+# Populate companyAnnouncements from the gifs\*.one.ansi frames. Only regenerate
+# when the count is out of sync with the number of *.one.ansi files (cheap check).
+$oneAnsiCount = @(Get-ChildItem (Join-Path $PSScriptRoot "gifs") -File -Filter *.one.ansi).Count;
+$announcementCount = 0;
+if (Test-Path $copilotSettingsPath) {
+  try {
+    $copilotSettings = Get-Content $copilotSettingsPath -Raw | ConvertFrom-Json;
+    if ($copilotSettings.PSObject.Properties['companyAnnouncements']) {
+      $announcementCount = @($copilotSettings.companyAnnouncements).Count;
+    }
+  } catch { }
+}
+if ($announcementCount -ne $oneAnsiCount) {
+  . (Join-Path $PSScriptRoot "copilot" "Update-CompanyAnnouncements.ps1");
+}
+
 #endregion
 
 #region miscupdate
