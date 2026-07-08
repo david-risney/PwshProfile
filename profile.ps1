@@ -34,10 +34,10 @@ if ($foundUnknownProcessParent) {
 . (Join-Path $PSScriptRoot "helper-progress.ps1");
 
 # Find via (findstr /c "^IncrementProgress" .\profile.ps1).Count
-$global:maxProgress = 20; # The count of IncrementProgress calls in this file.
+$global:maxProgress = 22; # The count of IncrementProgress calls in this file.
 
 if ($Update -eq "On") {
-  $global:maxProgress += 4;
+  $global:maxProgress += 5;
 }
 
 # Store an environment variable for the path to this folder
