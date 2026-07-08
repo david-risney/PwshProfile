@@ -472,22 +472,31 @@ Update-FormatData -PrependPath $terminableClickableFormatPath;
 IncrementProgress "Applying Terminal settings";
 $terminalSettingsPatchPath = (Join-Path $PSScriptRoot "terminal-settings.json");
 
-@(
-  "$env:LOCALAPPDATA\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json",
-  "$env:LOCALAPPDATA\Packages\Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe\LocalState\settings.json",
-  "$env:LOCALAPPDATA\Microsoft\Windows Terminal\settings.json"
-) | Where-Object {
-  Test-Path $_;
-} | ForEach-Object {
+@(Get-TerminalSettingsPath) | ForEach-Object {
   $terminalSettingsPath = $_;
-  MergeJsonFiles -inJsonFilePaths $terminalSettingsPath,$terminalSettingsPatchPath -outJsonFilePath (($terminalSettingsPath));
-  # Ensure the pwsh profile is present and hide cmd / Windows PowerShell /
-  # Azure Cloud Shell / Visual Studio profiles.
-  Update-TerminalProfiles $terminalSettingsPath;
-  # Add Edge / Chromium dev-environment profiles for local enlistments and prune
-  # any stale ones whose src folder no longer exists.
-  Update-TerminalDevEnvironmentProfiles $terminalSettingsPath;
+  # Windows Terminal watches these files and reloads on change, so a write can
+  # momentarily lose a race for the file (Terminal/OneDrive/Defender holding it).
+  # Out-FileAtomic already retries; if it still fails, degrade gracefully rather
+  # than surfacing a profile error - the next shell / hook will reconcile.
+  try {
+    MergeJsonFiles -inJsonFilePaths $terminalSettingsPath,$terminalSettingsPatchPath -outJsonFilePath (($terminalSettingsPath));
+    # Ensure the pwsh profile is present and hide cmd / Windows PowerShell /
+    # Azure Cloud Shell / Visual Studio profiles.
+    Update-TerminalProfiles $terminalSettingsPath;
+    # Add Edge / Chromium dev-environment profiles for local enlistments and prune
+    # any stale ones whose src folder no longer exists.
+    Update-TerminalDevEnvironmentProfiles $terminalSettingsPath;
+  } catch {
+    Write-Verbose "Terminal settings update skipped for '$terminalSettingsPath': $($_.Exception.Message)";
+  }
 }
+
+# Refresh the fragment that exposes a Windows Terminal profile per running zellij
+# / psmux session. psmux keeps this current in real time via hooks in psmux.conf;
+# this startup pass is the baseline that also covers zellij (which has no session
+# hooks) and drops any sessions that have since exited.
+try { Update-TerminalSessionProfileFragment; }
+catch { Write-Verbose "Terminal session fragment update skipped: $($_.Exception.Message)"; }
 #endregion
 
 #region z

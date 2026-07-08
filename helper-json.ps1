@@ -25,15 +25,56 @@ function MergeJson ($jsons) {
 function Out-FileAtomic ($content, $outFilePath, $encoding = "Utf8") {
   $outDir = Split-Path -Parent $outFilePath;
   if (!$outDir) { $outDir = "."; }
-  $tempPath = Join-Path $outDir ([System.IO.Path]::GetRandomFileName());
+  $resolvedDir = (Resolve-Path -LiteralPath $outDir).ProviderPath;
+  $destFull = Join-Path $resolvedDir (Split-Path -Leaf $outFilePath);
+
+  # Serialize writers across processes with a named mutex keyed on the destination
+  # path, so concurrent updates (e.g. several psmux hooks firing at once, or a hook
+  # racing the profile.ps1 startup pass) can't collide while replacing the file.
+  # Mutex names can't contain '\', so use a hash of the (case-insensitive) path.
+  $sha1 = [System.Security.Cryptography.SHA1]::Create();
   try {
-    $content | Out-File $tempPath -Encoding $encoding;
-    # Move-Item -Force replaces the destination atomically on the same volume.
-    Move-Item -LiteralPath $tempPath -Destination $outFilePath -Force;
-  } finally {
-    if (Test-Path -LiteralPath $tempPath) {
-      Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue;
+    $hash = [BitConverter]::ToString($sha1.ComputeHash([Text.Encoding]::UTF8.GetBytes($destFull.ToLowerInvariant()))).Replace('-', '');
+  } finally { $sha1.Dispose(); }
+  $mutex = New-Object System.Threading.Mutex($false, "Global\PwshProfile-OutFileAtomic-$hash");
+  $held = $false;
+  try {
+    try { $held = $mutex.WaitOne(10000); } catch [System.Threading.AbandonedMutexException] { $held = $true; }
+
+    $tempPath = Join-Path $resolvedDir ([System.IO.Path]::GetRandomFileName());
+    try {
+      $content | Out-File $tempPath -Encoding $encoding;
+      # [IO.File]::Move(src,dst,$true) maps to Win32 MoveFileEx with
+      # MOVEFILE_REPLACE_EXISTING, overwriting atomically on the same volume
+      # (unlike Move-Item -Force, which can fail with "Cannot create a file when
+      # that file already exists"). The mutex prevents contention between our own
+      # writers; the retry rides out transient locks held by *external* processes
+      # (Windows Terminal watching settings.json, Defender, the search indexer),
+      # which surface as IOException / UnauthorizedAccessException.
+      $attempt = 0;
+      $maxAttempts = 8;
+      while ($true) {
+        try {
+          [System.IO.File]::Move($tempPath, $destFull, $true);
+          break;
+        } catch {
+          # A .NET method failure surfaces as a MethodInvocationException whose
+          # real cause is the InnerException, so unwrap before deciding to retry.
+          $ex = $_.Exception;
+          while ($ex.InnerException) { $ex = $ex.InnerException; }
+          $transient = ($ex -is [System.IO.IOException]) -or ($ex -is [System.UnauthorizedAccessException]);
+          if (!$transient -or ++$attempt -ge $maxAttempts) { throw; }
+          Start-Sleep -Milliseconds ([Math]::Min(250, 40 * $attempt));
+        }
+      }
+    } finally {
+      if (Test-Path -LiteralPath $tempPath) {
+        Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue;
+      }
     }
+  } finally {
+    if ($held) { $mutex.ReleaseMutex(); }
+    $mutex.Dispose();
   }
 }
 

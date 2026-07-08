@@ -4,6 +4,23 @@
 # generic JSON helpers in helper-json.ps1 (e.g. Out-FileAtomic) for file I/O so
 # that helper-json.ps1 stays free of any terminal-specific knowledge.
 
+# The name of the Windows Terminal fragment folder we generate live multiplexer
+# session profiles into. Windows Terminal sets every fragment profile's "source"
+# to its containing folder name, so this doubles as the matchProfiles "source"
+# used to group those profiles into a New Tab menu folder.
+$script:TerminalSessionFragmentSource = 'PwshProfile';
+
+# The psmux window/pane icon (vendored from the psmux project, https://github.com/psmux/psmux).
+# Two references are needed because Windows Terminal resolves icons differently:
+#  * Top-level launcher (a plain settings.json profile): a normal file path, so we
+#    point at the vendored copy in this repo and let %USERPROFILE% expand.
+#  * Fragment session profiles: as of WT 1.24 fragment icons resolve RELATIVE TO
+#    the fragment file's own directory (arbitrary/absolute paths are not honored),
+#    so we copy the icon next to sessions.json and reference it by bare filename.
+$script:PsmuxIconFileName = 'psmux-icon.svg';
+$script:PsmuxRepoIconPath = "%USERPROFILE%\PwshProfile\psmux\$script:PsmuxIconFileName";
+$script:PsmuxSourceIconPath = Join-Path (Split-Path -Parent $PSCommandPath) "psmux\$script:PsmuxIconFileName";
+
 # Ensure a Windows Terminal settings.json has the PowerShell Core (pwsh) profile
 # present and enabled, and hides the profiles we don't want in the dropdown:
 # Windows PowerShell (powershell.exe), Command Prompt (cmd.exe), Azure Cloud Shell,
@@ -49,6 +66,42 @@ function Update-TerminalProfiles ($settingsPath) {
     };
   }
 
+  # Ensure the multiplexer "launch a new session" profiles (zellij, psmux) are
+  # present at the TOP level of the dropdown. Each is added only if a profile with
+  # its GUID isn't already present, so an existing customized entry (e.g. the
+  # zellij profile some machines already have) is left untouched. These launchers
+  # are deliberately plain settings.json profiles (NOT fragment/PwshProfile-sourced)
+  # so matchProfiles doesn't pull them into the "Sessions" submenu - only the
+  # per-running-session *attach* profiles (from the fragment) belong there. psmux is
+  # launched via pwsh so profile.ps1 sets PSMUX_CONFIG_FILE and puts psmux on PATH.
+  $muxProfiles = @(
+    [PSCustomObject]@{
+      guid              = '{efe05561-2955-40ef-9091-452d741951ca}';
+      name              = 'ZelliJ';
+      commandline       = '%LocalAppData%\Zellij\zellij.exe --config-dir %USERPROFILE%\PwshProfile\zellij';
+      icon              = '%LocalAppData%\Zellij\zellij.exe';
+      startingDirectory = '%USERPROFILE%';
+      hidden            = $false;
+    },
+    [PSCustomObject]@{
+      guid              = '{84494564-58d8-5fcf-806a-52635599b388}';
+      name              = 'psmux';
+      commandline       = 'pwsh -NoExit -Command psmux';
+      icon              = $script:PsmuxRepoIconPath;
+      startingDirectory = '%USERPROFILE%';
+      hidden            = $false;
+    }
+  );
+  foreach ($mux in $muxProfiles) {
+    $existing = $list | Where-Object { $_.guid -eq $mux.guid } | Select-Object -First 1;
+    if (!$existing) {
+      $list += $mux;
+    } elseif ($mux.icon) {
+      # Keep the launcher icon current without clobbering any other user tweaks.
+      $existing | Add-Member -NotePropertyName icon -NotePropertyValue $mux.icon -Force;
+    }
+  }
+
   # Hide the profiles we don't want to see.
   foreach ($prof in $list) {
     $shouldHide = $false;
@@ -64,10 +117,58 @@ function Update-TerminalProfiles ($settingsPath) {
     }
   }
 
+  # Prune Windows Terminal fragment bookkeeping. Terminal auto-persists a stub
+  # (guid + name + source, no commandline) into settings.json for every fragment
+  # profile it renders, and it never removes those stubs when the fragment stops
+  # defining the profile. So ended zellij / psmux sessions leave orphaned stubs
+  # behind. Remove any stub whose source is our fragment but whose GUID the
+  # fragment no longer defines; keep the stubs for still-live sessions so Terminal
+  # doesn't churn re-adding them. Top-level launchers have no such source and are
+  # left untouched.
+  $fragmentGuids = @((New-TerminalSessionProfile `
+      -ZellijSessions (Get-ZellijSessionName) `
+      -PsmuxSessions  (Get-PsmuxSessionName)).guid);
+  $src = $script:TerminalSessionFragmentSource;
+  $list = @($list | Where-Object {
+    -not (($_.source -eq $src) -and ($fragmentGuids -notcontains $_.guid));
+  });
+
   $json.profiles.list = @($list);
 
   # Make the pwsh (PowerShell Core) profile the default profile.
   $json | Add-Member -NotePropertyName defaultProfile -NotePropertyValue $pwshGuid -Force;
+
+  # Ensure a "Sessions" folder in the New Tab dropdown that auto-groups the live
+  # zellij / psmux session profiles emitted into our fragment (they all share the
+  # fragment folder name as their "source"). allowEmpty:false hides the folder
+  # when there are no sessions; remainingProfiles keeps everything else at the top
+  # level. We only add our folder if it isn't already present, so a user's own
+  # newTabMenu customization is preserved.
+  $sessionsFolder = [PSCustomObject]@{
+    type       = 'folder';
+    name       = 'Sessions';
+    icon       = "$([char]0xD83D)$([char]0xDDD4)";  # desktop-window emoji
+    allowEmpty = $false;
+    entries    = @(
+      [PSCustomObject]@{ type = 'matchProfiles'; source = $script:TerminalSessionFragmentSource }
+    );
+  };
+  $menu = @();
+  if ($json.PSObject.Properties['newTabMenu'] -and $json.newTabMenu) {
+    $menu = @($json.newTabMenu);
+  } else {
+    # Default menu: everything at top level, then our Sessions folder.
+    $menu = @([PSCustomObject]@{ type = 'remainingProfiles' });
+  }
+  $hasSessionsFolder = $menu | Where-Object {
+    $_.type -eq 'folder' -and $_.entries -and (@($_.entries) | Where-Object {
+      $_.type -eq 'matchProfiles' -and $_.source -eq $script:TerminalSessionFragmentSource
+    });
+  };
+  if (!$hasSessionsFolder) {
+    $menu += $sessionsFolder;
+    $json | Add-Member -NotePropertyName newTabMenu -NotePropertyValue @($menu) -Force;
+  }
 
   $outJson = $json | ConvertTo-Json -Depth 32;
   Out-FileAtomic $outJson $settingsPath;
@@ -261,4 +362,174 @@ function Update-TerminalDevEnvironmentProfiles {
   $json.profiles.list = @($list);
   $outJson = $json | ConvertTo-Json -Depth 32;
   Out-FileAtomic $outJson $settingsPath;
+}
+
+# ---------------------------------------------------------------------------
+# Dynamic Windows Terminal profiles for running multiplexer sessions.
+#
+# Windows Terminal supports "JSON fragment extensions": .json files dropped under
+#   %LOCALAPPDATA%\Microsoft\Windows Terminal\Fragments\<app>\<file>.json
+# are merged into the user's settings without modifying settings.json itself
+# (https://learn.microsoft.com/windows/terminal/json-fragment-extensions). We use
+# one such fragment to expose a Terminal profile per *running* zellij / psmux
+# session, each of which attaches to that session. Regenerating the fragment
+# fully replaces it, so profiles for ended sessions disappear automatically.
+# ---------------------------------------------------------------------------
+
+# Resolve the zellij executable, preferring PATH then the well-known install dir.
+function Get-ZellijExePath {
+  $cmd = (Get-Command zellij -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source;
+  if ($cmd) { return $cmd; }
+  $fallback = Join-Path $env:LOCALAPPDATA 'Zellij\zellij.exe';
+  if (Test-Path -LiteralPath $fallback) { return $fallback; }
+  return $null;
+}
+
+# Parse the output of `zellij list-sessions -n` into the names of sessions that
+# are currently alive (i.e. not marked EXITED / dead).
+function ConvertFrom-ZellijSessionList ($lines) {
+  $names = @();
+  foreach ($line in @($lines)) {
+    if ([string]::IsNullOrWhiteSpace($line)) { continue; }
+    if ($line -match 'EXITED') { continue; }          # dead / resurrectable
+    # Each line looks like: "<name> [Created ...] (...)"; take the first token.
+    $name = ($line.Trim() -split '\s+', 2)[0];
+    if ($name) { $names += $name; }
+  }
+  return $names;
+}
+
+# Names of the currently-running zellij sessions.
+function Get-ZellijSessionName {
+  $zellij = Get-ZellijExePath;
+  if (!$zellij) { return @(); }
+  $lines = & $zellij list-sessions -n 2>$null;
+  if ($LASTEXITCODE -ne 0) { return @(); }            # "No active zellij sessions found."
+  return (ConvertFrom-ZellijSessionList $lines);
+}
+
+# Names of the currently-running psmux sessions.
+function Get-PsmuxSessionName {
+  $psmux = (Get-Command psmux -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source;
+  if (!$psmux) { return @(); }
+  $lines = & $psmux ls -F '#{session_name}' 2>$null;
+  if ($LASTEXITCODE -ne 0) { return @(); }
+  return @($lines | Where-Object { ![string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_.Trim() });
+}
+
+# Build the fragment profile objects for the given zellij / psmux session names.
+function New-TerminalSessionProfile {
+  param(
+    [string[]]$ZellijSessions = @(),
+    [string[]]$PsmuxSessions  = @()
+  )
+
+  $profiles = @();
+
+  foreach ($name in @($ZellijSessions)) {
+    $guid = '{{{0}}}' -f (New-UuidV5 -NameStringOrBytes "zellij-session:$name");
+    $profiles += [PSCustomObject]@{
+      name              = "ZelliJ: $name";
+      guid              = $guid;
+      commandline       = "%LocalAppData%\Zellij\zellij.exe --config-dir %USERPROFILE%\PwshProfile\zellij attach $name";
+      icon              = '%LocalAppData%\Zellij\zellij.exe';
+      startingDirectory = '%USERPROFILE%';
+    };
+  }
+
+  foreach ($name in @($PsmuxSessions)) {
+    $guid = '{{{0}}}' -f (New-UuidV5 -NameStringOrBytes "psmux-session:$name");
+    $profiles += [PSCustomObject]@{
+      name              = "psmux: $name";
+      guid              = $guid;
+      # Launch via pwsh so profile.ps1 sets PSMUX_CONFIG_FILE and puts psmux on
+      # PATH; single-quote the target so names with spaces attach correctly.
+      commandline       = "pwsh -NoExit -Command `"psmux attach -t '$name'`"";
+      icon              = $script:PsmuxIconFileName;
+      startingDirectory = '%USERPROFILE%';
+    };
+  }
+
+  return $profiles;
+}
+
+# The Windows Terminal settings.json locations we manage (Store, Preview, and
+# unpackaged/portable installs). Only the ones that currently exist are returned.
+function Get-TerminalSettingsPath {
+  @(
+    "$env:LOCALAPPDATA\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json",
+    "$env:LOCALAPPDATA\Packages\Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe\LocalState\settings.json",
+    "$env:LOCALAPPDATA\Microsoft\Windows Terminal\settings.json"
+  ) | Where-Object { Test-Path -LiteralPath $_ }
+}
+
+# Remove orphaned fragment stubs from settings.json. Windows Terminal persists a
+# stub for every fragment profile it renders and never deletes it, so ended
+# sessions linger. Given the GUIDs the fragment currently defines ($KeepGuids),
+# drop any profile whose source is our fragment but whose GUID is no longer live.
+function Remove-OrphanedTerminalSessionProfiles ($KeepGuids) {
+  $src = $script:TerminalSessionFragmentSource;
+  foreach ($settingsPath in (Get-TerminalSettingsPath)) {
+    try {
+      $raw = Get-Content -LiteralPath $settingsPath -Raw;
+      if ([string]::IsNullOrWhiteSpace($raw)) { continue; }
+      $json = $raw | ConvertFrom-Json;
+    } catch { continue; }
+    if (!$json.profiles -or !$json.profiles.PSObject.Properties['list'] -or !$json.profiles.list) { continue; }
+
+    $list = @($json.profiles.list);
+    $kept = @($list | Where-Object { $_.source -ne $src -or (@($KeepGuids) -contains $_.guid) });
+    if ($kept.Count -ne $list.Count) {
+      $json.profiles.list = @($kept);
+      Out-FileAtomic ($json | ConvertTo-Json -Depth 32) $settingsPath;
+    }
+  }
+}
+
+# The Windows Terminal JSON-fragment file location. Per the WT docs, ALL editions
+# (stable, Preview, unpackaged) read fragments from the single shared folder
+# "%LOCALAPPDATA%\Microsoft\Windows Terminal\Fragments\{app}\" - there is no
+# Preview-specific fragments path - so we write exactly one file here.
+function Get-TerminalFragmentPath {
+  ,@(Join-Path $env:LOCALAPPDATA "Microsoft\Windows Terminal\Fragments\$script:TerminalSessionFragmentSource\sessions.json")
+}
+
+# Regenerate the Windows Terminal fragment that exposes a profile per running
+# zellij / psmux session. Writing an empty profiles list clears any stale entries
+# from a previous run. By default the fragment is written to every installed
+# edition's fragment folder (see Get-TerminalFragmentPath).
+function Update-TerminalSessionProfileFragment {
+  param(
+    [string[]]$FragmentPath = @(Get-TerminalFragmentPath),
+    [string[]]$ZellijSessions,
+    [string[]]$PsmuxSessions
+  )
+
+  if ($null -eq $ZellijSessions) { $ZellijSessions = @(Get-ZellijSessionName); }
+  if ($null -eq $PsmuxSessions)  { $PsmuxSessions  = @(Get-PsmuxSessionName); }
+
+  $profiles = @(New-TerminalSessionProfile -ZellijSessions $ZellijSessions -PsmuxSessions $PsmuxSessions);
+
+  # Fragments must be a { "profiles": [...] } object; force an array even for 0/1.
+  $fragment = [PSCustomObject]@{ profiles = [object[]]@($profiles) };
+  $outJson = $fragment | ConvertTo-Json -Depth 32;
+
+  foreach ($path in @($FragmentPath)) {
+    $fragmentDir = Split-Path -Parent $path;
+    if (!(Test-Path -LiteralPath $fragmentDir)) {
+      New-Item -ItemType Directory -Path $fragmentDir -Force | Out-Null;
+    }
+    # WT 1.24+ resolves fragment profile icons relative to the fragment's own
+    # directory, so the icon file must live alongside sessions.json.
+    if (Test-Path -LiteralPath $script:PsmuxSourceIconPath) {
+      Copy-Item -LiteralPath $script:PsmuxSourceIconPath `
+        -Destination (Join-Path $fragmentDir $script:PsmuxIconFileName) -Force -ErrorAction SilentlyContinue;
+    }
+    Out-FileAtomic $outJson $path 'Utf8';
+  }
+
+  # Terminal won't drop the settings.json stubs for sessions that just ended, so
+  # prune them here too (keeping the profiles the fragment still defines). This
+  # runs from psmux hooks and at startup, so closed sessions disappear promptly.
+  Remove-OrphanedTerminalSessionProfiles (@($profiles).guid);
 }
