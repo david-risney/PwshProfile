@@ -115,6 +115,9 @@ IncrementProgress "Loading WebView2 Helpers";
 IncrementProgress "Loading Web Helpers";
 . (Join-Path $PSScriptRoot "helper-web.ps1");
 
+IncrementProgress "Loading Copilot Helpers";
+. (Join-Path $PSScriptRoot "helper-copilot.ps1");
+
 #region profile update
 # Update this profile script and associated files asynchronously
 # https://github.com/david-risney/PwshProfile

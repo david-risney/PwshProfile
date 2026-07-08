@@ -1,0 +1,6 @@
+{
+  "name": "copilot-session",
+  "version": "1.0.0",
+  "description": "Find, create, or fork GitHub Copilot CLI sessions by reading the on-disk session store (%USERPROFILE%\\.copilot\\session-state). Search existing sessions by working-directory path, repository (owner/name or git URL), branch, or name; start a new session; or fork an existing session into a new independent one (there is no official 'copilot fork' command, so this clones the session folder and rewrites its ids). Use when asked to 'find my Copilot sessions', 'search sessions by path/repo/branch', 'which session was for this folder', 'resume a session for repo X', 'fork this session', 'branch off a session', or 'start a new named session'.",
+  "repository": "https://github.com/david-risney/PwshProfile"
+}
