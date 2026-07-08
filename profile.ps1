@@ -175,7 +175,21 @@ if ($Update -eq "On") {
   Write-Verbose "Update Terminal-Icons";
   Install-Module -Name Terminal-Icons -Repository PSGallery -Force -SkipPublisherCheck;
 }
-Import-Module Terminal-Icons; #
+# Terminal-Icons rewrites its cached theme .xml files (Export-Clixml) on every
+# module load, but reads them back with an unguarded Import-Clixml. When several
+# terminals start at once, one session can read a file another is mid-write,
+# producing "Import-Clixml: Name cannot begin with the ' ' character". If that
+# happens, delete the corrupt theme cache and retry so it regenerates cleanly.
+try {
+  Import-Module Terminal-Icons -ErrorAction Stop;
+} catch {
+  Write-Verbose "Terminal-Icons import failed ($($_.Exception.Message)); clearing theme cache and retrying.";
+  $terminalIconsCache = Join-Path $env:APPDATA "powershell\Community\Terminal-Icons";
+  if (Test-Path $terminalIconsCache) {
+    Get-ChildItem $terminalIconsCache -Filter *.xml -ErrorAction Ignore | Remove-Item -Force -ErrorAction Ignore;
+  }
+  Import-Module Terminal-Icons -Force -ErrorAction Continue;
+}
 #endregion
 
 #region cd-extras
