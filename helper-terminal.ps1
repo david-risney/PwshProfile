@@ -17,7 +17,7 @@ $script:TerminalSessionFragmentSource = 'PwshProfile';
 #  * Fragment session profiles: as of WT 1.24 fragment icons resolve RELATIVE TO
 #    the fragment file's own directory (arbitrary/absolute paths are not honored),
 #    so we copy the icon next to sessions.json and reference it by bare filename.
-$script:PsmuxIconFileName = 'psmux-icon.svg';
+$script:PsmuxIconFileName = 'psmux-icon.png';
 $script:PsmuxRepoIconPath = "%USERPROFILE%\PwshProfile\psmux\$script:PsmuxIconFileName";
 $script:PsmuxSourceIconPath = Join-Path (Split-Path -Parent $PSCommandPath) "psmux\$script:PsmuxIconFileName";
 
@@ -117,22 +117,10 @@ function Update-TerminalProfiles ($settingsPath) {
     }
   }
 
-  # Prune Windows Terminal fragment bookkeeping. Terminal auto-persists a stub
-  # (guid + name + source, no commandline) into settings.json for every fragment
-  # profile it renders, and it never removes those stubs when the fragment stops
-  # defining the profile. So ended zellij / psmux sessions leave orphaned stubs
-  # behind. Remove any stub whose source is our fragment but whose GUID the
-  # fragment no longer defines; keep the stubs for still-live sessions so Terminal
-  # doesn't churn re-adding them. Top-level launchers have no such source and are
-  # left untouched.
-  $fragmentGuids = @((New-TerminalSessionProfile `
-      -ZellijSessions (Get-ZellijSessionName) `
-      -PsmuxSessions  (Get-PsmuxSessionName)).guid);
-  $src = $script:TerminalSessionFragmentSource;
-  $list = @($list | Where-Object {
-    -not (($_.source -eq $src) -and ($fragmentGuids -notcontains $_.guid));
-  });
-
+  # NOTE: pruning of stale/orphaned fragment session stubs (and the matching
+  # state.json generatedProfiles bookkeeping) is handled centrally by
+  # Remove-OrphanedTerminalSessionProfiles, invoked from
+  # Update-TerminalSessionProfileFragment, so it isn't duplicated here.
   $json.profiles.list = @($list);
 
   # Make the pwsh (PowerShell Core) profile the default profile.
@@ -426,10 +414,14 @@ function New-TerminalSessionProfile {
 
   $profiles = @();
 
+  # NOTE: fragment profile names must NOT contain a colon. Windows Terminal keys
+  # fragment profiles internally as "{source}:{name}", so a colon in the name
+  # prevents the profile from appearing in the dropdown (microsoft/terminal#9521).
+  # Use " - " as the separator instead.
   foreach ($name in @($ZellijSessions)) {
     $guid = '{{{0}}}' -f (New-UuidV5 -NameStringOrBytes "zellij-session:$name");
     $profiles += [PSCustomObject]@{
-      name              = "ZelliJ: $name";
+      name              = "ZelliJ - $name";
       guid              = $guid;
       commandline       = "%LocalAppData%\Zellij\zellij.exe --config-dir %USERPROFILE%\PwshProfile\zellij attach $name";
       icon              = '%LocalAppData%\Zellij\zellij.exe';
@@ -440,7 +432,7 @@ function New-TerminalSessionProfile {
   foreach ($name in @($PsmuxSessions)) {
     $guid = '{{{0}}}' -f (New-UuidV5 -NameStringOrBytes "psmux-session:$name");
     $profiles += [PSCustomObject]@{
-      name              = "psmux: $name";
+      name              = "psmux - $name";
       guid              = $guid;
       # Launch via pwsh so profile.ps1 sets PSMUX_CONFIG_FILE and puts psmux on
       # PATH; single-quote the target so names with spaces attach correctly.
@@ -463,12 +455,17 @@ function Get-TerminalSettingsPath {
   ) | Where-Object { Test-Path -LiteralPath $_ }
 }
 
-# Remove orphaned fragment stubs from settings.json. Windows Terminal persists a
-# stub for every fragment profile it renders and never deletes it, so ended
-# sessions linger. Given the GUIDs the fragment currently defines ($KeepGuids),
-# drop any profile whose source is our fragment but whose GUID is no longer live.
-function Remove-OrphanedTerminalSessionProfiles ($KeepGuids) {
+# Remove orphaned fragment stubs from settings.json AND keep Windows Terminal's
+# state.json "generatedProfiles" list in sync. Terminal auto-persists a stub for
+# every fragment profile it renders and records its GUID in generatedProfiles. Its
+# rule: a GUID present in generatedProfiles but absent from profiles.list is treated
+# as "the user deleted this profile" and is suppressed forever. So if we drop a stub
+# (ended session, or a renamed one whose stale stub would otherwise override the
+# fragment name) we MUST also drop its GUID from generatedProfiles, otherwise the
+# session can never reappear. $KeepProfiles is the set the fragment currently defines.
+function Remove-OrphanedTerminalSessionProfiles ($KeepProfiles) {
   $src = $script:TerminalSessionFragmentSource;
+  $keepKeys = @(@($KeepProfiles) | ForEach-Object { "$($_.guid)|$($_.name)" });
   foreach ($settingsPath in (Get-TerminalSettingsPath)) {
     try {
       $raw = Get-Content -LiteralPath $settingsPath -Raw;
@@ -478,11 +475,43 @@ function Remove-OrphanedTerminalSessionProfiles ($KeepGuids) {
     if (!$json.profiles -or !$json.profiles.PSObject.Properties['list'] -or !$json.profiles.list) { continue; }
 
     $list = @($json.profiles.list);
-    $kept = @($list | Where-Object { $_.source -ne $src -or (@($KeepGuids) -contains $_.guid) });
+    $kept = @($list | Where-Object { $_.source -ne $src -or ($keepKeys -contains "$($_.guid)|$($_.name)") });
     if ($kept.Count -ne $list.Count) {
       $json.profiles.list = @($kept);
       Out-FileAtomic ($json | ConvertTo-Json -Depth 32) $settingsPath;
     }
+
+    # GUIDs that must be "forgotten" so Terminal will regenerate them: any live
+    # fragment profile that doesn't have an exact guid+name stub backing it right
+    # now (e.g. just renamed, or WT hasn't rendered it yet). Steady-state profiles
+    # whose stub matches are left untouched so there's no churn.
+    $keptSrcKeys = @($kept | Where-Object { $_.source -eq $src } | ForEach-Object { "$($_.guid)|$($_.name)" });
+    $forget = @(@($KeepProfiles) |
+      Where-Object { $keptSrcKeys -notcontains "$($_.guid)|$($_.name)" } |
+      ForEach-Object { ($_.guid -replace '[{}]', '') });
+    if ($forget.Count) {
+      Remove-TerminalGeneratedProfileGuids (Split-Path -Parent $settingsPath) $forget;
+    }
+  }
+}
+
+# Remove the given profile GUIDs from the "generatedProfiles" array in the
+# state.json that sits alongside a settings.json (same LocalState folder). GUIDs
+# are matched case-insensitively with or without surrounding braces.
+function Remove-TerminalGeneratedProfileGuids ($SettingsDir, $Guids) {
+  $statePath = Join-Path $SettingsDir 'state.json';
+  if (!(Test-Path -LiteralPath $statePath)) { return; }
+  try {
+    $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json;
+  } catch { return; }
+  if (!$state.PSObject.Properties['generatedProfiles'] -or !$state.generatedProfiles) { return; }
+
+  $bare = @(@($Guids) | ForEach-Object { ($_ -replace '[{}]', '').ToLowerInvariant() });
+  $orig = @($state.generatedProfiles);
+  $kept = @($orig | Where-Object { $bare -notcontains (($_ -replace '[{}]', '').ToLowerInvariant()) });
+  if ($kept.Count -ne $orig.Count) {
+    $state.generatedProfiles = @($kept);
+    Out-FileAtomic ($state | ConvertTo-Json -Depth 32) $statePath;
   }
 }
 
@@ -514,22 +543,26 @@ function Update-TerminalSessionProfileFragment {
   $fragment = [PSCustomObject]@{ profiles = [object[]]@($profiles) };
   $outJson = $fragment | ConvertTo-Json -Depth 32;
 
+  # Ensure each fragment directory exists and holds the icon (WT 1.24+ resolves
+  # fragment profile icons relative to the fragment's own directory).
   foreach ($path in @($FragmentPath)) {
     $fragmentDir = Split-Path -Parent $path;
     if (!(Test-Path -LiteralPath $fragmentDir)) {
       New-Item -ItemType Directory -Path $fragmentDir -Force | Out-Null;
     }
-    # WT 1.24+ resolves fragment profile icons relative to the fragment's own
-    # directory, so the icon file must live alongside sessions.json.
     if (Test-Path -LiteralPath $script:PsmuxSourceIconPath) {
       Copy-Item -LiteralPath $script:PsmuxSourceIconPath `
         -Destination (Join-Path $fragmentDir $script:PsmuxIconFileName) -Force -ErrorAction SilentlyContinue;
     }
-    Out-FileAtomic $outJson $path 'Utf8';
   }
 
-  # Terminal won't drop the settings.json stubs for sessions that just ended, so
-  # prune them here too (keeping the profiles the fragment still defines). This
-  # runs from psmux hooks and at startup, so closed sessions disappear promptly.
-  Remove-OrphanedTerminalSessionProfiles (@($profiles).guid);
+  # Reconcile settings.json stubs and state.json generatedProfiles BEFORE writing
+  # the fragment, so that when Terminal live-reloads on the fragment write it sees
+  # a clean slate and regenerates the (possibly renamed) session profiles instead
+  # of treating them as user-deleted. Then write the fragment last as the trigger.
+  Remove-OrphanedTerminalSessionProfiles $profiles;
+
+  foreach ($path in @($FragmentPath)) {
+    Out-FileAtomic $outJson $path 'Utf8';
+  }
 }
