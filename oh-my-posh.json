@@ -80,7 +80,7 @@
             "threshold": 1000
           },
           "trailing_diamond": "\ue0b4",
-          "template": " \u23f1\ufe0f {{ .FormattedMs }} ",
+          "template": " \uD83D\uDD50 {{ .FormattedMs }} ",
           "foreground": "p:foreground-dark",
           "background": "p:background-time",
           "type": "executiontime",
