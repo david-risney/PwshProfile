@@ -34,10 +34,10 @@ if ($foundUnknownProcessParent) {
 . (Join-Path $PSScriptRoot "helper-progress.ps1");
 
 # Find via (findstr /c "^IncrementProgress" .\profile.ps1).Count
-$global:maxProgress = 20; # The count of IncrementProgress calls in this file.
+$global:maxProgress = 22; # The count of IncrementProgress calls in this file.
 
 if ($Update -eq "On") {
-  $global:maxProgress += 4;
+  $global:maxProgress += 5;
 }
 
 # Store an environment variable for the path to this folder
@@ -115,6 +115,9 @@ IncrementProgress "Loading WebView2 Helpers";
 IncrementProgress "Loading Web Helpers";
 . (Join-Path $PSScriptRoot "helper-web.ps1");
 
+IncrementProgress "Loading Copilot Helpers";
+. (Join-Path $PSScriptRoot "helper-copilot.ps1");
+
 #region profile update
 # Update this profile script and associated files asynchronously
 # https://github.com/david-risney/PwshProfile
@@ -172,7 +175,21 @@ if ($Update -eq "On") {
   Write-Verbose "Update Terminal-Icons";
   Install-Module -Name Terminal-Icons -Repository PSGallery -Force -SkipPublisherCheck;
 }
-Import-Module Terminal-Icons; #
+# Terminal-Icons rewrites its cached theme .xml files (Export-Clixml) on every
+# module load, but reads them back with an unguarded Import-Clixml. When several
+# terminals start at once, one session can read a file another is mid-write,
+# producing "Import-Clixml: Name cannot begin with the ' ' character". If that
+# happens, delete the corrupt theme cache and retry so it regenerates cleanly.
+try {
+  Import-Module Terminal-Icons -ErrorAction Stop;
+} catch {
+  Write-Verbose "Terminal-Icons import failed ($($_.Exception.Message)); clearing theme cache and retrying.";
+  $terminalIconsCache = Join-Path $env:APPDATA "powershell\Community\Terminal-Icons";
+  if (Test-Path $terminalIconsCache) {
+    Get-ChildItem $terminalIconsCache -Filter *.xml -ErrorAction Ignore | Remove-Item -Force -ErrorAction Ignore;
+  }
+  Import-Module Terminal-Icons -Force -ErrorAction Continue;
+}
 #endregion
 
 #region cd-extras
