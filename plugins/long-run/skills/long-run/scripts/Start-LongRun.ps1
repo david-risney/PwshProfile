@@ -296,16 +296,54 @@ if ($muxKind -eq 'zellij') {
     Set-Content -LiteralPath $layoutFile -Value $layout -Encoding utf8
 }
 
+# --- Helper: resolve the wt.exe matching the Windows Terminal edition we're in
+# The generic 'wt.exe' app-execution alias targets whichever edition registered
+# it last (often stable Windows Terminal). When we're actually running under
+# Windows Terminal Preview that makes '-w 0 new-tab' open a tab in the WRONG
+# window (or a new one). Walk up the parent process chain to the hosting
+# WindowsTerminal.exe, read its image path to determine the package family
+# (…WindowsTerminalPreview_… vs …WindowsTerminal_…), and return that edition's
+# per-package wt.exe under %LOCALAPPDATA%\Microsoft\WindowsApps\<pkgfamily>\.
+# Fall back to plain 'wt.exe' when the edition can't be determined or its exe is
+# missing.
+function Resolve-WtExe {
+    $pkgFamily = $null
+    try {
+        $id = $PID
+        for ($i = 0; $i -lt 12 -and $id; $i++) {
+            $p = Get-CimInstance Win32_Process -Filter "ProcessId=$id" -ErrorAction SilentlyContinue
+            if (-not $p) { break }
+            if ($p.Name -eq 'WindowsTerminal.exe') {
+                if ($p.ExecutablePath -match 'Microsoft\.WindowsTerminalPreview_') {
+                    $pkgFamily = 'Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe'
+                } elseif ($p.ExecutablePath -match 'Microsoft\.WindowsTerminal_') {
+                    $pkgFamily = 'Microsoft.WindowsTerminal_8wekyb3d8bbwe'
+                }
+                break
+            }
+            if ($p.ParentProcessId -eq $id) { break }
+            $id = $p.ParentProcessId
+        }
+    } catch { }
+    if ($pkgFamily) {
+        $editionExe = Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps\$pkgFamily\wt.exe"
+        if (Test-Path -LiteralPath $editionExe) { return $editionExe }
+    }
+    return 'wt.exe'
+}
+
 # --- Helper: open a viewer that runs $ViewerArgs (a program + its args) ------
 # Uses a WT tab in the current window when inside Windows Terminal, otherwise a
-# new pwsh window. NOTE: wt.exe on PATH is a 0-byte Store app-execution-alias
-# reparse point, so Start-Process must launch it BY NAME ('wt.exe').
+# new pwsh window. NOTE: the generic wt.exe on PATH is a 0-byte Store
+# app-execution-alias reparse point; Resolve-WtExe returns either an
+# edition-specific wt.exe (full path) or 'wt.exe' launched BY NAME.
 function Open-Viewer([string[]]$ViewerArgs) {
-    $hasWt = [bool](Get-Command wt -ErrorAction SilentlyContinue)
+    $wtExe = Resolve-WtExe
+    $hasWt = ($wtExe -ne 'wt.exe') -or [bool](Get-Command wt.exe -ErrorAction SilentlyContinue)
     if ($inWt -and $hasWt) {
         # Add a tab to the CURRENT Windows Terminal window (-w 0).
         $wtArgs = @('-w', '0', 'new-tab', '--title', $Session) + $ViewerArgs
-        Start-Process -FilePath 'wt.exe' -ArgumentList $wtArgs | Out-Null
+        Start-Process -FilePath $wtExe -ArgumentList $wtArgs | Out-Null
     } else {
         # Fall back to a standalone pwsh console window hosting the viewer.
         $prog = $ViewerArgs[0]
