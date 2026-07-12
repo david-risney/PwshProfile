@@ -297,40 +297,10 @@ if ($muxKind -eq 'zellij') {
 }
 
 # --- Helper: resolve the wt.exe matching the Windows Terminal edition we're in
-# The generic 'wt.exe' app-execution alias targets whichever edition registered
-# it last (often stable Windows Terminal). When we're actually running under
-# Windows Terminal Preview that makes '-w 0 new-tab' open a tab in the WRONG
-# window (or a new one). Walk up the parent process chain to the hosting
-# WindowsTerminal.exe, read its image path to determine the package family
-# (…WindowsTerminalPreview_… vs …WindowsTerminal_…), and return that edition's
-# per-package wt.exe under %LOCALAPPDATA%\Microsoft\WindowsApps\<pkgfamily>\.
-# Fall back to plain 'wt.exe' when the edition can't be determined or its exe is
-# missing.
-function Resolve-WtExe {
-    $pkgFamily = $null
-    try {
-        $id = $PID
-        for ($i = 0; $i -lt 12 -and $id; $i++) {
-            $p = Get-CimInstance Win32_Process -Filter "ProcessId=$id" -ErrorAction SilentlyContinue
-            if (-not $p) { break }
-            if ($p.Name -eq 'WindowsTerminal.exe') {
-                if ($p.ExecutablePath -match 'Microsoft\.WindowsTerminalPreview_') {
-                    $pkgFamily = 'Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe'
-                } elseif ($p.ExecutablePath -match 'Microsoft\.WindowsTerminal_') {
-                    $pkgFamily = 'Microsoft.WindowsTerminal_8wekyb3d8bbwe'
-                }
-                break
-            }
-            if ($p.ParentProcessId -eq $id) { break }
-            $id = $p.ParentProcessId
-        }
-    } catch { }
-    if ($pkgFamily) {
-        $editionExe = Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps\$pkgFamily\wt.exe"
-        if (Test-Path -LiteralPath $editionExe) { return $editionExe }
-    }
-    return 'wt.exe'
-}
+# Provided by the shared, vendored terminal helpers (Resolve-WtExe). This copy
+# is kept in sync from shared\Terminal-Panes.ps1 via tools\Sync-SharedScripts.ps1
+# so the plugin stays self-contained.
+. (Join-Path $PSScriptRoot 'Terminal-Panes.ps1')
 
 # --- Helper: open a viewer that runs $ViewerArgs (a program + its args) ------
 # Uses a WT tab in the current window when inside Windows Terminal, otherwise a

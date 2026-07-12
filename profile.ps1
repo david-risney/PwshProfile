@@ -27,7 +27,10 @@ while (!($foundUnknownProcessParent) -and $checkProcess -and $checkProcess.Proce
   }
   $checkProcess = $checkProcess.Parent;
 }
-if ($foundUnknownProcessParent) {
+# A caller (e.g. the copilot-session pane launcher) can force this early-out by
+# setting PWSH_PROFILE_MINIMAL=1 so a pane that only needs to run one program
+# doesn't pay for the full interactive profile (oh-my-posh, winfetch, tool init).
+if ($foundUnknownProcessParent -or $env:PWSH_PROFILE_MINIMAL -eq '1') {
   return;
 }
 

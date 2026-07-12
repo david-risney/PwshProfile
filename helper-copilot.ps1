@@ -8,11 +8,12 @@
 
 $script:CopilotSessionScript = (Join-Path $PSScriptRoot "plugins\copilot-session\skills\copilot-session\scripts\Copilot-Session.ps1");
 
-# Find, create, or fork Copilot CLI sessions. All arguments are forwarded
+# Find, create, fork, or sync Copilot CLI sessions. All arguments are forwarded
 # verbatim to the plugin script, e.g.:
 #   Copilot-Session -Action Find -Path .
 #   Copilot-Session -Action Find -Repository owner/repo
 #   Copilot-Session -Action Fork -Session a8579b9 -NewName experiment -Launch
+#   Copilot-Session -Action Sync -Session <cloud-id-or-task-id> -Launch
 function Copilot-Session {
   & $script:CopilotSessionScript @args;
 }
@@ -21,6 +22,7 @@ function Copilot-Session {
 function Find-CopilotSession { Copilot-Session -Action Find @args; }
 function New-CopilotSession  { Copilot-Session -Action New  @args; }
 function Fork-CopilotSession { Copilot-Session -Action Fork @args; }
+function Sync-CopilotSession { Copilot-Session -Action Sync @args; }
 
 # Short alias for the most common operation (searching).
 Set-Alias -Name cops -Value Find-CopilotSession;
