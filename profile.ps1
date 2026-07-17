@@ -503,9 +503,6 @@ $terminalSettingsPatchPath = (Join-Path $PSScriptRoot "terminal-settings.json");
     # Ensure the pwsh profile is present and hide cmd / Windows PowerShell /
     # Azure Cloud Shell / Visual Studio profiles.
     Update-TerminalProfiles $terminalSettingsPath;
-    # Add Edge / Chromium dev-environment profiles for local enlistments and prune
-    # any stale ones whose src folder no longer exists.
-    Update-TerminalDevEnvironmentProfiles $terminalSettingsPath;
   } catch {
     Write-Verbose "Terminal settings update skipped for '$terminalSettingsPath': $($_.Exception.Message)";
   }
@@ -517,6 +514,13 @@ $terminalSettingsPatchPath = (Join-Path $PSScriptRoot "terminal-settings.json");
 # hooks) and drops any sessions that have since exited.
 try { Update-TerminalSessionProfileFragment; }
 catch { Write-Verbose "Terminal session fragment update skipped: $($_.Exception.Message)"; }
+
+# Refresh the fragment that exposes an "<Edge|Chromium> Shell (<root>)" profile for
+# every local dev enlistment. Emitted as a fragment (not a settings.json edit) so it
+# self-cleans and never mutates the user's settings; also migrates away any profiles
+# the old direct-edit mechanism left behind.
+try { Update-TerminalDevEnvironmentProfileFragment; }
+catch { Write-Verbose "Terminal dev-environment fragment update skipped: $($_.Exception.Message)"; }
 #endregion
 
 #region z

@@ -119,7 +119,7 @@ function Update-TerminalProfiles ($settingsPath) {
 
   # NOTE: pruning of stale/orphaned fragment session stubs (and the matching
   # state.json generatedProfiles bookkeeping) is handled centrally by
-  # Remove-OrphanedTerminalSessionProfiles, invoked from
+  # Remove-OrphanedTerminalFragmentProfiles, invoked from
   # Update-TerminalSessionProfileFragment, so it isn't duplicated here.
   $json.profiles.list = @($list);
 
@@ -235,16 +235,42 @@ function Find-DevEnvironmentEnlistment {
   return $results;
 }
 
-# Build the Windows Terminal profile object for a discovered enlistment, following
-# the schema documented on the wiki. The profile GUID is derived deterministically
-# from the well-known Edge / Chromium namespace GUID (see helper-misc.ps1's
-# $WellKnownGuids) and the src folder path, so each distinct enlistment gets its
-# own stable profile even when several Edge or Chromium enlistments coexist.
-function New-DevEnvironmentTerminalProfile {
+# ---------------------------------------------------------------------------
+# Dynamic Windows Terminal profiles for Edge / Chromium enlistments.
+#
+# The Edge / Chromium dev-environment "<Type> Shell (<root>)" profiles are exposed
+# through a Windows Terminal JSON fragment extension rather than by editing
+# settings.json directly. Benefits: the user's settings.json is never mutated,
+# enlistments that go away disappear automatically when the fragment is regenerated,
+# and everything cleans up if PwshProfile is removed. This uses its OWN fragment
+# folder / source, kept separate from the multiplexer-session fragment below, so the
+# two never interfere. Only the generic helpers (Get-TerminalSettingsPath,
+# Remove-OrphanedTerminalFragmentProfiles, Remove-TerminalGeneratedProfileGuids,
+# defined further down) are shared.
+# ---------------------------------------------------------------------------
+$script:TerminalDevEnvFragmentSource = 'PwshProfileDevEnv';
+
+# The single shared fragment file all Windows Terminal editions read (there is no
+# Preview-specific fragments path; see Get-TerminalFragmentPath below).
+function Get-TerminalDevEnvFragmentPath {
+  ,@(Join-Path $env:LOCALAPPDATA "Microsoft\Windows Terminal\Fragments\$script:TerminalDevEnvFragmentSource\devenv.json")
+}
+
+# Build a fragment profile object for one discovered enlistment. The GUID is derived
+# deterministically from the well-known Edge / Chromium namespace GUID (helper-misc.ps1's
+# $WellKnownGuids) and the src path, so each enlistment keeps a stable profile even
+# when several coexist.
+#
+# NOTE: fragment profile names must NOT contain a colon - WT keys fragment profiles
+# as "{source}:{name}", so a colon hides them (microsoft/terminal#9521). The enlistment
+# root carries a drive-letter colon, so it is stripped from the display name.
+# $IconFileName, when set, is a bare filename resolved relative to the fragment dir.
+function New-DevEnvironmentFragmentProfile {
   param(
     [Parameter(Mandatory)][ValidateSet('Edge', 'Chromium')][string]$Type,
     [Parameter(Mandatory)][string]$Src,
-    [Parameter(Mandatory)][string]$Root
+    [Parameter(Mandatory)][string]$Root,
+    [string]$IconFileName
   )
 
   $namespaceGuid = $WellKnownGuids[$Type];
@@ -254,102 +280,95 @@ function New-DevEnvironmentTerminalProfile {
   $commandline = "pwsh -Interactive -ExecutionPolicy RemoteSigned -NoLogo -NoExit $initScript $Root";
   if ($Type -eq 'Chromium') { $commandline += ' --Chromium'; }
 
-  $icon = Join-Path $Root ("depot_tools\scripts\setup\Powershell{0}.ico" -f $Type);
-
-  return [PSCustomObject]@{
-    guid             = $guid;
-    commandline      = $commandline;
+  $prof = [PSCustomObject]@{
+    guid              = $guid;
+    name              = "$Type Shell ($($Root -replace ':', ''))";
+    commandline       = $commandline;
     startingDirectory = $Src;
-    icon             = $icon;
-    name             = "$Type Shell ($Root)";
   };
-}
-
-# Given a Windows Terminal profile commandline that invokes initEdgeEnv.ps1,
-# return the enlistment's src folder path (the argument after the script, with
-# "src" appended), or $null if it can't be determined.
-function Get-InitEdgeEnvSrcPath ($commandline) {
-  if ([string]::IsNullOrWhiteSpace($commandline)) { return $null; }
-  # Capture the token following initEdgeEnv.ps1 (quoted or unquoted).
-  if ($commandline -match 'initEdgeEnv\.ps1\s+(?:"([^"]+)"|(\S+))') {
-    $root = if ($matches[1]) { $matches[1] } else { $matches[2] };
-    return [System.IO.Path]::Combine($root, 'src');
+  if ($IconFileName) {
+    $prof | Add-Member -NotePropertyName icon -NotePropertyValue $IconFileName -Force;
   }
-  return $null;
+  return $prof;
 }
 
-# Update a Windows Terminal settings.json with Edge / Chromium dev-environment
-# profiles:
-#   * Removes any existing initEdgeEnv-based profile whose src folder no longer
-#     exists (stale enlistments).
-#   * Adds or refreshes a profile for every enlistment discovered under
-#     $SearchPatterns, keyed by the deterministic per-enlistment GUID.
-# Uses conditional list manipulation so unrelated profiles are never touched.
-function Update-TerminalDevEnvironmentProfiles {
+# Remove the legacy directly-written dev-environment profiles (the previous mechanism
+# edited settings.json in place) so the fragment fully owns them. These are identified
+# by an initEdgeEnv commandline whose "source" is anything other than our dev-env
+# fragment source (fragment-rendered stubs carry that source, so they're preserved).
+function Remove-LegacyDevEnvironmentProfiles {
+  $src = $script:TerminalDevEnvFragmentSource;
+  foreach ($settingsPath in (Get-TerminalSettingsPath)) {
+    try {
+      $raw = Get-Content -LiteralPath $settingsPath -Raw;
+      if ([string]::IsNullOrWhiteSpace($raw)) { continue; }
+      $json = $raw | ConvertFrom-Json;
+    } catch { continue; }
+    if (!$json.profiles -or !$json.profiles.PSObject.Properties['list'] -or !$json.profiles.list) { continue; }
+
+    $list = @($json.profiles.list);
+    $kept = @($list | Where-Object {
+      !($_.commandline -and $_.commandline -match 'initEdgeEnv' -and $_.source -ne $src);
+    });
+    if ($kept.Count -ne $list.Count) {
+      Write-Verbose "Migrating $($list.Count - $kept.Count) legacy dev profile(s) out of $settingsPath.";
+      $json.profiles.list = @($kept);
+      Out-FileAtomic ($json | ConvertTo-Json -Depth 32) $settingsPath;
+    }
+  }
+}
+
+# Regenerate the Edge / Chromium dev-environment fragment: one profile per discovered
+# enlistment. Rewriting the fragment fully replaces it, so profiles for enlistments
+# that have gone away disappear automatically. By default the fragment is written to
+# the single shared fragments folder (see Get-TerminalDevEnvFragmentPath).
+function Update-TerminalDevEnvironmentProfileFragment {
   param(
-    [string]$settingsPath,
+    [string[]]$FragmentPath = @(Get-TerminalDevEnvFragmentPath),
+    [object[]]$Enlistments,
     [string[]]$SearchPatterns
   )
 
-  if (!(Test-Path -LiteralPath $settingsPath)) { return; }
-
-  $raw = Get-Content -LiteralPath $settingsPath -Raw;
-  if ([string]::IsNullOrWhiteSpace($raw)) { return; }
-
-  try {
-    $json = $raw | ConvertFrom-Json;
-  } catch {
-    Write-Verbose "Update-TerminalDevEnvironmentProfiles: could not parse $settingsPath; skipping.";
-    return;
+  if ($null -eq $Enlistments) {
+    $Enlistments = @(Find-DevEnvironmentEnlistment -SearchPatterns $SearchPatterns);
   }
-  if (!$json.profiles) { return; }
 
-  if (!$json.profiles.PSObject.Properties['list'] -or !$json.profiles.list) {
-    $json.profiles | Add-Member -NotePropertyName list -NotePropertyValue @() -Force;
-  }
-  $list = @($json.profiles.list);
-  $changed = $false;
-
-  # 1. Drop stale initEdgeEnv profiles whose src folder no longer exists.
-  $kept = @();
-  foreach ($prof in $list) {
-    if ($prof.commandline -and $prof.commandline -match 'initEdgeEnv') {
-      $src = Get-InitEdgeEnvSrcPath $prof.commandline;
-      if ($src -and !(Test-Path -LiteralPath $src)) {
-        Write-Verbose "Removing stale dev profile '$($prof.name)' (missing $src).";
-        $changed = $true;
-        continue;
-      }
-    }
-    $kept += $prof;
-  }
-  $list = @($kept);
-
-  # 2. Add or refresh a profile for each discovered enlistment.
-  $enlistments = Find-DevEnvironmentEnlistment -SearchPatterns $SearchPatterns;
-  foreach ($enlistment in $enlistments) {
-    $desired = New-DevEnvironmentTerminalProfile -Type $enlistment.Type -Src $enlistment.Src -Root $enlistment.Root;
-
-    $existing = $list | Where-Object { $_.guid -eq $desired.guid } | Select-Object -First 1;
-    if ($existing) {
-      foreach ($p in $desired.PSObject.Properties) {
-        if (($existing.PSObject.Properties[$p.Name].Value) -ne $p.Value) {
-          $existing | Add-Member -NotePropertyName $p.Name -NotePropertyValue $p.Value -Force;
-          $changed = $true;
-        }
-      }
-    } else {
-      Write-Verbose "Adding dev profile '$($desired.name)'.";
-      $list += $desired;
-      $changed = $true;
+  # Ensure each fragment directory exists BEFORE copying icons into it (WT 1.24+
+  # resolves fragment profile icons relative to the fragment's own directory).
+  $fragmentDirs = @(@($FragmentPath) | ForEach-Object { Split-Path -Parent $_ });
+  foreach ($dir in $fragmentDirs) {
+    if (!(Test-Path -LiteralPath $dir)) {
+      New-Item -ItemType Directory -Path $dir -Force | Out-Null;
     }
   }
 
-  if (!$changed) { return; }
+  # Copy each enlistment's per-type icon next to the fragment and reference it by
+  # bare filename; fall back to no icon (WT default) when the .ico is missing.
+  $profiles = @();
+  foreach ($e in $Enlistments) {
+    $iconSource = Join-Path $e.Root ("depot_tools\scripts\setup\Powershell{0}.ico" -f $e.Type);
+    $iconName = $null;
+    if (Test-Path -LiteralPath $iconSource) {
+      $iconName = "Powershell$($e.Type).ico";
+      foreach ($dir in $fragmentDirs) {
+        Copy-Item -LiteralPath $iconSource -Destination (Join-Path $dir $iconName) -Force -ErrorAction SilentlyContinue;
+      }
+    }
+    $profiles += New-DevEnvironmentFragmentProfile -Type $e.Type -Src $e.Src -Root $e.Root -IconFileName $iconName;
+  }
 
-  $json.profiles.list = @($list);
-  $outJson = $json | ConvertTo-Json -Depth 32;
-  Out-FileAtomic $outJson $settingsPath;
+  # Fragments must be a { "profiles": [...] } object; force an array even for 0/1.
+  $fragment = [PSCustomObject]@{ profiles = [object[]]@($profiles) };
+  $outJson = $fragment | ConvertTo-Json -Depth 32;
+
+  # Migrate away any legacy directly-written profiles and reconcile stale fragment
+  # stubs BEFORE writing the fragment, so Terminal live-reloads onto a clean slate.
+  Remove-LegacyDevEnvironmentProfiles;
+  Remove-OrphanedTerminalFragmentProfiles $script:TerminalDevEnvFragmentSource $profiles;
+
+  foreach ($path in @($FragmentPath)) {
+    Out-FileAtomic $outJson $path 'Utf8';
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -463,8 +482,8 @@ function Get-TerminalSettingsPath {
 # (ended session, or a renamed one whose stale stub would otherwise override the
 # fragment name) we MUST also drop its GUID from generatedProfiles, otherwise the
 # session can never reappear. $KeepProfiles is the set the fragment currently defines.
-function Remove-OrphanedTerminalSessionProfiles ($KeepProfiles) {
-  $src = $script:TerminalSessionFragmentSource;
+function Remove-OrphanedTerminalFragmentProfiles ($Source, $KeepProfiles) {
+  $src = $Source;
   $keepKeys = @(@($KeepProfiles) | ForEach-Object { "$($_.guid)|$($_.name)" });
   foreach ($settingsPath in (Get-TerminalSettingsPath)) {
     try {
@@ -560,7 +579,7 @@ function Update-TerminalSessionProfileFragment {
   # the fragment, so that when Terminal live-reloads on the fragment write it sees
   # a clean slate and regenerates the (possibly renamed) session profiles instead
   # of treating them as user-deleted. Then write the fragment last as the trigger.
-  Remove-OrphanedTerminalSessionProfiles $profiles;
+  Remove-OrphanedTerminalFragmentProfiles $script:TerminalSessionFragmentSource $profiles;
 
   foreach ($path in @($FragmentPath)) {
     Out-FileAtomic $outJson $path 'Utf8';
