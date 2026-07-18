@@ -53,6 +53,21 @@
       "anchors": [
         { "lineStart": 13, "label": "arg parse" },
         { "lineStart": 15, "label": "print" }
+      ],
+      "seeAlso": [
+        {
+          "topic": "sys.argv",
+          "links": [
+            "https://docs.python.org/3/library/sys.html#sys.argv"
+          ]
+        },
+        {
+          "topic": "f-strings",
+          "links": [
+            { "label": "PEP 498", "url": "https://peps.python.org/pep-0498/" },
+            "https://docs.python.org/3/reference/lexical_analysis.html#f-strings"
+          ]
+        }
       ]
     }
   ],

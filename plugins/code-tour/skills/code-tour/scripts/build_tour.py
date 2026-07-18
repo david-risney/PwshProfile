@@ -286,6 +286,17 @@ def validate_tour(tour: dict) -> list:
             else:
                 check_range(awhere, afile, astart, anchor.get("lineEnd"))
 
+        for sa_idx, sa in enumerate(section.get("seeAlso") or []):
+            sawhere = "%s seeAlso[%d]" % (where, sa_idx)
+            if not isinstance(sa, dict):
+                errors.append("%s must be an object { topic, links }" % sawhere)
+                continue
+            if not sa.get("topic"):
+                errors.append("%s missing required field: topic" % sawhere)
+            links = sa.get("links")
+            if links is not None and not isinstance(links, list):
+                errors.append("%s field 'links' must be an array" % sawhere)
+
         # Inline [[...]] references in body/title and callouts.
         for field in ("title", "body"):
             for ref_file, rstart, rend in _iter_refs(section.get(field)):
@@ -436,6 +447,22 @@ def _ref_label(file, start, end, web):
     if web:
         return "%s#L%s" % (file, start)
     return "%s:%s" % (file, span)
+
+
+def _see_also_host(url):
+    # Friendly short label for a bare URL: hostname minus a leading "www.".
+    match = re.match(r"[a-zA-Z][a-zA-Z0-9+.-]*://([^/]+)", str(url))
+    host = match.group(1) if match else str(url)
+    return host[4:] if host.startswith("www.") else host
+
+
+def _see_also_link(link):
+    # A link is a URL string, or an object {label?, url|href}. Returns (label, url).
+    if isinstance(link, dict):
+        url = link.get("url") or link.get("href") or ""
+        return (link.get("label") or _see_also_host(url)), url
+    return _see_also_host(link), link
+
 
 
 # --------------------------------------------------------------------------- #
@@ -612,6 +639,22 @@ def render_markdown(tour: dict) -> str:
                                                      an.get("lineEnd"), web)
                 jumps.append("[`%s`](%s)" % (lab, _line_href(tour, af, an["lineStart"], an.get("lineEnd"))))
             out.append("Jump to: " + " \u00b7 ".join(jumps))
+            out.append("")
+        see_also = s.get("seeAlso") or []
+        if see_also:
+            out.append("**See also:**")
+            out.append("")
+            for sa in see_also:
+                topic = sa.get("topic", "")
+                links = []
+                for ln in sa.get("links") or []:
+                    label, url = _see_also_link(ln)
+                    if url:
+                        links.append("[%s](%s)" % (label, url))
+                if topic and links:
+                    out.append("- **%s** \u2014 %s" % (topic, " \u00b7 ".join(links)))
+                elif topic:
+                    out.append("- **%s**" % topic)
             out.append("")
 
     if tour.get("dataFlow"):
@@ -794,6 +837,17 @@ def render_cli(tour: dict, color=True) -> str:
                                                      an.get("lineEnd"), web)
                 jumps.append(lab)
             out.append("  " + c("dim") + "Jump to: " + " \u00b7 ".join(jumps) + c("reset"))
+            out.append("")
+        see_also = s.get("seeAlso") or []
+        if see_also:
+            out.append("  " + c("dim") + "See also:" + c("reset"))
+            for sa in see_also:
+                urls = [url for url in (_see_also_link(ln)[1]
+                                        for ln in sa.get("links") or []) if url]
+                line = "    " + str(sa.get("topic", ""))
+                if urls:
+                    line += ": " + " \u00b7 ".join(urls)
+                out.append(c("dim") + line + c("reset"))
             out.append("")
 
     if tour.get("dataFlow"):

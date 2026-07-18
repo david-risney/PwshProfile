@@ -115,6 +115,18 @@
   .callout.danger { border-left-color: var(--danger); }
   .callout.good { border-left-color: var(--green); }
   .callout code { color: var(--orange); }
+  .see-also {
+    background: var(--callout-bg); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent); border-radius: 6px;
+    padding: 10px 16px; margin: 18px 0; font-size: 13px;
+  }
+  .see-also .sa-head {
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    font-size: 11px; opacity: 0.75; margin-bottom: 6px;
+  }
+  .see-also .sa-topic { margin: 3px 0; }
+  .see-also .sa-name { font-weight: 600; }
+  .see-also a { color: var(--accent); }
   h2 {
     margin: 38px 0 6px; padding-top: 14px; border-top: 1px solid var(--border);
     font-size: 20px; color: var(--accent);
@@ -413,6 +425,54 @@ function renderCallouts(tour, file, callouts, container) {
   });
 }
 
+// --- "See also" further-reading links ---------------------------------------
+// A section may list related topics worth understanding (a function, a language
+// feature, a pattern like sequences / GUARDED_BY_CONTEXT). Each entry is
+// { topic, links[] } where a link is a URL string or { label?, url }. These are
+// external link *targets* only — nothing the viewer needs to render is remote,
+// so the output stays self-contained/offline.
+
+function seeAlsoHost(url) {
+  var m = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/([^/]+)/.exec(String(url));
+  var host = m ? m[1] : String(url);
+  return host.replace(/^www\./, "");
+}
+
+function renderSeeAlso(seeAlso, container) {
+  if (!seeAlso || !seeAlso.length) return;
+  var box = document.createElement("div");
+  box.className = "see-also";
+  var head = document.createElement("div");
+  head.className = "sa-head";
+  head.textContent = "See also";
+  box.appendChild(head);
+  seeAlso.forEach(function (sa) {
+    var row = document.createElement("div");
+    row.className = "sa-topic";
+    var links = (sa.links || []).filter(function (ln) {
+      return ln && (typeof ln === "object" ? (ln.url || ln.href) : true);
+    });
+    var name = document.createElement("span");
+    name.className = "sa-name";
+    name.textContent = (sa.topic || "") + (links.length ? ": " : "");
+    row.appendChild(name);
+    links.forEach(function (ln, i) {
+      var url = typeof ln === "object" ? (ln.url || ln.href) : ln;
+      var label = (typeof ln === "object" && ln.label) ? ln.label : seeAlsoHost(url);
+      if (i > 0) row.appendChild(document.createTextNode(" \u00b7 "));
+      var a = document.createElement("a");
+      a.href = url;
+      a.textContent = label;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.title = url;
+      row.appendChild(a);
+    });
+    box.appendChild(row);
+  });
+  container.appendChild(box);
+}
+
 // --- Mermaid diagrams -------------------------------------------------------
 // A tour may attach Mermaid diagrams to its intro and to any section. Each
 // diagram is either a raw Mermaid string or an object { title?, code }. We emit
@@ -687,6 +747,8 @@ function render(tour) {
       });
       content.appendChild(jump);
     }
+
+    renderSeeAlso(s.seeAlso, content);
   });
 
   // Optional data-flow summary

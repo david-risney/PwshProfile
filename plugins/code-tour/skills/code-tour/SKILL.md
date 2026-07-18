@@ -109,6 +109,17 @@ must be available before you render.
      NOT a place to paste the whole function).
    - Use `callouts` (`good` / `warn` / `danger` / default) for "why", gotchas,
      and security/design notes. Use `designNotes` for top-level structure notes.
+   - Use `seeAlso` for **further reading** a reader needs to understand the
+     section: functions, language features, or patterns that are *integral to
+     the code and not widely known* — worth a short detour. Examples: an
+     uncommon library type (`std::optional`, `base::WeakPtr`), or a
+     concurrency/annotation pattern the change relies on (sequences,
+     `GUARDED_BY_CONTEXT`, `SEQUENCE_CHECKER`). Skip the obvious; a few
+     high-value topics beat a long list. Each entry is `{ topic, links[] }`;
+     a link is a URL string or `{ label, url }`. Prefer link targets in this
+     order: **in-project docs**, then a **header/source file whose comments
+     explain the concept** (or, failing that, the definition itself), then an
+     **authoritative web reference**.
    - `diagrams` (Mermaid) are **optional** — you do not have to add any. Only
      add one when there is a non-obvious diagram you can create accurately;
      otherwise omit diagrams entirely. When you do add them, attach to the

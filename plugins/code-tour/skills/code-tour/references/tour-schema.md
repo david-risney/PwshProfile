@@ -114,6 +114,7 @@ templates for a PR, a diff, or an arbitrary git commit.
 | `callouts` | Callout[] | no | Highlighted notes with a semantic kind (see below). |
 | `diagrams` | Diagram[] | no | Mermaid diagrams for this section (see **Diagram**). |
 | `anchors` | Anchor[] | no | Extra labeled line references below the body (for sub-line jumps). Prefer inline `[[...]]` references in `body` instead, when natural. |
+| `seeAlso` | SeeAlso[] | no | "Further reading" links for concepts, functions, or patterns that are integral to understanding this section (see **SeeAlso**). Rendered at the bottom of the section. |
 
 \* `file` is only optional for purely narrative sections with no line links.
 
@@ -175,6 +176,45 @@ HTML. Each renderer presents diagrams differently:
 | `lineEnd` | integer | Optional (range). |
 | `label` | string | Optional; defaults to `line N` / `lines N–M`. |
 | `file` | string | Optional; defaults to the section's `file`. |
+
+## SeeAlso
+
+A *see-also* entry points the reader at background needed to understand the
+section: a key function, a language feature, or a pattern (e.g. sequences,
+`GUARDED_BY_CONTEXT`, `std::optional`). Each entry groups one **topic** with one
+or more **links**. Prefer topics that are *integral to the code and not widely
+known* — worth a short detour — over the obvious. Good link targets, in rough
+order of preference: in-project documentation, a header or source file whose
+comments explain the concept, then authoritative web references.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `topic` | string | Required. The concept, function, or pattern being pointed at. |
+| `links` | (string \| object)[] | The references. A link is a **URL string**, or an object `{ label, url }` (`href` is accepted for `url`). A bare URL is labeled by its host (minus `www.`). |
+
+Renderers place `seeAlso` at the end of the section, after callouts and
+anchors: the HTML viewer shows a "See also" box with each topic and its links
+(links open in a new tab), Markdown emits a `**See also:**` list, and the CLI
+prints a dim `See also:` block.
+
+```json
+"seeAlso": [
+  {
+    "topic": "std::optional",
+    "links": [
+      "https://en.cppreference.com/w/cpp/utility/optional",
+      "https://chromium.googlesource.com/chromium/src/+/HEAD/styleguide/c++/c++.md"
+    ]
+  },
+  {
+    "topic": "Sequences / GUARDED_BY_CONTEXT",
+    "links": [
+      { "label": "thread_annotations.h", "url": "https://chromium.googlesource.com/chromium/src/+/HEAD/base/thread_annotations.h" },
+      "https://developer.chrome.com/blog/chromium-chronicle-25/"
+    ]
+  }
+]
+```
 
 ## Markdown subset
 
