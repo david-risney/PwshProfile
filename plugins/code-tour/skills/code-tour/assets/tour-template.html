@@ -829,6 +829,9 @@ function render(tour) {
   genLink.target = "_blank";
   genLink.rel = "noopener";
   footer.appendChild(genLink);
+  if (tour.generatorVersion) {
+    footer.appendChild(document.createTextNode(" \u00b7 v" + tour.generatorVersion));
+  }
   content.parentNode.insertBefore(footer, content.nextSibling);
 
   setupGroupTracking(groupMarkers);

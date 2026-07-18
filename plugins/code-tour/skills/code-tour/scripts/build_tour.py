@@ -391,6 +391,10 @@ def render_html(tour: dict, template_path: str) -> str:
     # Re-serialize so the embedded text is guaranteed valid and escape any
     # literal "</script>" as "<\/script>" (a valid JSON escape for "/") so it
     # cannot terminate the surrounding <script> element.
+    version = _generator_version()
+    if version:
+        tour = dict(tour)
+        tour["generatorVersion"] = version
     payload = json.dumps(tour, ensure_ascii=False, indent=2)
     payload = payload.replace("</script>", "<\\/script>")
     # Embed the Mermaid runtime inline only when the tour actually has diagrams,
@@ -489,6 +493,26 @@ def _see_also_link(link):
 
 # Where the "Generated code tour" footer links for more about this tool.
 CODE_TOUR_URL = "https://github.com/david-risney/PwshProfile/tree/main/plugins/code-tour"
+
+
+def _generator_version():
+    """Read the code-tour plugin version from its plugin.json, if available.
+
+    The manifest lives at ``<plugin-root>/.claude-plugin/plugin.json`` --
+    three directories up from this script (scripts/ -> skill -> skills ->
+    plugin root). Returns the version string, or None if it cannot be read.
+    """
+    manifest = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..", "..", "..", ".claude-plugin", "plugin.json",
+    )
+    try:
+        with open(manifest, "r", encoding="utf-8") as handle:
+            version = json.load(handle).get("version")
+        return version if isinstance(version, str) and version.strip() else None
+    except (OSError, ValueError):
+        return None
+
 
 
 def _source_link(source):
@@ -711,7 +735,11 @@ def render_markdown(tour: dict) -> str:
 
     out.append("")
     out.append("---")
-    out.append("[Generated code tour](%s)" % CODE_TOUR_URL)
+    _ver = _generator_version()
+    out.append(
+        "[Generated code tour](%s)%s"
+        % (CODE_TOUR_URL, (" v%s" % _ver) if _ver else "")
+    )
 
     return "\n".join(out).rstrip() + "\n"
 
@@ -910,7 +938,11 @@ def render_cli(tour: dict, color=True) -> str:
         _ansi_block(tour, None, tour.get("dataFlow"), out, color)
 
     out.append("")
-    out.append(c("dim") + "Generated code tour \u00b7 " + CODE_TOUR_URL + c("reset"))
+    _ver = _generator_version()
+    out.append(
+        c("dim") + "Generated code tour \u00b7 " + CODE_TOUR_URL
+        + ((" \u00b7 v%s" % _ver) if _ver else "") + c("reset")
+    )
 
     return "\n".join(out).rstrip() + "\n"
 
