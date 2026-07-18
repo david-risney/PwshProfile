@@ -171,7 +171,7 @@ must be available before you render.
      as a banner before each group's first section; ungrouped sections fall
      under an "Other" heading. Keep `sections` flat — a group only references ids.
    - Keep prose tight and concrete; explain intent and tradeoffs, not the
-     obvious syntax.
+     obvious syntax. Follow the **Writing style** section below.
 
 4. **Validate and render with the script.** You do **not** hand-fill the HTML
    template, hand-write Markdown/CLI output, or manually copy files. A bundled
@@ -209,6 +209,28 @@ must be available before you render.
    failure. Fix the JSON and re-run; do not work around it by editing output by
    hand. On success it prints the output path. The JSON remains the single
    source of truth for every format.
+
+## Writing style
+
+All prose in a tour — `intro`, `body`, `callouts`, `designNotes`, `dataFlow`,
+topic labels — is **technical writing**. Optimize for clarity, concision,
+accuracy, and honesty:
+
+- **Clear.** Plain, direct sentences. Explain the *why* and the tradeoff a
+  reader can't see in the code; name the concept, then point at the line.
+- **Concise.** Cut filler. No throat-clearing ("It is worth noting that…"), no
+  restating the code in English. Prefer the shortest wording that stays precise.
+- **Accurate.** Every claim must match the code you actually read — real symbols,
+  real ordering, real behavior. If you are unsure, say so or leave it out; never
+  guess or embellish.
+- **Honest.** Include caveats, gotchas, and "why not X". A `warn`/`danger`
+  callout that names a real hazard is worth more than praise. Don't oversell a
+  change or paper over a limitation.
+
+Never write in a voice that is cutesy, corporate, verbose, patronizing, or
+hype-y. Avoid marketing adjectives ("blazing-fast", "robust", "seamless",
+"powerful"), exclamation points, emoji, and cheerleading. State what the code
+does and why; let the facts carry it.
 
 ## Output rules
 
