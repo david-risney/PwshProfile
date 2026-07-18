@@ -66,14 +66,37 @@ practice:
   and pass the whole URL as one quoted string, or otherwise ensure `&` is not
   re-parsed by a shell.
 
-ADO web link template (ADO needs a line **range** and ignores `#L` fragments):
+ADO web link templates. **The `/commit/{sha}` form does not reliably deep-link
+to a line in practice** — ADO opens the file but ignores the `line` params. For a
+**pull request**, use the PR *files* form instead, which does scroll to and
+highlight the line:
+
+```
+https://dev.azure.com/{org}/{project}/_git/{repo}/pullrequest/{prId}?path={path}&version=GB{targetBranch}&line={line}&lineEnd={lineEnd}&lineStartColumn=1&lineEndColumn=1&type=2&lineStyle=plain&_a=files&iteration={iteration}&base=0
+```
+
+- `type=2` selects the **modified (right) side** of the diff, so `{line}` refers
+  to the file **at the PR head** — which is exactly the revision you read content
+  from, so the line numbers match. (`type=1` is the base/left side.)
+- `version=GB{targetBranch}` is the PR target ref (e.g. `version=GBmain`); `GB`
+  is ADO's "Git Branch" prefix.
+- `iteration={iteration}` is the PR's **latest iteration id** (from the
+  `.../pullRequests/{prId}/iterations` API — the last entry's `id`); `base=0`
+  diffs against the merge base. Bake the concrete iteration number into the
+  template for the tour.
+- `_a=files&lineStyle=plain` put the viewer in the changed-files experience with
+  plain line highlighting.
+
+For an **arbitrary commit** (not a PR), the commit form is the only option:
 
 ```
 https://dev.azure.com/{org}/{project}/_git/{repo}/commit/{sha}?path={path}&line={line}&lineEnd={lineEnd}&lineStartColumn=1&lineEndColumn=1&type=1
 ```
 
-Put it in `webUrlTemplate`; set each file's `webPath` to its repo-relative path
-(e.g. `/chrome/browser/.../foo.cc`). ADO accepts raw `/` in the `path=` value.
+Put the chosen form in `webUrlTemplate`; set each file's `webPath` to its
+repo-relative path (e.g. `/chrome/browser/.../foo.cc`). ADO accepts raw `/` in
+the `path=` value. Note the golden rule still holds: read content at the PR head
+(the iteration you link to) so `{line}` matches what the viewer shows.
 
 ### GitHub
 

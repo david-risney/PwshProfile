@@ -24,7 +24,7 @@ the CLI. Line numbers are **data**, never hand-written markup.
 | `subtitle` | string | no | One line under the title. |
 | `files` | object | yes | Maps each logical file name used in sections to a **link source**. A value is either a **string** — the file's **absolute local path** (used for `vscode://` editor links) — or an **object** `{ path, url, webPath }` (see [Linking sources](#linking-sources)). e.g. `{ "publish.py": "C:/repo/publish.py" }` or `{ "publish.py": { "webPath": "/src/publish.py" } }`. |
 | `editor` | string | no | Link hint: `"vscode"` (default) or `"vscode-insiders"`. Used when a file resolves to an **editor** link (no web template/base). Text/Markdown renderers may ignore it. |
-| `webUrlTemplate` | string | no | A single web-link template shared by **every** file, with `{path}`, `{line}`, and `{lineEnd}` placeholders. `{path}` comes from each file's `webPath` (or its string value). Use this to point a whole tour at one PR/commit — e.g. an ADO commit URL `".../commit/<sha>?path={path}&line={line}&lineEnd={lineEnd}&lineStartColumn=1&lineEndColumn=1"` or a GitHub blob URL `".../blob/<sha>{path}#L{line}-L{lineEnd}"`. |
+| `webUrlTemplate` | string | no | A single web-link template shared by **every** file, with `{path}`, `{line}`, and `{lineEnd}` placeholders. `{path}` comes from each file's `webPath` (or its string value). Use this to point a whole tour at one PR/commit — e.g. an ADO **PR** URL `".../pullrequest/<prId>?path={path}&line={line}&lineEnd={lineEnd}&lineStartColumn=1&lineEndColumn=1&type=2&lineStyle=plain&_a=files&iteration=<n>&base=0"` (the `/commit/<sha>` form does **not** deep-link to a line — see `pr-and-diff-sources.md`) or a GitHub blob URL `".../blob/<sha>{path}#L{line}-L{lineEnd}"`. |
 | `webUrlBase` | string | no | **Legacy** GitHub-style hint: line references resolve to `webUrlBase + <webPath> + "#L<line>"`. Prefer `webUrlTemplate`, which supports any host's line syntax. Kept for back-compat. |
 | `intro` | string (markdown) | no | Overview shown before the list of sections. |
 | `diagrams` | Diagram[] | no | Mermaid diagrams shown with the intro (see **Diagram**). |
@@ -71,14 +71,18 @@ the same order.
 "editor": "vscode"
 ```
 
-**Whole tour at one commit/PR (recommended for PRs):**
+**Whole tour at one PR (recommended for PRs):**
 
 ```json
-"webUrlTemplate": "https://dev.azure.com/microsoft/Edge/_git/chromium.src/commit/<sha>?path={path}&line={line}&lineEnd={lineEnd}&lineStartColumn=1&lineEndColumn=1",
+"webUrlTemplate": "https://dev.azure.com/microsoft/Edge/_git/chromium.src/pullrequest/<prId>?path={path}&version=GB<targetBranch>&line={line}&lineEnd={lineEnd}&lineStartColumn=1&lineEndColumn=1&type=2&lineStyle=plain&_a=files&iteration=<n>&base=0",
 "files": {
   "data.cc": { "webPath": "/chrome/browser/external_protocol/edge_auto_launch_protocols_data.cc" }
 }
 ```
+
+The ADO `/commit/<sha>` form opens the file but does **not** scroll to the line;
+the `/pullrequest/<prId>` *files* form above does (`type=2` = head side,
+`iteration=<n>` = latest iteration). See `pr-and-diff-sources.md` for details.
 
 GitHub equivalent: `"https://github.com/<org>/<repo>/blob/<sha>{path}#L{line}-L{lineEnd}"`.
 
