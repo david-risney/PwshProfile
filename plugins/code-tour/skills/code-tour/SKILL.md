@@ -100,6 +100,11 @@ must be available before you render.
 3. **Write the JSON tour.** Follow `references/tour-schema.md`. Guidelines:
    - One section per meaningful unit. Order them top-to-bottom through the file
      (or in reading order across files).
+   - When the tour describes a PR, commit, or file that lives at a URL, set the
+     optional top-level `source` (a URL string, or `{ label, url }`) to link back
+     to it — e.g. the ADO/GitHub PR. It renders as a link in the subtitle. Give a
+     short human `label` (e.g. "ADO PR 16187001") rather than relying on the
+     default "View source".
    - Give every section a unique kebab-case `id`.
    - Put the section's overall range in `lineStart`/`lineEnd` (renders a heading
      badge). Reference specific interior lines from prose with inline

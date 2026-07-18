@@ -212,6 +212,7 @@
     padding: 0 8px; margin-right: 10px; vertical-align: 2px;
   }
   footer { color: var(--muted); font-size: 12px; margin-top: 48px; text-align: center; }
+  footer a { color: inherit; text-decoration: underline; }
   .flow { font-size: 14px; }
   .flow b { color: var(--sig-fg); }
   pre.mermaid {
@@ -452,6 +453,21 @@ function seeAlsoHost(url) {
   return host.replace(/^www\./, "");
 }
 
+// Optional top-level `source`: a URL string or {label?, url|href}. Returns
+// {label, url} or null.
+function sourceLink(source) {
+  if (!source) return null;
+  var url, label;
+  if (typeof source === "object") {
+    url = source.url || source.href || "";
+    label = source.label || "View source";
+  } else {
+    url = String(source);
+    label = "View source";
+  }
+  return url ? { label: label, url: url } : null;
+}
+
 function renderSeeAlso(seeAlso, container) {
   if (!seeAlso || !seeAlso.length) return;
   var box = document.createElement("div");
@@ -536,7 +552,23 @@ function render(tour) {
   document.title = tour.title || "Code tour";
   document.getElementById("tour-title").textContent = tour.title || "Code tour";
   var sub = document.getElementById("tour-subtitle");
-  sub.textContent = tour.subtitle || "Click any line badge to jump to that line in your editor.";
+  sub.textContent = "";
+  var src = sourceLink(tour.source);
+  if (tour.subtitle) {
+    sub.appendChild(document.createTextNode(tour.subtitle));
+  }
+  if (src) {
+    if (tour.subtitle) { sub.appendChild(document.createTextNode(" \u00b7 ")); }
+    var srcAnchor = document.createElement("a");
+    srcAnchor.href = src.url;
+    srcAnchor.textContent = src.label;
+    srcAnchor.target = "_blank";
+    srcAnchor.rel = "noopener";
+    sub.appendChild(srcAnchor);
+  }
+  if (!tour.subtitle && !src) {
+    sub.textContent = "Click any line badge to jump to that line in your editor.";
+  }
 
   var content = document.getElementById("content");
   var sections = tour.sections || [];
@@ -778,9 +810,12 @@ function render(tour) {
 
   // Footer
   var footer = document.createElement("footer");
-  footer.textContent = "Generated code tour \u00b7 line badges use the "
-    + ((tour.webUrlTemplate || tour.webUrlBase) ? "web" : (tour.editor || "vscode")) + " protocol \u00b7 "
-    + "if file paths change, edit the \"files\" map in the embedded JSON.";
+  var genLink = document.createElement("a");
+  genLink.href = "https://github.com/david-risney/PwshProfile/tree/main/plugins/code-tour";
+  genLink.textContent = "Generated code tour";
+  genLink.target = "_blank";
+  genLink.rel = "noopener";
+  footer.appendChild(genLink);
   content.parentNode.insertBefore(footer, content.nextSibling);
 
   setupGroupTracking(groupMarkers);

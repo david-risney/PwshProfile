@@ -222,6 +222,12 @@ def validate_tour(tour: dict) -> list:
 
     _check_diagrams("intro", tour.get("diagrams"), errors)
 
+    source = tour.get("source")
+    if source is not None and not isinstance(source, (str, dict)):
+        errors.append("source must be a URL string or an object {label?, url}")
+    elif isinstance(source, dict) and not (source.get("url") or source.get("href")):
+        errors.append("source object must include a url (or href)")
+
     # Cache real line counts for files that exist on disk.
     line_counts = {}
     for name, path in files.items():
@@ -481,6 +487,24 @@ def _see_also_link(link):
     return _see_also_host(link), link
 
 
+# Where the "Generated code tour" footer links for more about this tool.
+CODE_TOUR_URL = "https://github.com/david-risney/PwshProfile/tree/main/plugins/code-tour"
+
+
+def _source_link(source):
+    # Optional top-level `source`: a URL string or {label?, url|href}. Returns
+    # (label, url), or None when absent/empty.
+    if not source:
+        return None
+    if isinstance(source, dict):
+        url = source.get("url") or source.get("href") or ""
+        label = source.get("label") or "View source"
+    else:
+        url = str(source)
+        label = "View source"
+    return (label, url) if url else None
+
+
 
 # --------------------------------------------------------------------------- #
 # Markdown rendering
@@ -550,9 +574,15 @@ def _md_diagrams(diagrams, out):
 def render_markdown(tour: dict) -> str:
     out = []
     out.append("# " + str(tour.get("title", "Code tour")))
-    if tour.get("subtitle"):
+    src = _source_link(tour.get("source"))
+    if tour.get("subtitle") or src:
         out.append("")
-        out.append("*" + str(tour["subtitle"]) + "*")
+        line = "*" + str(tour["subtitle"]) + "*" if tour.get("subtitle") else ""
+        if src:
+            if line:
+                line += " \u00b7 "
+            line += "[%s](%s)" % (src[0], src[1])
+        out.append(line)
     out.append("")
 
     _md_block(tour, None, tour.get("intro"), out)
@@ -679,6 +709,10 @@ def render_markdown(tour: dict) -> str:
         out.append("")
         _md_block(tour, None, tour.get("dataFlow"), out)
 
+    out.append("")
+    out.append("---")
+    out.append("[Generated code tour](%s)" % CODE_TOUR_URL)
+
     return "\n".join(out).rstrip() + "\n"
 
 
@@ -766,8 +800,11 @@ def render_cli(tour: dict, color=True) -> str:
 
     out = []
     out.append(c("title") + str(tour.get("title", "Code tour")) + c("reset"))
+    src = _source_link(tour.get("source"))
     if tour.get("subtitle"):
         out.append(c("dim") + str(tour["subtitle"]) + c("reset"))
+    if src:
+        out.append(c("dim") + src[0] + ": " + c("reset") + src[1])
     out.append("")
 
     _ansi_block(tour, None, tour.get("intro"), out, color)
@@ -871,6 +908,9 @@ def render_cli(tour: dict, color=True) -> str:
         out.append(c("head") + "Data flow" + c("reset"))
         out.append("")
         _ansi_block(tour, None, tour.get("dataFlow"), out, color)
+
+    out.append("")
+    out.append(c("dim") + "Generated code tour \u00b7 " + CODE_TOUR_URL + c("reset"))
 
     return "\n".join(out).rstrip() + "\n"
 
