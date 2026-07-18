@@ -258,35 +258,82 @@ function loadTour() {
 }
 
 // --- Editor / web link building ---------------------------------------------
-// A tour names each file logically and maps it to an absolute path in
-// tour.files. Line badges become vscode://file/<abs>:<line> links (or
-// vscode-insiders, or a web URL if tour.webUrlBase is set).
+// A tour maps each logical file name to a link source in tour.files. An entry
+// is either a string (an absolute LOCAL path, used for vscode:// editor links)
+// or an object with any of:
+//   path     absolute local path       -> vscode / vscode-insiders editor link
+//   url      per-file web URL template -> web link; may contain {line}/{lineEnd}
+//   webPath  repo-relative / URL path  -> fills {path} in tour.webUrlTemplate
+// A line reference resolves in this order, so the same JSON drives a local tour
+// or a PR/commit tour just by choosing which fields it fills:
+//   1. the entry's own `url`         (any https link, e.g. one PR file)
+//   2. tour.webUrlTemplate           (one base shared by every file)
+//   3. tour.webUrlBase               (legacy GitHub "#L" style, back-compat)
+//   4. a vscode editor link          (default, from the local path)
+// Templates use {path}, {line} and {lineEnd} placeholders; {lineEnd} defaults
+// to {line} for single-line badges so hosts that require a range still work.
 
-function fileAbsPath(tour, file) {
+function fileEntry(tour, file) {
   if (tour.files && Object.prototype.hasOwnProperty.call(tour.files, file)) {
     return tour.files[file];
   }
   return file; // fall back to the logical name if unmapped
 }
 
-function lineHref(tour, file, start) {
-  if (tour.webUrlBase) {
-    // GitHub/ADO-style web link; fragment syntax varies by host.
-    return tour.webUrlBase + encodeURIComponent(file) + "#L" + start;
+function entryLocalPath(entry, file) {
+  if (entry && typeof entry === "object") return entry.path || file;
+  return entry; // string form is the local path
+}
+
+function entryWebPath(entry, file) {
+  if (entry && typeof entry === "object") return entry.webPath || entry.path || file;
+  return entry; // string form doubles as the web path
+}
+
+function fillTemplate(tmpl, vars) {
+  var out = tmpl;
+  for (var k in vars) {
+    if (Object.prototype.hasOwnProperty.call(vars, k)) {
+      out = out.split("{" + k + "}").join(vars[k]);
+    }
   }
+  return out;
+}
+
+function fileAbsPath(tour, file) {
+  return entryLocalPath(fileEntry(tour, file), file);
+}
+
+function lineHref(tour, file, start, end) {
+  var entry = fileEntry(tour, file);
+  var lineEnd = (end && end !== start) ? end : start;
+  // 1. Per-file web URL template (any https link, e.g. a single PR file).
+  if (entry && typeof entry === "object" && entry.url) {
+    return fillTemplate(entry.url, { line: start, lineEnd: lineEnd });
+  }
+  // 2. Global web URL template shared by every file (one commit / PR base).
+  if (tour.webUrlTemplate) {
+    return fillTemplate(tour.webUrlTemplate,
+      { path: entryWebPath(entry, file), line: start, lineEnd: lineEnd });
+  }
+  // 3. Legacy GitHub-style base; fragment syntax varies by host.
+  if (tour.webUrlBase) {
+    return tour.webUrlBase + encodeURIComponent(entryWebPath(entry, file)) + "#L" + start;
+  }
+  // 4. Local editor link.
   var scheme = tour.editor === "vscode-insiders"
     ? "vscode-insiders://file/" : "vscode://file/";
-  return scheme + fileAbsPath(tour, file) + ":" + start;
+  return scheme + entryLocalPath(entry, file) + ":" + start;
 }
 
 function lineBadge(tour, file, start, end, label) {
   var a = document.createElement("a");
   var isRange = end && end !== start;
   a.className = isRange ? "line range" : "line";
-  a.href = lineHref(tour, file, start);
+  a.href = lineHref(tour, file, start, end);
   a.textContent = label || (isRange ? ("lines " + start + "\u2013" + end)
                                     : ("line " + start));
-  a.title = "Open " + file + " at line " + start + " in the editor";
+  a.title = "Open " + file + " at line " + start;
   return a;
 }
 
@@ -656,7 +703,7 @@ function render(tour) {
   // Footer
   var footer = document.createElement("footer");
   footer.textContent = "Generated code tour \u00b7 line badges use the "
-    + (tour.webUrlBase ? "web" : (tour.editor || "vscode")) + " protocol \u00b7 "
+    + ((tour.webUrlTemplate || tour.webUrlBase) ? "web" : (tour.editor || "vscode")) + " protocol \u00b7 "
     + "if file paths change, edit the \"files\" map in the embedded JSON.";
   content.parentNode.insertBefore(footer, content.nextSibling);
 

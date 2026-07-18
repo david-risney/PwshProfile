@@ -22,15 +22,82 @@ the CLI. Line numbers are **data**, never hand-written markup.
 |-------|------|----------|-------|
 | `title` | string | yes | Shown in the header and the document title. |
 | `subtitle` | string | no | One line under the title. |
-| `files` | object | yes | Maps each logical file name used in sections to its **absolute path**. A renderer uses this to build line references (editor link, web link, or plain `path:line` text). e.g. `{ "publish.py": "C:/repo/publish.py" }`. |
-| `editor` | string | no | Link hint: `"vscode"` (default) or `"vscode-insiders"`. Renderers that emit clickable editor links use it; text/Markdown renderers may ignore it. |
-| `webUrlBase` | string | no | Link hint: if set, line references resolve to `webUrlBase + <file> + "#L<line>"` (GitHub/ADO-style) instead of an editor link. |
+| `files` | object | yes | Maps each logical file name used in sections to a **link source**. A value is either a **string** — the file's **absolute local path** (used for `vscode://` editor links) — or an **object** `{ path, url, webPath }` (see [Linking sources](#linking-sources)). e.g. `{ "publish.py": "C:/repo/publish.py" }` or `{ "publish.py": { "webPath": "/src/publish.py" } }`. |
+| `editor` | string | no | Link hint: `"vscode"` (default) or `"vscode-insiders"`. Used when a file resolves to an **editor** link (no web template/base). Text/Markdown renderers may ignore it. |
+| `webUrlTemplate` | string | no | A single web-link template shared by **every** file, with `{path}`, `{line}`, and `{lineEnd}` placeholders. `{path}` comes from each file's `webPath` (or its string value). Use this to point a whole tour at one PR/commit — e.g. an ADO commit URL `".../commit/<sha>?path={path}&line={line}&lineEnd={lineEnd}&lineStartColumn=1&lineEndColumn=1"` or a GitHub blob URL `".../blob/<sha>{path}#L{line}-L{lineEnd}"`. |
+| `webUrlBase` | string | no | **Legacy** GitHub-style hint: line references resolve to `webUrlBase + <webPath> + "#L<line>"`. Prefer `webUrlTemplate`, which supports any host's line syntax. Kept for back-compat. |
 | `intro` | string (markdown) | no | Overview shown before the list of sections. |
 | `diagrams` | Diagram[] | no | Mermaid diagrams shown with the intro (see **Diagram**). |
 | `designNotes` | string[] (markdown) | no | Top-level structural / "why it's shaped this way" notes, one per entry. A renderer may present them as a grouped callout. |
 | `sections` | Section[] | yes | The ordered walkthrough. |
 | `groups` | Group[] | no | Optional grouping of sections into a top-level table of contents (see **Group**). Sections stay flat in `sections`; a group only references their ids. |
 | `dataFlow` | string (markdown) | no | A closing "how it fits together" summary. |
+
+## Linking sources
+
+A tour can point at **local files** (open in an editor) or **remote files**
+(open a PR / commit / blob on the web) — or mix both — without any change to
+sections or `[[...]]` references. Only the `files` map and the top-level link
+hints differ. Each `files` value is one of:
+
+- **string** — an absolute **local path**. Line badges become
+  `vscode://file/<path>:<line>` (or `vscode-insiders`).
+- **object** with any of:
+  - `path` — absolute local path (editor links).
+  - `webPath` — the file's path as the web host expects it (fills `{path}` in
+    `webUrlTemplate`, or is appended to `webUrlBase`).
+  - `url` — a **per-file** web URL template with `{line}` / `{lineEnd}`
+    placeholders. Use this when one file lives at a different URL than the rest.
+
+A single line reference resolves in this order (first match wins), so you pick
+the behavior by choosing which fields to fill:
+
+1. the file entry's own **`url`** template — any `https:` link;
+2. the tour's **`webUrlTemplate`** — one base shared by all files;
+3. the tour's **`webUrlBase`** — legacy GitHub `#L` style;
+4. an **editor link** — `vscode`/`vscode-insiders` from the local `path`.
+
+`{lineEnd}` defaults to `{line}` for single-line badges, so hosts that require a
+range (e.g. ADO) still produce a valid link. `{path}` is substituted **raw** (no
+encoding) so it works in a URL path segment (GitHub blob) or a query value (ADO
+`?path=`); pre-encode `webPath` yourself only if your host needs it. Both
+renderers — the HTML template and `scripts/build_tour.py` (Markdown/CLI) — apply
+the same order.
+
+**Local (default):**
+
+```json
+"files": { "publish.py": "C:/repo/publish.py" },
+"editor": "vscode"
+```
+
+**Whole tour at one commit/PR (recommended for PRs):**
+
+```json
+"webUrlTemplate": "https://dev.azure.com/microsoft/Edge/_git/chromium.src/commit/<sha>?path={path}&line={line}&lineEnd={lineEnd}&lineStartColumn=1&lineEndColumn=1",
+"files": {
+  "data.cc": { "webPath": "/chrome/browser/external_protocol/edge_auto_launch_protocols_data.cc" }
+}
+```
+
+GitHub equivalent: `"https://github.com/<org>/<repo>/blob/<sha>{path}#L{line}-L{lineEnd}"`.
+
+**Both local and web** (editor link now, keep a `webPath` for a future web
+render): give the object both `path` and `webPath`. To force one file to a
+different URL, add a per-file `url`:
+
+```json
+"files": {
+  "data.cc": {
+    "path": "C:/repo/chrome/.../data.cc",
+    "webPath": "/chrome/.../data.cc"
+  },
+  "vendored.h": { "url": "https://example.com/vendored.h?l={line}" }
+}
+```
+
+See `pr-and-diff-sources.md` for how to fetch PR/commit content and build these
+templates for a PR, a diff, or an arbitrary git commit.
 
 ## Section
 

@@ -35,14 +35,20 @@ jump-to-line links or a visual, side-by-side reading aid.
 
 ## Inputs
 
-- **Target**: one or more files, or a feature/area the user names. If the target
-  is ambiguous (e.g. "tour the auth code"), identify the most relevant files
-  first, then confirm scope with the user if it is large.
-- **Editor**: default to VS Code (`vscode://`). Use `vscode-insiders` only if
-  the user says so. Use a web URL (`webUrlBase`) only if the user explicitly
-  wants GitHub/ADO links.
-- **Absolute paths**: editor links need each file's absolute path. Resolve it
-  for every file you include (e.g. via the repo root + relative path).
+- **Target**: one or more files, or a feature/area the user names. The source can
+  be **local files** or a **pull request / commit / diff** (not checked out
+  locally). If the target is ambiguous (e.g. "tour the auth code"), identify the
+  most relevant files first, then confirm scope with the user if it is large.
+- **Link mode**: decide where badges should open.
+  - *Local* (default): editor links via `vscode://` (`vscode-insiders` only if
+    the user says so). `files` values are absolute local paths.
+  - *Web* (PRs/commits): set `webUrlTemplate` (one base for the whole tour) and
+    give each file a `webPath`; badges open the file at that revision on the web
+    host. See `references/pr-and-diff-sources.md`.
+- **Paths**: editor links need each file's absolute local path; web links need
+  each file's repo-relative `webPath`. A file entry may carry both. Resolve the
+  right one for every file you include (e.g. repo root + relative path, or the
+  PR's changed-file list). See `references/tour-schema.md` → *Linking sources*.
 
 ## Requirements
 
@@ -72,7 +78,12 @@ must be available before you render.
 ## Workflow
 
 1. **Read the code.** Read each target file fully enough to explain it. For
-   large files, read in ranges.
+   large files, read in ranges. **Line numbers must match the exact revision the
+   links will open.** For a PR / commit / diff that is not checked out, read the
+   **full file content at the pinned commit SHA** (not the local branch, not the
+   diff hunks alone) and link to that same SHA — see
+   `references/pr-and-diff-sources.md` for how to fetch content and build the
+   `webUrlTemplate` for ADO or GitHub.
 
 2. **Build an accurate line map.** Derive the line ranges for each section
    (function, class, constant block, comment, etc.). A quick way to get a
@@ -217,17 +228,21 @@ must be available before you render.
 ## Security Boundaries
 
 **This skill:**
-- **CAN**: Read source files and repository metadata to describe them; generate
-  a JSON tour document (including Mermaid `diagrams`); run the bundled
-  `scripts/build_tour.py` to validate the JSON, fill the shipped HTML template
-  (substituting the `__TOUR_JSON__` placeholder), render Markdown/CLI output,
-  copy the bundled local Mermaid runtime next to an HTML tour that uses
-  diagrams, and write the result to the workspace.
+- **CAN**: Read source files and repository metadata to describe them —
+  including fetching file content for a PR / commit from a code host's read-only
+  API when the source is not checked out locally; generate a JSON tour document
+  (including Mermaid `diagrams`); run the bundled `scripts/build_tour.py` to
+  validate the JSON, fill the shipped HTML template (substituting the
+  `__TOUR_JSON__` placeholder), render Markdown/CLI output, copy the bundled
+  local Mermaid runtime next to an HTML tour that uses diagrams, and write the
+  result to the workspace.
 - **CANNOT**: Modify the source code being toured; modify the viewer template
-  beyond the single placeholder substitution the script performs; fetch remote
-  resources or add third-party/CDN dependencies to the output (the Mermaid
-  runtime is bundled and copied locally — the result must stay
-  self-contained and offline); fabricate line numbers, symbols, or file paths;
-  embed executable content beyond the template's own fixed renderer.
+  beyond the single placeholder substitution the script performs; make the
+  **generated output** depend on remote resources or third-party/CDN assets (the
+  Mermaid runtime is bundled and copied locally — the result must stay
+  self-contained and work offline; link *targets* like PR URLs are fine, but
+  nothing the viewer needs to render may be remote); fabricate line numbers,
+  symbols, or file paths; embed executable content beyond the template's own
+  fixed renderer.
 - **MUST CONFIRM**: Before overwriting an existing output file, and before
   generating a large multi-file tour when the requested scope is ambiguous.

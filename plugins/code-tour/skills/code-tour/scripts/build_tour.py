@@ -373,17 +373,59 @@ def render_html(tour: dict, template_path: str) -> str:
 # Shared link helpers (Markdown + CLI)
 # --------------------------------------------------------------------------- #
 
-def _abs_path(tour, file):
+def _file_entry(tour, file):
     files = tour.get("files") or {}
     return files.get(file, file)
 
 
-def _line_href(tour, file, start):
+def _entry_local_path(entry, file):
+    # Object entries carry an explicit local `path`; string entries are the path.
+    if isinstance(entry, dict):
+        return entry.get("path") or file
+    return entry
+
+
+def _entry_web_path(entry, file):
+    # Fills {path} in a web template (webPath, else the local path, else name).
+    if isinstance(entry, dict):
+        return entry.get("webPath") or entry.get("path") or file
+    return entry
+
+
+def _abs_path(tour, file):
+    return _entry_local_path(_file_entry(tour, file), file)
+
+
+def _is_web(tour):
+    return bool(tour.get("webUrlBase") or tour.get("webUrlTemplate"))
+
+
+def _fill_url_template(tmpl, **values):
+    out = tmpl
+    for key, value in values.items():
+        out = out.replace("{" + key + "}", str(value))
+    return out
+
+
+def _line_href(tour, file, start, end=None):
+    # Resolution order mirrors the HTML renderer (tour-template.html): a file's
+    # own `url`, then tour.webUrlTemplate, then legacy tour.webUrlBase, then a
+    # local editor link. This lets one JSON drive a local tour or a PR/commit
+    # tour just by choosing which link fields it fills. {lineEnd} defaults to
+    # {line} for single-line refs so hosts that require a range still work.
+    entry = _file_entry(tour, file)
+    line_end = end if (end and end != start) else start
+    if isinstance(entry, dict) and entry.get("url"):
+        return _fill_url_template(entry["url"], line=start, lineEnd=line_end)
+    if tour.get("webUrlTemplate"):
+        return _fill_url_template(tour["webUrlTemplate"],
+                                  path=_entry_web_path(entry, file),
+                                  line=start, lineEnd=line_end)
     if tour.get("webUrlBase"):
-        return "%s%s#L%s" % (tour["webUrlBase"], file, start)
+        return "%s%s#L%s" % (tour["webUrlBase"], _entry_web_path(entry, file), start)
     scheme = ("vscode-insiders://file/" if tour.get("editor") == "vscode-insiders"
               else "vscode://file/")
-    return "%s%s:%s" % (scheme, _abs_path(tour, file), start)
+    return "%s%s:%s" % (scheme, _entry_local_path(entry, file), start)
 
 
 def _ref_label(file, start, end, web):
@@ -403,7 +445,7 @@ def _ref_label(file, start, end, web):
 def _md_inline(tour, file, text):
     if text is None:
         return ""
-    web = bool(tour.get("webUrlBase"))
+    web = _is_web(tour)
 
     def ref_sub(match):
         body = match.group(1)
@@ -418,7 +460,7 @@ def _md_inline(tour, file, text):
             return match.group(0)
         end = int(parts[1]) if len(parts) > 1 and parts[1] else None
         label = _ref_label(ref_file, start, end, web)
-        return "[`%s`](%s)" % (label, _line_href(tour, ref_file, start))
+        return "[`%s`](%s)" % (label, _line_href(tour, ref_file, start, end))
 
     out = _REF_RE.sub(ref_sub, str(text))
     return out
@@ -539,9 +581,9 @@ def render_markdown(tour: dict) -> str:
         out.append(heading)
         meta = []
         if s.get("file") and s.get("lineStart"):
-            web = bool(tour.get("webUrlBase"))
+            web = _is_web(tour)
             label = _ref_label(s["file"], s["lineStart"], s.get("lineEnd"), web)
-            meta.append("[`%s`](%s)" % (label, _line_href(tour, s["file"], s["lineStart"])))
+            meta.append("[`%s`](%s)" % (label, _line_href(tour, s["file"], s["lineStart"], s.get("lineEnd"))))
         elif s.get("file"):
             meta.append("`%s`" % s["file"])
         if meta:
@@ -563,12 +605,12 @@ def render_markdown(tour: dict) -> str:
         anchors = s.get("anchors") or []
         if anchors:
             jumps = []
-            web = bool(tour.get("webUrlBase"))
+            web = _is_web(tour)
             for an in anchors:
                 af = an.get("file") or s.get("file")
                 lab = an.get("label") or _ref_label(af, an["lineStart"],
                                                      an.get("lineEnd"), web)
-                jumps.append("[`%s`](%s)" % (lab, _line_href(tour, af, an["lineStart"])))
+                jumps.append("[`%s`](%s)" % (lab, _line_href(tour, af, an["lineStart"], an.get("lineEnd"))))
             out.append("Jump to: " + " \u00b7 ".join(jumps))
             out.append("")
 
@@ -595,7 +637,7 @@ _ANSI = {
 def _ansi_inline(tour, file, text, color=True):
     if text is None:
         return ""
-    web = bool(tour.get("webUrlBase"))
+    web = _is_web(tour)
 
     def ref_sub(match):
         body = match.group(1)
@@ -718,7 +760,7 @@ def render_cli(tour: dict, color=True) -> str:
             out.append("")
         loc = ""
         if s.get("file") and s.get("lineStart"):
-            web = bool(tour.get("webUrlBase"))
+            web = _is_web(tour)
             loc = "  " + c("dim") + _ref_label(s["file"], s["lineStart"],
                                                s.get("lineEnd"), web) + c("reset")
         elif s.get("file"):
@@ -744,7 +786,7 @@ def render_cli(tour: dict, color=True) -> str:
         diagrams(s.get("diagrams"))
         anchors = s.get("anchors") or []
         if anchors:
-            web = bool(tour.get("webUrlBase"))
+            web = _is_web(tour)
             jumps = []
             for an in anchors:
                 af = an.get("file") or s.get("file")
