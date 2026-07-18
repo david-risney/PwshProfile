@@ -42,49 +42,60 @@
 </script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Inline SVG favicon (map-pin) as a data URI: keeps the output fully
+     self-contained -- no network fetch, works over file://. -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2016%2016'%3E%3Crect%20width='16'%20height='16'%20rx='3'%20fill='%231e1e1e'/%3E%3Cpath%20d='M8%202.2a3.2%203.2%200%200%200-3.2%203.2c0%202.3%203.2%205.4%203.2%205.4s3.2-3.1%203.2-5.4A3.2%203.2%200%200%200%208%202.2zm0%204.4a1.2%201.2%200%201%201%200-2.4%201.2%201.2%200%200%201%200%202.4z'%20fill='%234fc1ff'/%3E%3C/svg%3E">
 <title>Code tour</title>
 <style>
   :root {
     /* Dark theme (default; also used by "auto" when the OS prefers dark). */
-    --bg: #1e1e1e; --panel: #252526; --fg: #d4d4d4; --muted: #9d9d9d;
+    /* Neutrals carry a slight cool tint (<5% HSB saturation) to match the
+       blue accent; near-black rather than pure #000 (saferules 1, 2, 10). */
+    --bg: #1e1f22; --panel: #26282c; --fg: #d5d7db; --muted: #9a9ca2;
     --accent: #4fc1ff; --accent-hover: #79d0ff;
     --accent2: #c586c0; --accent2-hover: #d6a4d6;
     --green: #6a9955; --orange: #ce9178;
-    --keyword: #569cd6; --border: #3c3c3c; --warn: #f0a500; --danger: #f48771;
-    --callout-bg: #2d2d30; --code-bg: #2a2a2a; --pre-bg: #1b1b1b;
-    --sig-fg: #dcdcaa; --error-bg: #3a1d1d; --error-fg: #f5c0b8;
+    --keyword: #569cd6; --border: #3a3d43; --warn: #f0a500; --danger: #f48771;
+    --callout-bg: #2d2f34; --code-bg: #2a2c30; --pre-bg: #1b1c1f;
+    /* Saturated per-type box fills so callouts / see-also read distinctly
+       rather than all looking gray. */
+    --info-bg: #24333f; --good-bg: #1f2e22; --warn-bg: #332e1e; --diagram-bg: #241d31;
+    --sig-fg: #dcdcaa; --error-bg: #3c2727; --error-fg: #f5c0b8;
   }
   /* Light palette: applied when forced via data-theme="light" ... */
   html[data-theme="light"] {
-    --bg: #ffffff; --panel: #f3f3f3; --fg: #1f1f1f; --muted: #6a6a6a;
+    /* Near-white background + cool-tinted neutrals (saferules 1, 2, 10). */
+    --bg: #fbfbfd; --panel: #eef0f4; --fg: #1e2024; --muted: #676a71;
     --accent: #0066b8; --accent-hover: #1a7fd4;
     --accent2: #9b298f; --accent2-hover: #b5429f;
     --green: #2e7d32; --orange: #b5500a;
-    --keyword: #0000ff; --border: #d0d0d0; --warn: #b8860b; --danger: #c0392b;
-    --callout-bg: #f6f6f6; --code-bg: #eef0f2; --pre-bg: #f5f5f5;
-    --sig-fg: #7a5b00; --error-bg: #fdecea; --error-fg: #8b1f17;
+    --keyword: #0000ff; --border: #cdd0d6; --warn: #b8860b; --danger: #c0392b;
+    --callout-bg: #f3f4f7; --code-bg: #eceff3; --pre-bg: #f2f3f6;
+    --info-bg: #e8eef4; --good-bg: #e6efe8; --warn-bg: #f1edde; --diagram-bg: #efebf6;
+    --sig-fg: #7a5b00; --error-bg: #f7efee; --error-fg: #8b1f17;
   }
   /* ... or via "auto" when the OS itself prefers a light color scheme. */
   @media (prefers-color-scheme: light) {
     html[data-theme="auto"] {
-      --bg: #ffffff; --panel: #f3f3f3; --fg: #1f1f1f; --muted: #6a6a6a;
+      --bg: #fbfbfd; --panel: #eef0f4; --fg: #1e2024; --muted: #676a71;
       --accent: #0066b8; --accent-hover: #1a7fd4;
       --accent2: #9b298f; --accent2-hover: #b5429f;
       --green: #2e7d32; --orange: #b5500a;
-      --keyword: #0000ff; --border: #d0d0d0; --warn: #b8860b; --danger: #c0392b;
-      --callout-bg: #f6f6f6; --code-bg: #eef0f2; --pre-bg: #f5f5f5;
-      --sig-fg: #7a5b00; --error-bg: #fdecea; --error-fg: #8b1f17;
+      --keyword: #0000ff; --border: #cdd0d6; --warn: #b8860b; --danger: #c0392b;
+      --callout-bg: #f3f4f7; --code-bg: #eceff3; --pre-bg: #f2f3f6;
+      --info-bg: #e8eef4; --good-bg: #e6efe8; --warn-bg: #f1edde; --diagram-bg: #efebf6;
+      --sig-fg: #7a5b00; --error-bg: #f7efee; --error-fg: #8b1f17;
     }
   }
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: var(--fg);
-    font: 15px/1.6 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font: 16px/1.6 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     transition: background 0.2s ease, color 0.2s ease;
   }
   header {
     position: sticky; top: 0; z-index: 10; background: var(--panel);
-    border-bottom: 1px solid var(--border); padding: 14px 22px;
+    border-bottom: 1px solid var(--border); padding: 16px 24px;
   }
   header h1 { margin: 0 0 4px; font-size: 18px; }
   header p { margin: 0; color: var(--muted); font-size: 13px; }
@@ -106,20 +117,22 @@
   }
   #theme-toggle:hover { border-color: var(--accent); }
   #theme-toggle .ico { margin-right: 6px; }
-  .wrap { max-width: 980px; margin: 0 auto; padding: 0 22px 80px; }
-  .callout {
-    background: var(--callout-bg); border: 1px solid var(--border); border-left: 3px solid var(--accent);
-    border-radius: 6px; padding: 12px 16px; margin: 18px 0; font-size: 14px;
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 24px 80px; }
+  /* Callouts, see-also, diagrams, and the error box share the code block's
+     boxed look (see `pre`): a 1px solid border and 6px radius. Each type also
+     gets a saturated, hue-matched fill so the family is easy to tell apart at a
+     glance -- blue for informational see-also / default callouts, green for
+     good, yellow for warnings/dangers, purple for diagrams, red for errors --
+     while the neutral code block stays the visual anchor. */
+  .callout, .see-also {
+    background: var(--info-bg); border: 1px solid var(--accent);
+    border-radius: 6px;
   }
-  .callout.warn { border-left-color: var(--warn); }
-  .callout.danger { border-left-color: var(--danger); }
-  .callout.good { border-left-color: var(--green); }
+  .callout { padding: 12px 16px; margin: 18px 0; font-size: 14px; }
+  .callout.warn, .callout.danger { border-color: var(--warn); background: var(--warn-bg); }
+  .callout.good { border-color: var(--green); background: var(--good-bg); }
   .callout code { color: var(--orange); }
-  .see-also {
-    background: var(--callout-bg); border: 1px solid var(--border);
-    border-left: 3px solid var(--accent); border-radius: 6px;
-    padding: 10px 16px; margin: 18px 0; font-size: 13px;
-  }
+  .see-also { padding: 10px 16px; margin: 18px 0; font-size: 13px; }
   .see-also .sa-head {
     font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
     font-size: 11px; opacity: 0.75; margin-bottom: 6px;
@@ -128,7 +141,7 @@
   .see-also .sa-name { font-weight: 600; }
   .see-also a { color: var(--accent); }
   h2 {
-    margin: 38px 0 6px; padding-top: 14px; border-top: 1px solid var(--border);
+    margin: 40px 0 8px; padding-top: 16px; border-top: 1px solid var(--border);
     font-size: 20px; color: var(--accent);
   }
   h2:first-of-type { border-top: none; }
@@ -162,7 +175,7 @@
   }
   ul { margin: 6px 0 6px; padding-left: 22px; }
   li { margin: 3px 0; }
-  .toc { columns: 2; column-gap: 30px; font-size: 14px; }
+  .toc { columns: 2; column-gap: 32px; font-size: 14px; }
   .toc a { color: var(--accent); text-decoration: none; }
   .toc a:hover { text-decoration: underline; }
   .group-toc {
@@ -175,7 +188,7 @@
   a.group-toc-name:hover { text-decoration: underline; }
   .group-toc-desc { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
   .group-header {
-    border-top: 3px solid var(--accent); margin: 60px 0 10px; padding-top: 18px;
+    border-top: 3px solid var(--accent); margin: 64px 0 8px; padding-top: 16px;
   }
   .group-eyebrow {
     display: block; font-size: 12px; font-weight: 700; letter-spacing: .14em;
@@ -198,11 +211,12 @@
     border: 1px solid var(--accent); border-radius: 999px;
     padding: 0 8px; margin-right: 10px; vertical-align: 2px;
   }
-  footer { color: var(--muted); font-size: 12px; margin-top: 50px; text-align: center; }
+  footer { color: var(--muted); font-size: 12px; margin-top: 48px; text-align: center; }
   .flow { font-size: 14px; }
   .flow b { color: var(--sig-fg); }
   pre.mermaid {
-    background: #f6f6f6; color: #1b1b1b; border: 1px solid var(--border);
+    background: var(--diagram-bg); color: #1b1b1b;
+    border: 1px solid var(--accent2); border-radius: 6px;
     text-align: center; line-height: normal; white-space: normal;
     padding: 16px;
   }
@@ -853,6 +867,10 @@ function setupThemeToggle() {
     document.documentElement.setAttribute("data-theme", theme);
     try { localStorage.setItem("codeTourTheme", theme); } catch (e) { /* ignore */ }
     paint(theme);
+    // Recolor any Mermaid diagrams to match the newly applied scheme.
+    if (typeof window.__renderTourDiagrams === "function") {
+      window.__renderTourDiagrams();
+    }
   }
 
   paint(current());
@@ -875,29 +893,86 @@ try {
 setupThemeToggle();
 </script>
 
-<!-- Mermaid bootstrap (classic script: works when the file is opened directly
-     via file:// as well as when served over http). Runs only if the tour
-     produced any <pre class="mermaid"> blocks. Prefers the local ES module
-     (mermaid.esm.min.mjs) when modules are allowed; falls back to loading the
-     self-contained UMD bundle (mermaid.min.js) via a classic <script> tag,
-     because Chromium blocks ES module loads from file:// origins. Both files
-     are placed next to this HTML by the build script. If neither loads, the
-     Mermaid source stays visible as a code block. -->
+<!-- Embedded Mermaid runtime. When the tour has diagrams, the build script
+     replaces the placeholder token below with the self-contained Mermaid UMD
+     bundle, which assigns the library to globalThis.mermaid. When the tour has
+     no diagrams the token is replaced with nothing. This keeps the rendered
+     tour a single self-contained file: no sidecar mermaid.* files and no
+     network fetch. This script must run BEFORE the bootstrap below so that
+     window.mermaid is already defined when the bootstrap looks for it. -->
+<script id="mermaid-runtime">__MERMAID_RUNTIME__</script>
+
+<!-- Mermaid bootstrap. Runs only if the tour produced any
+     <pre class="mermaid"> blocks. Preferred path: the embedded runtime above
+     already defined window.mermaid, so render immediately -- no network, no
+     ES-module load, works over file://. The remaining branches are a legacy
+     fallback for a tour rendered without the embedded runtime, loading a
+     sidecar UMD bundle (mermaid.min.js) or local ES module. If nothing loads,
+     the Mermaid source stays visible as a code block. -->
 <script>
 (function () {
   "use strict";
   var blocks = document.querySelectorAll("pre.mermaid");
   if (!blocks.length) { return; }
 
-  function run(mermaid) {
-    if (!mermaid) { return; }
-    mermaid.initialize({
+  // Preserve each diagram's Mermaid source: mermaid.run() replaces the source
+  // with rendered SVG, so we keep the originals to re-render when the color
+  // theme changes.
+  var sources = [];
+  for (var i = 0; i < blocks.length; i++) { sources.push(blocks[i].textContent); }
+
+  // Resolve the effective light/dark scheme: an explicit data-theme wins;
+  // "auto" (or unset) follows the OS via matchMedia.
+  function isDark() {
+    var t = document.documentElement.getAttribute("data-theme");
+    if (t === "dark") { return true; }
+    if (t === "light") { return false; }
+    return !!(window.matchMedia &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches);
+  }
+
+  var mermaidRef = null;
+
+  // (Re)render every diagram with the Mermaid theme that matches the current
+  // color scheme -- "dark" so diagrams are legible on the dark palette,
+  // "neutral" on light.
+  function render() {
+    if (!mermaidRef) { return; }
+    for (var i = 0; i < blocks.length; i++) {
+      blocks[i].textContent = sources[i];
+      blocks[i].removeAttribute("data-processed");
+    }
+    mermaidRef.initialize({
       startOnLoad: false,
       securityLevel: "strict",
-      theme: "neutral"
+      theme: isDark() ? "dark" : "neutral"
     });
-    mermaid.run({ nodes: blocks });
+    mermaidRef.run({ nodes: blocks });
   }
+
+  function run(mermaid) {
+    if (!mermaid) { return; }
+    mermaidRef = mermaid;
+    render();
+  }
+
+  // Let the theme toggle recolor diagrams live, and follow OS scheme changes
+  // while in "auto".
+  window.__renderTourDiagrams = render;
+  if (window.matchMedia) {
+    try {
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener(
+        "change", function () {
+          var t = document.documentElement.getAttribute("data-theme");
+          if (t !== "light" && t !== "dark") { render(); }
+        });
+    } catch (e) { /* older browsers: no live OS-scheme updates */ }
+  }
+
+  // Preferred path: the build script embedded the Mermaid runtime inline, so
+  // globalThis.mermaid is already defined -- render straight away. The branches
+  // further down are only reached for a tour rendered without that runtime.
+  if (window.mermaid) { run(window.mermaid); return; }
 
   function fail(err) {
     if (window.console) {

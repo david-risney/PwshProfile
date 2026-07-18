@@ -154,7 +154,7 @@ The Mermaid source is **data**, never markup — renderers never interpret it as
 HTML. Each renderer presents diagrams differently:
 
 - **HTML:** each diagram becomes a `<pre class="mermaid">` block that the bundled
-  local Mermaid runtime (`mermaid.esm.min.mjs`, copied next to the output) turns
+  local Mermaid runtime (`mermaid.min.js`, embedded inline into the output) turns
   into an SVG. If Mermaid cannot load, the source stays visible as text.
 - **Markdown:** a fenced ` ```mermaid ` code block (rendered by GitHub and other
   Mermaid-aware viewers).

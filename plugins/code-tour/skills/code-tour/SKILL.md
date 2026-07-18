@@ -179,9 +179,9 @@ must be available before you render.
    every deterministic step: it validates the JSON, fills the HTML template
    (escaping any literal `</script>`), or renders Markdown / ANSI CLI text, and
    writes the output file. When the tour has Mermaid `diagrams`, the script also
-   copies the bundled local Mermaid runtime (`mermaid.esm.min.mjs` +
-   `mermaid.min.js`) next to the HTML so it renders offline. Your only authored
-   artifact is the JSON tour.
+   embeds the bundled local Mermaid runtime (`mermaid.min.js`) inline into the
+   HTML so it renders offline as a single self-contained file (no sidecar
+   assets). Your only authored artifact is the JSON tour.
 
    Write the JSON tour to a file (e.g. `<basename>.tour.json`), then run:
 
@@ -244,9 +244,9 @@ must be available before you render.
   API when the source is not checked out locally; generate a JSON tour document
   (including Mermaid `diagrams`); run the bundled `scripts/build_tour.py` to
   validate the JSON, fill the shipped HTML template (substituting the
-  `__TOUR_JSON__` placeholder), render Markdown/CLI output, copy the bundled
-  local Mermaid runtime next to an HTML tour that uses diagrams, and write the
-  result to the workspace.
+  `__TOUR_JSON__` placeholder), render Markdown/CLI output, embed the bundled
+  local Mermaid runtime inline into an HTML tour that uses diagrams, and write
+  the result to the workspace.
 - **CANNOT**: Modify the source code being toured; modify the viewer template
   beyond the single placeholder substitution the script performs; make the
   **generated output** depend on remote resources or third-party/CDN assets (the

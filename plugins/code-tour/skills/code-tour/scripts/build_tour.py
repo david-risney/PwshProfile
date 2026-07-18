@@ -5,7 +5,9 @@ This script performs every deterministic, non-AI step of the code-tour skill:
 
   * load + validate the tour JSON (the only artifact the AI produces),
   * fill the shipped HTML template (copy template, substitute the
-    ``__TOUR_JSON__`` placeholder, escaping any literal ``</script>``),
+    ``__TOUR_JSON__`` placeholder, escaping any literal ``</script>``, and
+    embed the Mermaid runtime at ``__MERMAID_RUNTIME__`` when the tour has
+    diagrams so the output is a single self-contained file),
   * or render the same JSON to a Markdown document or ANSI CLI text,
   * write the result to disk (refusing to clobber unless ``--force``).
 
@@ -25,7 +27,6 @@ import argparse
 import json
 import os
 import re
-import shutil
 import sys
 import textwrap
 
@@ -36,6 +37,7 @@ _DEFAULT_TEMPLATE = os.path.normpath(
     os.path.join(_SCRIPT_DIR, "..", "assets", "tour-template.html")
 )
 _PLACEHOLDER = "__TOUR_JSON__"
+_MERMAID_PLACEHOLDER = "__MERMAID_RUNTIME__"
 
 _REF_RE = re.compile(r"\[\[([^\]]+)\]\]")
 _CODE_RE = re.compile(r"`([^`]+)`")
@@ -47,8 +49,10 @@ class TourError(Exception):
     """A fatal problem with the tour document or the requested operation."""
 
 
-# Mermaid runtime files copied next to an HTML tour when it has diagrams.
-_MERMAID_ASSETS = ("mermaid.esm.min.mjs", "mermaid.min.js")
+# The Mermaid runtime embedded inline into an HTML tour that has diagrams. The
+# self-contained UMD bundle assigns the library to globalThis.mermaid; inlining
+# it makes the rendered tour a single file with no sidecar assets.
+_MERMAID_UMD = "mermaid.min.js"
 
 
 def diagram_source(d):
@@ -372,12 +376,25 @@ def render_html(tour: dict, template_path: str) -> str:
             "template must contain the %s placeholder exactly once (found %d): %s"
             % (_PLACEHOLDER, count, template_path)
         )
+    mermaid_count = template.count(_MERMAID_PLACEHOLDER)
+    if mermaid_count != 1:
+        raise TourError(
+            "template must contain the %s placeholder exactly once (found %d): %s"
+            % (_MERMAID_PLACEHOLDER, mermaid_count, template_path)
+        )
     # Re-serialize so the embedded text is guaranteed valid and escape any
     # literal "</script>" as "<\/script>" (a valid JSON escape for "/") so it
     # cannot terminate the surrounding <script> element.
     payload = json.dumps(tour, ensure_ascii=False, indent=2)
     payload = payload.replace("</script>", "<\\/script>")
-    return template.replace(_PLACEHOLDER, payload)
+    # Embed the Mermaid runtime inline only when the tour actually has diagrams,
+    # so the output is a single self-contained file; otherwise leave the slot
+    # empty. Substitute the runtime FIRST (on the template), then inject the
+    # tour payload -- so a tour whose text happens to contain the literal
+    # __MERMAID_RUNTIME__ token cannot be mangled by this substitution.
+    runtime = mermaid_runtime_js(template_path) if tour_has_diagrams(tour) else ""
+    out = template.replace(_MERMAID_PLACEHOLDER, runtime)
+    return out.replace(_PLACEHOLDER, payload)
 
 
 # --------------------------------------------------------------------------- #
@@ -876,26 +893,29 @@ def default_output(source, fmt):
     return base + _EXT[fmt]
 
 
-def copy_mermaid_assets(template_path: str, out_path: str) -> list:
-    """Copy the local Mermaid runtime next to an HTML tour that uses diagrams.
+def mermaid_runtime_js(template_path: str) -> str:
+    """Return the Mermaid runtime as raw JS to inline into the tour.
 
-    The assets live beside the template; they are copied next to the output so
-    the tour's ``import './mermaid.esm.min.mjs'`` resolves and renders offline.
+    The self-contained Mermaid UMD bundle lives beside the template. Its text is
+    substituted into the existing ``<script id="mermaid-runtime">`` element in
+    the template (NOT wrapped in its own <script> tags), so a tour with diagrams
+    renders offline from a single file -- no sidecar assets and no ES-module
+    load. Sequences the HTML tokenizer treats specially inside script data
+    (``</script``, ``<!--``, ``<script``) are escaped the spec-recommended way;
+    the backslash is inert because these only occur inside JS string/regex
+    literals in the bundle (verified with ``node --check``).
     """
-    src_dir = os.path.dirname(os.path.abspath(template_path))
-    dst_dir = os.path.dirname(os.path.abspath(out_path))
-    copied = []
-    for name in _MERMAID_ASSETS:
-        src = os.path.join(src_dir, name)
-        if not os.path.isfile(src):
-            raise TourError(
-                "tour uses diagrams but Mermaid runtime is missing next to the "
-                "template: %s" % src)
-        dst = os.path.join(dst_dir, name)
-        if os.path.abspath(src) != os.path.abspath(dst):
-            shutil.copy2(src, dst)
-        copied.append(name)
-    return copied
+    src = os.path.join(os.path.dirname(os.path.abspath(template_path)), _MERMAID_UMD)
+    if not os.path.isfile(src):
+        raise TourError(
+            "tour uses diagrams but the Mermaid runtime is missing next to the "
+            "template: %s" % src)
+    with open(src, "r", encoding="utf-8") as handle:
+        bundle = handle.read()
+    bundle = bundle.replace("</script", "<\\/script")
+    bundle = bundle.replace("<!--", "<\\!--")
+    bundle = bundle.replace("<script", "<\\script")
+    return bundle
 
 
 def write_output(path: str, content: str, force: bool) -> None:
@@ -963,9 +983,8 @@ def main(argv=None) -> int:
                len(tour.get("files") or {}))
         )
         if args.format == "html" and tour_has_diagrams(tour):
-            names = copy_mermaid_assets(args.template, out_path)
             sys.stderr.write(
-                "Copied Mermaid runtime next to the tour: %s\n" % ", ".join(names))
+                "Embedded Mermaid runtime inline (single self-contained file)\n")
         sys.stdout.write(out_path + "\n")
         return 0
     except TourError as exc:
