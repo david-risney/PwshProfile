@@ -12,7 +12,7 @@
     {
       "name": "code-tour",
       "description": "Generate a 'code tour': a declarative JSON walkthrough of source code (sections, line ranges, prose) that renders to a self-contained HTML viewer with jump-to-editor links, Markdown, or ANSI CLI text (HTML by default). Use when asked to 'create a code tour', 'make a code walkthrough', 'guided tour of this file', 'explain this code with jump links', 'walk me through this script', or 'document how this file works visually'.",
-      "version": "1.0.0",
+      "version": "1.4.0",
       "source": "./plugins/code-tour"
     },
     {

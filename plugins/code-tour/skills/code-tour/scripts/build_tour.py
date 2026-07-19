@@ -5,7 +5,9 @@ This script performs every deterministic, non-AI step of the code-tour skill:
 
   * load + validate the tour JSON (the only artifact the AI produces),
   * fill the shipped HTML template (copy template, substitute the
-    ``__TOUR_JSON__`` placeholder, escaping any literal ``</script>``),
+    ``__TOUR_JSON__`` placeholder, escaping any literal ``</script>``, and
+    embed the Mermaid runtime at ``__MERMAID_RUNTIME__`` when the tour has
+    diagrams so the output is a single self-contained file),
   * or render the same JSON to a Markdown document or ANSI CLI text,
   * write the result to disk (refusing to clobber unless ``--force``).
 
@@ -25,7 +27,6 @@ import argparse
 import json
 import os
 import re
-import shutil
 import sys
 import textwrap
 
@@ -36,6 +37,7 @@ _DEFAULT_TEMPLATE = os.path.normpath(
     os.path.join(_SCRIPT_DIR, "..", "assets", "tour-template.html")
 )
 _PLACEHOLDER = "__TOUR_JSON__"
+_MERMAID_PLACEHOLDER = "__MERMAID_RUNTIME__"
 
 _REF_RE = re.compile(r"\[\[([^\]]+)\]\]")
 _CODE_RE = re.compile(r"`([^`]+)`")
@@ -47,8 +49,10 @@ class TourError(Exception):
     """A fatal problem with the tour document or the requested operation."""
 
 
-# Mermaid runtime files copied next to an HTML tour when it has diagrams.
-_MERMAID_ASSETS = ("mermaid.esm.min.mjs", "mermaid.min.js")
+# The Mermaid runtime embedded inline into an HTML tour that has diagrams. The
+# self-contained UMD bundle assigns the library to globalThis.mermaid; inlining
+# it makes the rendered tour a single file with no sidecar assets.
+_MERMAID_UMD = "mermaid.min.js"
 
 
 def diagram_source(d):
@@ -218,6 +222,12 @@ def validate_tour(tour: dict) -> list:
 
     _check_diagrams("intro", tour.get("diagrams"), errors)
 
+    source = tour.get("source")
+    if source is not None and not isinstance(source, (str, dict)):
+        errors.append("source must be a URL string or an object {label?, url}")
+    elif isinstance(source, dict) and not (source.get("url") or source.get("href")):
+        errors.append("source object must include a url (or href)")
+
     # Cache real line counts for files that exist on disk.
     line_counts = {}
     for name, path in files.items():
@@ -285,6 +295,17 @@ def validate_tour(tour: dict) -> list:
                 errors.append("%s missing required field: lineStart" % awhere)
             else:
                 check_range(awhere, afile, astart, anchor.get("lineEnd"))
+
+        for sa_idx, sa in enumerate(section.get("seeAlso") or []):
+            sawhere = "%s seeAlso[%d]" % (where, sa_idx)
+            if not isinstance(sa, dict):
+                errors.append("%s must be an object { topic, links }" % sawhere)
+                continue
+            if not sa.get("topic"):
+                errors.append("%s missing required field: topic" % sawhere)
+            links = sa.get("links")
+            if links is not None and not isinstance(links, list):
+                errors.append("%s field 'links' must be an array" % sawhere)
 
         # Inline [[...]] references in body/title and callouts.
         for field in ("title", "body"):
@@ -361,29 +382,88 @@ def render_html(tour: dict, template_path: str) -> str:
             "template must contain the %s placeholder exactly once (found %d): %s"
             % (_PLACEHOLDER, count, template_path)
         )
+    mermaid_count = template.count(_MERMAID_PLACEHOLDER)
+    if mermaid_count != 1:
+        raise TourError(
+            "template must contain the %s placeholder exactly once (found %d): %s"
+            % (_MERMAID_PLACEHOLDER, mermaid_count, template_path)
+        )
     # Re-serialize so the embedded text is guaranteed valid and escape any
     # literal "</script>" as "<\/script>" (a valid JSON escape for "/") so it
     # cannot terminate the surrounding <script> element.
+    version = _generator_version()
+    if version:
+        tour = dict(tour)
+        tour["generatorVersion"] = version
     payload = json.dumps(tour, ensure_ascii=False, indent=2)
     payload = payload.replace("</script>", "<\\/script>")
-    return template.replace(_PLACEHOLDER, payload)
+    # Embed the Mermaid runtime inline only when the tour actually has diagrams,
+    # so the output is a single self-contained file; otherwise leave the slot
+    # empty. Substitute the runtime FIRST (on the template), then inject the
+    # tour payload -- so a tour whose text happens to contain the literal
+    # __MERMAID_RUNTIME__ token cannot be mangled by this substitution.
+    runtime = mermaid_runtime_js(template_path) if tour_has_diagrams(tour) else ""
+    out = template.replace(_MERMAID_PLACEHOLDER, runtime)
+    return out.replace(_PLACEHOLDER, payload)
 
 
 # --------------------------------------------------------------------------- #
 # Shared link helpers (Markdown + CLI)
 # --------------------------------------------------------------------------- #
 
-def _abs_path(tour, file):
+def _file_entry(tour, file):
     files = tour.get("files") or {}
     return files.get(file, file)
 
 
-def _line_href(tour, file, start):
+def _entry_local_path(entry, file):
+    # Object entries carry an explicit local `path`; string entries are the path.
+    if isinstance(entry, dict):
+        return entry.get("path") or file
+    return entry
+
+
+def _entry_web_path(entry, file):
+    # Fills {path} in a web template (webPath, else the local path, else name).
+    if isinstance(entry, dict):
+        return entry.get("webPath") or entry.get("path") or file
+    return entry
+
+
+def _abs_path(tour, file):
+    return _entry_local_path(_file_entry(tour, file), file)
+
+
+def _is_web(tour):
+    return bool(tour.get("webUrlBase") or tour.get("webUrlTemplate"))
+
+
+def _fill_url_template(tmpl, **values):
+    out = tmpl
+    for key, value in values.items():
+        out = out.replace("{" + key + "}", str(value))
+    return out
+
+
+def _line_href(tour, file, start, end=None):
+    # Resolution order mirrors the HTML renderer (tour-template.html): a file's
+    # own `url`, then tour.webUrlTemplate, then legacy tour.webUrlBase, then a
+    # local editor link. This lets one JSON drive a local tour or a PR/commit
+    # tour just by choosing which link fields it fills. {lineEnd} defaults to
+    # {line} for single-line refs so hosts that require a range still work.
+    entry = _file_entry(tour, file)
+    line_end = end if (end and end != start) else start
+    if isinstance(entry, dict) and entry.get("url"):
+        return _fill_url_template(entry["url"], line=start, lineEnd=line_end)
+    if tour.get("webUrlTemplate"):
+        return _fill_url_template(tour["webUrlTemplate"],
+                                  path=_entry_web_path(entry, file),
+                                  line=start, lineEnd=line_end)
     if tour.get("webUrlBase"):
-        return "%s%s#L%s" % (tour["webUrlBase"], file, start)
+        return "%s%s#L%s" % (tour["webUrlBase"], _entry_web_path(entry, file), start)
     scheme = ("vscode-insiders://file/" if tour.get("editor") == "vscode-insiders"
               else "vscode://file/")
-    return "%s%s:%s" % (scheme, _abs_path(tour, file), start)
+    return "%s%s:%s" % (scheme, _entry_local_path(entry, file), start)
 
 
 def _ref_label(file, start, end, web):
@@ -396,6 +476,60 @@ def _ref_label(file, start, end, web):
     return "%s:%s" % (file, span)
 
 
+def _see_also_host(url):
+    # Friendly short label for a bare URL: hostname minus a leading "www.".
+    match = re.match(r"[a-zA-Z][a-zA-Z0-9+.-]*://([^/]+)", str(url))
+    host = match.group(1) if match else str(url)
+    return host[4:] if host.startswith("www.") else host
+
+
+def _see_also_link(link):
+    # A link is a URL string, or an object {label?, url|href}. Returns (label, url).
+    if isinstance(link, dict):
+        url = link.get("url") or link.get("href") or ""
+        return (link.get("label") or _see_also_host(url)), url
+    return _see_also_host(link), link
+
+
+# Where the "Generated code tour" footer links for more about this tool.
+CODE_TOUR_URL = "https://github.com/david-risney/PwshProfile/tree/main/plugins/code-tour"
+
+
+def _generator_version():
+    """Read the code-tour plugin version from its plugin.json, if available.
+
+    The manifest lives at ``<plugin-root>/.claude-plugin/plugin.json`` --
+    three directories up from this script (scripts/ -> skill -> skills ->
+    plugin root). Returns the version string, or None if it cannot be read.
+    """
+    manifest = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..", "..", "..", ".claude-plugin", "plugin.json",
+    )
+    try:
+        with open(manifest, "r", encoding="utf-8") as handle:
+            version = json.load(handle).get("version")
+        return version if isinstance(version, str) and version.strip() else None
+    except (OSError, ValueError):
+        return None
+
+
+
+def _source_link(source):
+    # Optional top-level `source`: a URL string or {label?, url|href}. Returns
+    # (label, url), or None when absent/empty.
+    if not source:
+        return None
+    if isinstance(source, dict):
+        url = source.get("url") or source.get("href") or ""
+        label = source.get("label") or "View source"
+    else:
+        url = str(source)
+        label = "View source"
+    return (label, url) if url else None
+
+
+
 # --------------------------------------------------------------------------- #
 # Markdown rendering
 # --------------------------------------------------------------------------- #
@@ -403,7 +537,7 @@ def _ref_label(file, start, end, web):
 def _md_inline(tour, file, text):
     if text is None:
         return ""
-    web = bool(tour.get("webUrlBase"))
+    web = _is_web(tour)
 
     def ref_sub(match):
         body = match.group(1)
@@ -418,7 +552,7 @@ def _md_inline(tour, file, text):
             return match.group(0)
         end = int(parts[1]) if len(parts) > 1 and parts[1] else None
         label = _ref_label(ref_file, start, end, web)
-        return "[`%s`](%s)" % (label, _line_href(tour, ref_file, start))
+        return "[`%s`](%s)" % (label, _line_href(tour, ref_file, start, end))
 
     out = _REF_RE.sub(ref_sub, str(text))
     return out
@@ -464,9 +598,15 @@ def _md_diagrams(diagrams, out):
 def render_markdown(tour: dict) -> str:
     out = []
     out.append("# " + str(tour.get("title", "Code tour")))
-    if tour.get("subtitle"):
+    src = _source_link(tour.get("source"))
+    if tour.get("subtitle") or src:
         out.append("")
-        out.append("*" + str(tour["subtitle"]) + "*")
+        line = "*" + str(tour["subtitle"]) + "*" if tour.get("subtitle") else ""
+        if src:
+            if line:
+                line += " \u00b7 "
+            line += "[%s](%s)" % (src[0], src[1])
+        out.append(line)
     out.append("")
 
     _md_block(tour, None, tour.get("intro"), out)
@@ -539,9 +679,9 @@ def render_markdown(tour: dict) -> str:
         out.append(heading)
         meta = []
         if s.get("file") and s.get("lineStart"):
-            web = bool(tour.get("webUrlBase"))
+            web = _is_web(tour)
             label = _ref_label(s["file"], s["lineStart"], s.get("lineEnd"), web)
-            meta.append("[`%s`](%s)" % (label, _line_href(tour, s["file"], s["lineStart"])))
+            meta.append("[`%s`](%s)" % (label, _line_href(tour, s["file"], s["lineStart"], s.get("lineEnd"))))
         elif s.get("file"):
             meta.append("`%s`" % s["file"])
         if meta:
@@ -563,19 +703,43 @@ def render_markdown(tour: dict) -> str:
         anchors = s.get("anchors") or []
         if anchors:
             jumps = []
-            web = bool(tour.get("webUrlBase"))
+            web = _is_web(tour)
             for an in anchors:
                 af = an.get("file") or s.get("file")
                 lab = an.get("label") or _ref_label(af, an["lineStart"],
                                                      an.get("lineEnd"), web)
-                jumps.append("[`%s`](%s)" % (lab, _line_href(tour, af, an["lineStart"])))
+                jumps.append("[`%s`](%s)" % (lab, _line_href(tour, af, an["lineStart"], an.get("lineEnd"))))
             out.append("Jump to: " + " \u00b7 ".join(jumps))
+            out.append("")
+        see_also = s.get("seeAlso") or []
+        if see_also:
+            out.append("**See also:**")
+            out.append("")
+            for sa in see_also:
+                topic = sa.get("topic", "")
+                links = []
+                for ln in sa.get("links") or []:
+                    label, url = _see_also_link(ln)
+                    if url:
+                        links.append("[%s](%s)" % (label, url))
+                if topic and links:
+                    out.append("- **%s** \u2014 %s" % (topic, " \u00b7 ".join(links)))
+                elif topic:
+                    out.append("- **%s**" % topic)
             out.append("")
 
     if tour.get("dataFlow"):
         out.append("## Putting it together \u2014 the data flow")
         out.append("")
         _md_block(tour, None, tour.get("dataFlow"), out)
+
+    out.append("")
+    out.append("---")
+    _ver = _generator_version()
+    out.append(
+        "[Generated code tour](%s)%s"
+        % (CODE_TOUR_URL, (" v%s" % _ver) if _ver else "")
+    )
 
     return "\n".join(out).rstrip() + "\n"
 
@@ -595,7 +759,7 @@ _ANSI = {
 def _ansi_inline(tour, file, text, color=True):
     if text is None:
         return ""
-    web = bool(tour.get("webUrlBase"))
+    web = _is_web(tour)
 
     def ref_sub(match):
         body = match.group(1)
@@ -664,8 +828,11 @@ def render_cli(tour: dict, color=True) -> str:
 
     out = []
     out.append(c("title") + str(tour.get("title", "Code tour")) + c("reset"))
+    src = _source_link(tour.get("source"))
     if tour.get("subtitle"):
         out.append(c("dim") + str(tour["subtitle"]) + c("reset"))
+    if src:
+        out.append(c("dim") + src[0] + ": " + c("reset") + src[1])
     out.append("")
 
     _ansi_block(tour, None, tour.get("intro"), out, color)
@@ -718,7 +885,7 @@ def render_cli(tour: dict, color=True) -> str:
             out.append("")
         loc = ""
         if s.get("file") and s.get("lineStart"):
-            web = bool(tour.get("webUrlBase"))
+            web = _is_web(tour)
             loc = "  " + c("dim") + _ref_label(s["file"], s["lineStart"],
                                                s.get("lineEnd"), web) + c("reset")
         elif s.get("file"):
@@ -744,7 +911,7 @@ def render_cli(tour: dict, color=True) -> str:
         diagrams(s.get("diagrams"))
         anchors = s.get("anchors") or []
         if anchors:
-            web = bool(tour.get("webUrlBase"))
+            web = _is_web(tour)
             jumps = []
             for an in anchors:
                 af = an.get("file") or s.get("file")
@@ -753,11 +920,29 @@ def render_cli(tour: dict, color=True) -> str:
                 jumps.append(lab)
             out.append("  " + c("dim") + "Jump to: " + " \u00b7 ".join(jumps) + c("reset"))
             out.append("")
+        see_also = s.get("seeAlso") or []
+        if see_also:
+            out.append("  " + c("dim") + "See also:" + c("reset"))
+            for sa in see_also:
+                urls = [url for url in (_see_also_link(ln)[1]
+                                        for ln in sa.get("links") or []) if url]
+                line = "    " + str(sa.get("topic", ""))
+                if urls:
+                    line += ": " + " \u00b7 ".join(urls)
+                out.append(c("dim") + line + c("reset"))
+            out.append("")
 
     if tour.get("dataFlow"):
         out.append(c("head") + "Data flow" + c("reset"))
         out.append("")
         _ansi_block(tour, None, tour.get("dataFlow"), out, color)
+
+    out.append("")
+    _ver = _generator_version()
+    out.append(
+        c("dim") + "Generated code tour \u00b7 " + CODE_TOUR_URL
+        + ((" \u00b7 v%s" % _ver) if _ver else "") + c("reset")
+    )
 
     return "\n".join(out).rstrip() + "\n"
 
@@ -780,26 +965,29 @@ def default_output(source, fmt):
     return base + _EXT[fmt]
 
 
-def copy_mermaid_assets(template_path: str, out_path: str) -> list:
-    """Copy the local Mermaid runtime next to an HTML tour that uses diagrams.
+def mermaid_runtime_js(template_path: str) -> str:
+    """Return the Mermaid runtime as raw JS to inline into the tour.
 
-    The assets live beside the template; they are copied next to the output so
-    the tour's ``import './mermaid.esm.min.mjs'`` resolves and renders offline.
+    The self-contained Mermaid UMD bundle lives beside the template. Its text is
+    substituted into the existing ``<script id="mermaid-runtime">`` element in
+    the template (NOT wrapped in its own <script> tags), so a tour with diagrams
+    renders offline from a single file -- no sidecar assets and no ES-module
+    load. Sequences the HTML tokenizer treats specially inside script data
+    (``</script``, ``<!--``, ``<script``) are escaped the spec-recommended way;
+    the backslash is inert because these only occur inside JS string/regex
+    literals in the bundle (verified with ``node --check``).
     """
-    src_dir = os.path.dirname(os.path.abspath(template_path))
-    dst_dir = os.path.dirname(os.path.abspath(out_path))
-    copied = []
-    for name in _MERMAID_ASSETS:
-        src = os.path.join(src_dir, name)
-        if not os.path.isfile(src):
-            raise TourError(
-                "tour uses diagrams but Mermaid runtime is missing next to the "
-                "template: %s" % src)
-        dst = os.path.join(dst_dir, name)
-        if os.path.abspath(src) != os.path.abspath(dst):
-            shutil.copy2(src, dst)
-        copied.append(name)
-    return copied
+    src = os.path.join(os.path.dirname(os.path.abspath(template_path)), _MERMAID_UMD)
+    if not os.path.isfile(src):
+        raise TourError(
+            "tour uses diagrams but the Mermaid runtime is missing next to the "
+            "template: %s" % src)
+    with open(src, "r", encoding="utf-8") as handle:
+        bundle = handle.read()
+    bundle = bundle.replace("</script", "<\\/script")
+    bundle = bundle.replace("<!--", "<\\!--")
+    bundle = bundle.replace("<script", "<\\script")
+    return bundle
 
 
 def write_output(path: str, content: str, force: bool) -> None:
@@ -867,9 +1055,8 @@ def main(argv=None) -> int:
                len(tour.get("files") or {}))
         )
         if args.format == "html" and tour_has_diagrams(tour):
-            names = copy_mermaid_assets(args.template, out_path)
             sys.stderr.write(
-                "Copied Mermaid runtime next to the tour: %s\n" % ", ".join(names))
+                "Embedded Mermaid runtime inline (single self-contained file)\n")
         sys.stdout.write(out_path + "\n")
         return 0
     except TourError as exc:

@@ -1,6 +1,7 @@
 {
   "title": "greeter.py — guided walkthrough",
   "subtitle": "A tiny example tour. Click any line badge to jump to that line in your editor.",
+  "source": { "label": "example-tour.json on GitHub", "url": "https://github.com/david-risney/PwshProfile/blob/main/plugins/code-tour/skills/code-tour/references/example-tour.json" },
   "files": {
     "greeter.py": "/path/to/your/repo/greeter.py"
   },
@@ -53,6 +54,21 @@
       "anchors": [
         { "lineStart": 13, "label": "arg parse" },
         { "lineStart": 15, "label": "print" }
+      ],
+      "seeAlso": [
+        {
+          "topic": "sys.argv",
+          "links": [
+            "https://docs.python.org/3/library/sys.html#sys.argv"
+          ]
+        },
+        {
+          "topic": "f-strings",
+          "links": [
+            { "label": "PEP 498", "url": "https://peps.python.org/pep-0498/" },
+            "https://docs.python.org/3/reference/lexical_analysis.html#f-strings"
+          ]
+        }
       ]
     }
   ],

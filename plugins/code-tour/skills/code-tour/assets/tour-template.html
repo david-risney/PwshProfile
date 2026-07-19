@@ -42,49 +42,60 @@
 </script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Inline SVG favicon (dashed line curving to a red X) as a data URI: keeps
+     self-contained -- no network fetch, works over file://. -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%20fill='none'%3E%3Cpath%20d='M32%208%20L32%2042%20A10%2010%200%201%200%2042%2032%20L22%2032'%20stroke='%23e23b34'%20stroke-width='3'%20stroke-linecap='round'%20stroke-linejoin='round'%20stroke-dasharray='4%205'/%3E%3Cg%20stroke='%23e23b34'%20stroke-width='4.5'%20stroke-linecap='round'%3E%3Cline%20x1='18'%20y1='26'%20x2='8'%20y2='38'/%3E%3Cline%20x1='8'%20y1='26'%20x2='18'%20y2='38'/%3E%3C/g%3E%3C/svg%3E">
 <title>Code tour</title>
 <style>
   :root {
     /* Dark theme (default; also used by "auto" when the OS prefers dark). */
-    --bg: #1e1e1e; --panel: #252526; --fg: #d4d4d4; --muted: #9d9d9d;
+    /* Neutrals carry a slight cool tint (<5% HSB saturation) to match the
+       blue accent; near-black rather than pure #000 (saferules 1, 2, 10). */
+    --bg: #1e1f22; --panel: #26282c; --fg: #d5d7db; --muted: #9a9ca2;
     --accent: #4fc1ff; --accent-hover: #79d0ff;
     --accent2: #c586c0; --accent2-hover: #d6a4d6;
     --green: #6a9955; --orange: #ce9178;
-    --keyword: #569cd6; --border: #3c3c3c; --warn: #f0a500; --danger: #f48771;
-    --callout-bg: #2d2d30; --code-bg: #2a2a2a; --pre-bg: #1b1b1b;
-    --sig-fg: #dcdcaa; --error-bg: #3a1d1d; --error-fg: #f5c0b8;
+    --keyword: #569cd6; --border: #3a3d43; --warn: #f0a500; --danger: #f48771;
+    --callout-bg: #2d2f34; --code-bg: #2a2c30; --pre-bg: #1b1c1f;
+    /* Saturated per-type box fills so callouts / see-also read distinctly
+       rather than all looking gray. */
+    --info-bg: #24333f; --good-bg: #1f2e22; --warn-bg: #332e1e; --diagram-bg: #241d31;
+    --sig-fg: #dcdcaa; --error-bg: #3c2727; --error-fg: #f5c0b8;
   }
   /* Light palette: applied when forced via data-theme="light" ... */
   html[data-theme="light"] {
-    --bg: #ffffff; --panel: #f3f3f3; --fg: #1f1f1f; --muted: #6a6a6a;
+    /* Near-white background + cool-tinted neutrals (saferules 1, 2, 10). */
+    --bg: #fbfbfd; --panel: #eef0f4; --fg: #1e2024; --muted: #676a71;
     --accent: #0066b8; --accent-hover: #1a7fd4;
     --accent2: #9b298f; --accent2-hover: #b5429f;
     --green: #2e7d32; --orange: #b5500a;
-    --keyword: #0000ff; --border: #d0d0d0; --warn: #b8860b; --danger: #c0392b;
-    --callout-bg: #f6f6f6; --code-bg: #eef0f2; --pre-bg: #f5f5f5;
-    --sig-fg: #7a5b00; --error-bg: #fdecea; --error-fg: #8b1f17;
+    --keyword: #0000ff; --border: #cdd0d6; --warn: #b8860b; --danger: #c0392b;
+    --callout-bg: #f3f4f7; --code-bg: #eceff3; --pre-bg: #f2f3f6;
+    --info-bg: #e8eef4; --good-bg: #e6efe8; --warn-bg: #f1edde; --diagram-bg: #efebf6;
+    --sig-fg: #7a5b00; --error-bg: #f7efee; --error-fg: #8b1f17;
   }
   /* ... or via "auto" when the OS itself prefers a light color scheme. */
   @media (prefers-color-scheme: light) {
     html[data-theme="auto"] {
-      --bg: #ffffff; --panel: #f3f3f3; --fg: #1f1f1f; --muted: #6a6a6a;
+      --bg: #fbfbfd; --panel: #eef0f4; --fg: #1e2024; --muted: #676a71;
       --accent: #0066b8; --accent-hover: #1a7fd4;
       --accent2: #9b298f; --accent2-hover: #b5429f;
       --green: #2e7d32; --orange: #b5500a;
-      --keyword: #0000ff; --border: #d0d0d0; --warn: #b8860b; --danger: #c0392b;
-      --callout-bg: #f6f6f6; --code-bg: #eef0f2; --pre-bg: #f5f5f5;
-      --sig-fg: #7a5b00; --error-bg: #fdecea; --error-fg: #8b1f17;
+      --keyword: #0000ff; --border: #cdd0d6; --warn: #b8860b; --danger: #c0392b;
+      --callout-bg: #f3f4f7; --code-bg: #eceff3; --pre-bg: #f2f3f6;
+      --info-bg: #e8eef4; --good-bg: #e6efe8; --warn-bg: #f1edde; --diagram-bg: #efebf6;
+      --sig-fg: #7a5b00; --error-bg: #f7efee; --error-fg: #8b1f17;
     }
   }
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: var(--fg);
-    font: 15px/1.6 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font: 16px/1.6 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     transition: background 0.2s ease, color 0.2s ease;
   }
   header {
     position: sticky; top: 0; z-index: 10; background: var(--panel);
-    border-bottom: 1px solid var(--border); padding: 14px 22px;
+    border-bottom: 1px solid var(--border); padding: 16px 24px;
   }
   header h1 { margin: 0 0 4px; font-size: 18px; }
   header p { margin: 0; color: var(--muted); font-size: 13px; }
@@ -98,6 +109,8 @@
     max-width: 980px; margin: 0 auto; display: flex; align-items: flex-start;
     justify-content: space-between; gap: 16px;
   }
+  .header-left { display: flex; align-items: flex-start; gap: 14px; min-width: 0; }
+  .tour-logo { flex: none; width: 44px; height: 44px; margin-top: 2px; }
   #theme-toggle {
     flex: none; cursor: pointer; font: inherit; font-size: 13px;
     color: var(--fg); background: var(--bg); border: 1px solid var(--border);
@@ -106,17 +119,31 @@
   }
   #theme-toggle:hover { border-color: var(--accent); }
   #theme-toggle .ico { margin-right: 6px; }
-  .wrap { max-width: 980px; margin: 0 auto; padding: 0 22px 80px; }
-  .callout {
-    background: var(--callout-bg); border: 1px solid var(--border); border-left: 3px solid var(--accent);
-    border-radius: 6px; padding: 12px 16px; margin: 18px 0; font-size: 14px;
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 24px 80px; }
+  /* Callouts, see-also, diagrams, and the error box share the code block's
+     boxed look (see `pre`): a 1px solid border and 6px radius. Each type also
+     gets a saturated, hue-matched fill so the family is easy to tell apart at a
+     glance -- blue for informational see-also / default callouts, green for
+     good, yellow for warnings/dangers, purple for diagrams, red for errors --
+     while the neutral code block stays the visual anchor. */
+  .callout, .see-also {
+    background: var(--info-bg); border: 1px solid var(--accent);
+    border-radius: 6px;
   }
-  .callout.warn { border-left-color: var(--warn); }
-  .callout.danger { border-left-color: var(--danger); }
-  .callout.good { border-left-color: var(--green); }
+  .callout { padding: 12px 16px; margin: 18px 0; font-size: 14px; }
+  .callout.warn, .callout.danger { border-color: var(--warn); background: var(--warn-bg); }
+  .callout.good { border-color: var(--green); background: var(--good-bg); }
   .callout code { color: var(--orange); }
+  .see-also { padding: 10px 16px; margin: 18px 0; font-size: 13px; }
+  .see-also .sa-head {
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    font-size: 11px; opacity: 0.75; margin-bottom: 6px;
+  }
+  .see-also .sa-topic { margin: 3px 0; }
+  .see-also .sa-name { font-weight: 600; }
+  .see-also a { color: var(--accent); }
   h2 {
-    margin: 38px 0 6px; padding-top: 14px; border-top: 1px solid var(--border);
+    margin: 40px 0 8px; padding-top: 16px; border-top: 1px solid var(--border);
     font-size: 20px; color: var(--accent);
   }
   h2:first-of-type { border-top: none; }
@@ -150,7 +177,7 @@
   }
   ul { margin: 6px 0 6px; padding-left: 22px; }
   li { margin: 3px 0; }
-  .toc { columns: 2; column-gap: 30px; font-size: 14px; }
+  .toc { columns: 2; column-gap: 32px; font-size: 14px; }
   .toc a { color: var(--accent); text-decoration: none; }
   .toc a:hover { text-decoration: underline; }
   .group-toc {
@@ -163,7 +190,7 @@
   a.group-toc-name:hover { text-decoration: underline; }
   .group-toc-desc { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
   .group-header {
-    border-top: 3px solid var(--accent); margin: 60px 0 10px; padding-top: 18px;
+    border-top: 3px solid var(--accent); margin: 64px 0 8px; padding-top: 16px;
   }
   .group-eyebrow {
     display: block; font-size: 12px; font-weight: 700; letter-spacing: .14em;
@@ -186,11 +213,13 @@
     border: 1px solid var(--accent); border-radius: 999px;
     padding: 0 8px; margin-right: 10px; vertical-align: 2px;
   }
-  footer { color: var(--muted); font-size: 12px; margin-top: 50px; text-align: center; }
+  footer { color: var(--muted); font-size: 12px; margin-top: 48px; text-align: center; }
+  footer a { color: inherit; text-decoration: underline; }
   .flow { font-size: 14px; }
   .flow b { color: var(--sig-fg); }
   pre.mermaid {
-    background: #f6f6f6; color: #1b1b1b; border: 1px solid var(--border);
+    background: var(--diagram-bg); color: #1b1b1b;
+    border: 1px solid var(--accent2); border-radius: 6px;
     text-align: center; line-height: normal; white-space: normal;
     padding: 16px;
   }
@@ -229,10 +258,21 @@
 
 <header>
   <div class="header-inner">
-    <div>
-      <h1 id="tour-title">Code tour</h1>
-      <p id="tour-subtitle"></p>
-      <p id="tour-current-group" class="current-group" hidden></p>
+    <div class="header-left">
+      <svg class="tour-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="code-tour logo">
+        <path d="M32 8 L32 42 A10 10 0 1 0 42 32 L22 32"
+              stroke="#e23b34" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"
+              stroke-dasharray="4 5"/>
+        <g stroke="#e23b34" stroke-width="4.5" stroke-linecap="round">
+          <line x1="18" y1="26" x2="8" y2="38"/>
+          <line x1="8" y1="26" x2="18" y2="38"/>
+        </g>
+      </svg>
+      <div>
+        <h1 id="tour-title">Code tour</h1>
+        <p id="tour-subtitle"></p>
+        <p id="tour-current-group" class="current-group" hidden></p>
+      </div>
     </div>
     <button id="theme-toggle" type="button" aria-label="Toggle color theme"
             title="Toggle light / dark / auto theme"></button>
@@ -258,35 +298,82 @@ function loadTour() {
 }
 
 // --- Editor / web link building ---------------------------------------------
-// A tour names each file logically and maps it to an absolute path in
-// tour.files. Line badges become vscode://file/<abs>:<line> links (or
-// vscode-insiders, or a web URL if tour.webUrlBase is set).
+// A tour maps each logical file name to a link source in tour.files. An entry
+// is either a string (an absolute LOCAL path, used for vscode:// editor links)
+// or an object with any of:
+//   path     absolute local path       -> vscode / vscode-insiders editor link
+//   url      per-file web URL template -> web link; may contain {line}/{lineEnd}
+//   webPath  repo-relative / URL path  -> fills {path} in tour.webUrlTemplate
+// A line reference resolves in this order, so the same JSON drives a local tour
+// or a PR/commit tour just by choosing which fields it fills:
+//   1. the entry's own `url`         (any https link, e.g. one PR file)
+//   2. tour.webUrlTemplate           (one base shared by every file)
+//   3. tour.webUrlBase               (legacy GitHub "#L" style, back-compat)
+//   4. a vscode editor link          (default, from the local path)
+// Templates use {path}, {line} and {lineEnd} placeholders; {lineEnd} defaults
+// to {line} for single-line badges so hosts that require a range still work.
 
-function fileAbsPath(tour, file) {
+function fileEntry(tour, file) {
   if (tour.files && Object.prototype.hasOwnProperty.call(tour.files, file)) {
     return tour.files[file];
   }
   return file; // fall back to the logical name if unmapped
 }
 
-function lineHref(tour, file, start) {
-  if (tour.webUrlBase) {
-    // GitHub/ADO-style web link; fragment syntax varies by host.
-    return tour.webUrlBase + encodeURIComponent(file) + "#L" + start;
+function entryLocalPath(entry, file) {
+  if (entry && typeof entry === "object") return entry.path || file;
+  return entry; // string form is the local path
+}
+
+function entryWebPath(entry, file) {
+  if (entry && typeof entry === "object") return entry.webPath || entry.path || file;
+  return entry; // string form doubles as the web path
+}
+
+function fillTemplate(tmpl, vars) {
+  var out = tmpl;
+  for (var k in vars) {
+    if (Object.prototype.hasOwnProperty.call(vars, k)) {
+      out = out.split("{" + k + "}").join(vars[k]);
+    }
   }
+  return out;
+}
+
+function fileAbsPath(tour, file) {
+  return entryLocalPath(fileEntry(tour, file), file);
+}
+
+function lineHref(tour, file, start, end) {
+  var entry = fileEntry(tour, file);
+  var lineEnd = (end && end !== start) ? end : start;
+  // 1. Per-file web URL template (any https link, e.g. a single PR file).
+  if (entry && typeof entry === "object" && entry.url) {
+    return fillTemplate(entry.url, { line: start, lineEnd: lineEnd });
+  }
+  // 2. Global web URL template shared by every file (one commit / PR base).
+  if (tour.webUrlTemplate) {
+    return fillTemplate(tour.webUrlTemplate,
+      { path: entryWebPath(entry, file), line: start, lineEnd: lineEnd });
+  }
+  // 3. Legacy GitHub-style base; fragment syntax varies by host.
+  if (tour.webUrlBase) {
+    return tour.webUrlBase + encodeURIComponent(entryWebPath(entry, file)) + "#L" + start;
+  }
+  // 4. Local editor link.
   var scheme = tour.editor === "vscode-insiders"
     ? "vscode-insiders://file/" : "vscode://file/";
-  return scheme + fileAbsPath(tour, file) + ":" + start;
+  return scheme + entryLocalPath(entry, file) + ":" + start;
 }
 
 function lineBadge(tour, file, start, end, label) {
   var a = document.createElement("a");
   var isRange = end && end !== start;
   a.className = isRange ? "line range" : "line";
-  a.href = lineHref(tour, file, start);
+  a.href = lineHref(tour, file, start, end);
   a.textContent = label || (isRange ? ("lines " + start + "\u2013" + end)
                                     : ("line " + start));
-  a.title = "Open " + file + " at line " + start + " in the editor";
+  a.title = "Open " + file + " at line " + start;
   return a;
 }
 
@@ -366,6 +453,69 @@ function renderCallouts(tour, file, callouts, container) {
   });
 }
 
+// --- "See also" further-reading links ---------------------------------------
+// A section may list related topics worth understanding (a function, a language
+// feature, a pattern like sequences / GUARDED_BY_CONTEXT). Each entry is
+// { topic, links[] } where a link is a URL string or { label?, url }. These are
+// external link *targets* only — nothing the viewer needs to render is remote,
+// so the output stays self-contained/offline.
+
+function seeAlsoHost(url) {
+  var m = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/([^/]+)/.exec(String(url));
+  var host = m ? m[1] : String(url);
+  return host.replace(/^www\./, "");
+}
+
+// Optional top-level `source`: a URL string or {label?, url|href}. Returns
+// {label, url} or null.
+function sourceLink(source) {
+  if (!source) return null;
+  var url, label;
+  if (typeof source === "object") {
+    url = source.url || source.href || "";
+    label = source.label || "View source";
+  } else {
+    url = String(source);
+    label = "View source";
+  }
+  return url ? { label: label, url: url } : null;
+}
+
+function renderSeeAlso(seeAlso, container) {
+  if (!seeAlso || !seeAlso.length) return;
+  var box = document.createElement("div");
+  box.className = "see-also";
+  var head = document.createElement("div");
+  head.className = "sa-head";
+  head.textContent = "See also";
+  box.appendChild(head);
+  seeAlso.forEach(function (sa) {
+    var row = document.createElement("div");
+    row.className = "sa-topic";
+    var links = (sa.links || []).filter(function (ln) {
+      return ln && (typeof ln === "object" ? (ln.url || ln.href) : true);
+    });
+    var name = document.createElement("span");
+    name.className = "sa-name";
+    name.textContent = (sa.topic || "") + (links.length ? ": " : "");
+    row.appendChild(name);
+    links.forEach(function (ln, i) {
+      var url = typeof ln === "object" ? (ln.url || ln.href) : ln;
+      var label = (typeof ln === "object" && ln.label) ? ln.label : seeAlsoHost(url);
+      if (i > 0) row.appendChild(document.createTextNode(" \u00b7 "));
+      var a = document.createElement("a");
+      a.href = url;
+      a.textContent = label;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.title = url;
+      row.appendChild(a);
+    });
+    box.appendChild(row);
+  });
+  container.appendChild(box);
+}
+
 // --- Mermaid diagrams -------------------------------------------------------
 // A tour may attach Mermaid diagrams to its intro and to any section. Each
 // diagram is either a raw Mermaid string or an object { title?, code }. We emit
@@ -415,7 +565,23 @@ function render(tour) {
   document.title = tour.title || "Code tour";
   document.getElementById("tour-title").textContent = tour.title || "Code tour";
   var sub = document.getElementById("tour-subtitle");
-  sub.textContent = tour.subtitle || "Click any line badge to jump to that line in your editor.";
+  sub.textContent = "";
+  var src = sourceLink(tour.source);
+  if (tour.subtitle) {
+    sub.appendChild(document.createTextNode(tour.subtitle));
+  }
+  if (src) {
+    if (tour.subtitle) { sub.appendChild(document.createTextNode(" \u00b7 ")); }
+    var srcAnchor = document.createElement("a");
+    srcAnchor.href = src.url;
+    srcAnchor.textContent = src.label;
+    srcAnchor.target = "_blank";
+    srcAnchor.rel = "noopener";
+    sub.appendChild(srcAnchor);
+  }
+  if (!tour.subtitle && !src) {
+    sub.textContent = "Click any line badge to jump to that line in your editor.";
+  }
 
   var content = document.getElementById("content");
   var sections = tour.sections || [];
@@ -640,6 +806,8 @@ function render(tour) {
       });
       content.appendChild(jump);
     }
+
+    renderSeeAlso(s.seeAlso, content);
   });
 
   // Optional data-flow summary
@@ -655,9 +823,15 @@ function render(tour) {
 
   // Footer
   var footer = document.createElement("footer");
-  footer.textContent = "Generated code tour \u00b7 line badges use the "
-    + (tour.webUrlBase ? "web" : (tour.editor || "vscode")) + " protocol \u00b7 "
-    + "if file paths change, edit the \"files\" map in the embedded JSON.";
+  var genLink = document.createElement("a");
+  genLink.href = "https://github.com/david-risney/PwshProfile/tree/main/plugins/code-tour";
+  genLink.textContent = "Generated code tour";
+  genLink.target = "_blank";
+  genLink.rel = "noopener";
+  footer.appendChild(genLink);
+  if (tour.generatorVersion) {
+    footer.appendChild(document.createTextNode(" \u00b7 v" + tour.generatorVersion));
+  }
   content.parentNode.insertBefore(footer, content.nextSibling);
 
   setupGroupTracking(groupMarkers);
@@ -744,6 +918,10 @@ function setupThemeToggle() {
     document.documentElement.setAttribute("data-theme", theme);
     try { localStorage.setItem("codeTourTheme", theme); } catch (e) { /* ignore */ }
     paint(theme);
+    // Recolor any Mermaid diagrams to match the newly applied scheme.
+    if (typeof window.__renderTourDiagrams === "function") {
+      window.__renderTourDiagrams();
+    }
   }
 
   paint(current());
@@ -766,29 +944,86 @@ try {
 setupThemeToggle();
 </script>
 
-<!-- Mermaid bootstrap (classic script: works when the file is opened directly
-     via file:// as well as when served over http). Runs only if the tour
-     produced any <pre class="mermaid"> blocks. Prefers the local ES module
-     (mermaid.esm.min.mjs) when modules are allowed; falls back to loading the
-     self-contained UMD bundle (mermaid.min.js) via a classic <script> tag,
-     because Chromium blocks ES module loads from file:// origins. Both files
-     are placed next to this HTML by the build script. If neither loads, the
-     Mermaid source stays visible as a code block. -->
+<!-- Embedded Mermaid runtime. When the tour has diagrams, the build script
+     replaces the placeholder token below with the self-contained Mermaid UMD
+     bundle, which assigns the library to globalThis.mermaid. When the tour has
+     no diagrams the token is replaced with nothing. This keeps the rendered
+     tour a single self-contained file: no sidecar mermaid.* files and no
+     network fetch. This script must run BEFORE the bootstrap below so that
+     window.mermaid is already defined when the bootstrap looks for it. -->
+<script id="mermaid-runtime">__MERMAID_RUNTIME__</script>
+
+<!-- Mermaid bootstrap. Runs only if the tour produced any
+     <pre class="mermaid"> blocks. Preferred path: the embedded runtime above
+     already defined window.mermaid, so render immediately -- no network, no
+     ES-module load, works over file://. The remaining branches are a legacy
+     fallback for a tour rendered without the embedded runtime, loading a
+     sidecar UMD bundle (mermaid.min.js) or local ES module. If nothing loads,
+     the Mermaid source stays visible as a code block. -->
 <script>
 (function () {
   "use strict";
   var blocks = document.querySelectorAll("pre.mermaid");
   if (!blocks.length) { return; }
 
-  function run(mermaid) {
-    if (!mermaid) { return; }
-    mermaid.initialize({
+  // Preserve each diagram's Mermaid source: mermaid.run() replaces the source
+  // with rendered SVG, so we keep the originals to re-render when the color
+  // theme changes.
+  var sources = [];
+  for (var i = 0; i < blocks.length; i++) { sources.push(blocks[i].textContent); }
+
+  // Resolve the effective light/dark scheme: an explicit data-theme wins;
+  // "auto" (or unset) follows the OS via matchMedia.
+  function isDark() {
+    var t = document.documentElement.getAttribute("data-theme");
+    if (t === "dark") { return true; }
+    if (t === "light") { return false; }
+    return !!(window.matchMedia &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches);
+  }
+
+  var mermaidRef = null;
+
+  // (Re)render every diagram with the Mermaid theme that matches the current
+  // color scheme -- "dark" so diagrams are legible on the dark palette,
+  // "neutral" on light.
+  function render() {
+    if (!mermaidRef) { return; }
+    for (var i = 0; i < blocks.length; i++) {
+      blocks[i].textContent = sources[i];
+      blocks[i].removeAttribute("data-processed");
+    }
+    mermaidRef.initialize({
       startOnLoad: false,
       securityLevel: "strict",
-      theme: "neutral"
+      theme: isDark() ? "dark" : "neutral"
     });
-    mermaid.run({ nodes: blocks });
+    mermaidRef.run({ nodes: blocks });
   }
+
+  function run(mermaid) {
+    if (!mermaid) { return; }
+    mermaidRef = mermaid;
+    render();
+  }
+
+  // Let the theme toggle recolor diagrams live, and follow OS scheme changes
+  // while in "auto".
+  window.__renderTourDiagrams = render;
+  if (window.matchMedia) {
+    try {
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener(
+        "change", function () {
+          var t = document.documentElement.getAttribute("data-theme");
+          if (t !== "light" && t !== "dark") { render(); }
+        });
+    } catch (e) { /* older browsers: no live OS-scheme updates */ }
+  }
+
+  // Preferred path: the build script embedded the Mermaid runtime inline, so
+  // globalThis.mermaid is already defined -- render straight away. The branches
+  // further down are only reached for a tour rendered without that runtime.
+  if (window.mermaid) { run(window.mermaid); return; }
 
   function fail(err) {
     if (window.console) {
