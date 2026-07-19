@@ -35,8 +35,8 @@
     },
     {
       "name": "turn-toast",
-      "description": "Show a Windows OS toast (via BurntToast) when a Copilot CLI turn takes longer than a threshold (default 30s). Uses userPromptSubmitted/agentStop hooks to time each turn and fires the notification in a detached process so it blocks the turn as little as possible. Configure the threshold with the TURN_TOAST_THRESHOLD_SEC environment variable.",
-      "version": "1.0.0",
+      "description": "Show a Windows OS toast (via BurntToast) when a Copilot CLI turn takes longer than a threshold (default 60s), the originating terminal isn't the foreground window, and Copilot is actually ready for input (in autopilot mode, mid-run stops are suppressed and only task completion pings, timed from the start of the autonomous run). Uses userPromptSubmitted/agentStop hooks and fires the notification in a detached process so it blocks the turn as little as possible. The toast is labelled with the session name, git repo, or path, and includes a 'Focus terminal' button that brings the originating terminal window back to the foreground (across virtual desktops). Configure the threshold with the TURN_TOAST_THRESHOLD_SEC environment variable.",
+      "version": "1.4.0",
       "source": "./plugins/turn-toast"
     }
   ]

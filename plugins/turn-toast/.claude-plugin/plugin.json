@@ -1,6 +1,6 @@
 {
   "name": "turn-toast",
-  "version": "1.0.0",
+  "version": "1.4.0",
   "description": "Show a Windows OS toast (via BurntToast) when a Copilot CLI turn takes longer than a threshold (default 30s). Uses userPromptSubmitted/agentStop hooks to time each turn and fires the notification in a detached process so it blocks the turn as little as possible. Configure the threshold with the TURN_TOAST_THRESHOLD_SEC environment variable.",
   "repository": "https://github.com/david-risney/PwshProfile"
 }
