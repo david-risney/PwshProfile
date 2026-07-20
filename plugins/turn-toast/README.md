@@ -20,12 +20,19 @@ The plugin registers two [hooks](https://docs.github.com/copilot) in
 - The `Start` phase only writes one tiny file.
 - The `Stop` phase reads/deletes that file and, when over threshold, launches the
   toast in a **detached** `pwsh` process and returns immediately — importing
-  `BurntToast` and rendering a toast (~1s) never adds to turn latency.
+  `BurntToast` and rendering a toast (~1s) never adds to turn latency. The detached
+  process holds open briefly after issuing the toast, because on PowerShell 7 the
+  notification is delivered asynchronously and Windows silently drops the banner if
+  the process exits too quickly.
 - Failures are swallowed and nothing is written to stdout, so the hook can never
   disrupt or pollute a turn.
 
 State files live in the per-plugin data directory Copilot exposes via
-`COPILOT_PLUGIN_DATA` (falling back to `%TEMP%\turn-toast`), keyed by session id.
+`COPILOT_PLUGIN_DATA` (falling back to `%TEMP%\turn-toast`), keyed by session id
+when the hook payload provides one. In current Copilot CLI versions the
+`userPromptSubmitted`/`agentStop` payloads do **not** include `session_id`, so
+the state file is keyed as `turn-default.txt` — harmless, since both phases use
+the same key and timing still pairs correctly.
 
 ## Only notifies when you've looked away
 
@@ -108,6 +115,52 @@ $env:TURN_TOAST_THRESHOLD_SEC = 60   # toast only on turns longer than 1 minute
 ```
 
 If unset, the threshold is `60` seconds.
+
+## Diagnostics / logging
+
+Copilot does not surface hook execution, so the plugin writes its own diagnostic
+log. At every decision point (`Start` wrote the state file; `Stop` computed
+elapsed vs. threshold; toast launched / skipped / errored) **and at every failure
+point** it appends a line to:
+
+```
+<COPILOT_PLUGIN_DATA>\turn-toast.log      # falls back to %TEMP%\turn-toast\turn-toast.log
+```
+
+For this plugin that is typically:
+
+```
+%USERPROFILE%\.copilot\plugin-data\pwshprofile\turn-toast\turn-toast.log
+```
+
+Tail it while you exercise a long turn to see whether both hooks fire and why a
+toast did or did not appear:
+
+```powershell
+Get-Content "$env:USERPROFILE\.copilot\plugin-data\pwshprofile\turn-toast\turn-toast.log" -Wait -Tail 20
+```
+
+Each line looks like:
+
+```
+2026-07-18 21:21:15.939 -07:00  [Start pid:1234 INFO]   Start: wrote state file '...turn-default.txt' startMs=1784434875939
+2026-07-18 21:21:47.512 -07:00  [Stop pid:5678 INFO]    Stop: elapsedSec=31.6 thresholdSec=30
+2026-07-18 21:21:47.520 -07:00  [Stop pid:5678 INFO]    Stop: launched detached toast via '...pwsh.exe' elapsedText='31.6s' (done)
+2026-07-18 21:21:48.402 -07:00  [Toast pid:9012]        toast issued (elapsed 31.6s); holding process open so Windows can present it
+2026-07-18 21:21:56.410 -07:00  [Toast pid:9012]        toast process exiting after hold (elapsed 31.6s)
+```
+
+Each line is tagged with a level (`INFO`/`WARN`/`ERROR`). Every failure is logged
+rather than silently swallowed, so problems are visible — for example a missing
+`BurntToast` module surfaces from the **detached toast process** itself:
+
+```
+2026-07-18 21:21:48.402 -07:00  [Toast pid:9012]        toast FAILED: The specified module 'BurntToast' was not loaded...
+```
+
+Logging is **on by default**. Disable it by setting the environment variable
+`TURN_TOAST_LOG` to `0` (or `false`/`off`) before launching Copilot CLI. Logging
+never writes to stdout and never throws, so it can't disrupt a turn.
 
 ## Install
 

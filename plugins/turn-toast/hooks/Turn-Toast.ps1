@@ -18,9 +18,9 @@
         terminal that ran the turn, no toast is shown -- the point is to ping
         them only when they've switched away. This foreground check runs inside
         the detached process (at notify time) so it costs the turn nothing.
-      * Never disrupt the turn. All work is wrapped so failures stay silent and
-        nothing is written to stdout (hook stdout can be injected as model
-        context, so we keep it empty).
+      * Never disrupt the turn. All work is wrapped so failures stay silent to
+        the caller and nothing is written to stdout (hook stdout can be injected
+        as model context, so we keep it empty).
 
     Threshold (seconds) is read from the TURN_TOAST_THRESHOLD_SEC environment
     variable and defaults to 60.
@@ -32,6 +32,15 @@
         measured from the start of the autonomous run. Mode/completion are read
         from the session's event transcript (transcriptPath).
 
+    Diagnostic logging: because Copilot does not surface hook execution, this
+    script appends a line to turn-toast.log (in the plugin data dir) at each
+    decision point AND at every failure point so you can see whether the hooks
+    fire, why a toast did or did not appear, and any error that occurred --
+    including errors inside the detached toast process (BurntToast import /
+    notification failures), which are otherwise invisible. Logging is ON by
+    default; disable it by setting the TURN_TOAST_LOG environment variable to
+    0/false/off. Logging never writes to stdout and never throws.
+
     Copilot writes the hook payload (session_id, cwd, timestamp, ...) as JSON on
     stdin and provides the per-plugin data directory via COPILOT_PLUGIN_DATA.
 #>
@@ -41,8 +50,39 @@ param(
     [string]$Phase
 )
 
-# A hook must never break the turn, so swallow everything.
-$ErrorActionPreference = 'SilentlyContinue'
+# A hook must never break the turn, so swallow everything at the top level.
+$ErrorActionPreference = 'Stop'
+
+# --- Logging helper -------------------------------------------------------
+# Appends a single timestamped line to the log file. Kept dependency-free and
+# fully guarded so diagnostics can never disrupt or slow the turn. Honors the
+# TURN_TOAST_LOG opt-out. $script:LogFile is set once the data dir is known;
+# until then, messages are buffered so early failures are not lost.
+$script:LogFile = $null
+$script:LogBuffer = New-Object System.Collections.ArrayList
+function Test-LogEnabled {
+    $flag = $env:TURN_TOAST_LOG
+    return -not ($flag -and ($flag -in '0', 'false', 'False', 'off', 'no'))
+}
+function Write-Log {
+    param([string]$Message, [string]$Level = 'INFO')
+    try {
+        if (-not (Test-LogEnabled)) { return }
+        $ts = [DateTimeOffset]::Now.ToString('yyyy-MM-dd HH:mm:ss.fff zzz')
+        $line = "$ts  [$Phase pid:$PID $Level]  $Message"
+        if (-not $script:LogFile) {
+            [void]$script:LogBuffer.Add($line)
+            return
+        }
+        # Flush any buffered early lines first, then this one.
+        if ($script:LogBuffer.Count -gt 0) {
+            [System.IO.File]::AppendAllText($script:LogFile,
+                (($script:LogBuffer -join [Environment]::NewLine) + [Environment]::NewLine))
+            $script:LogBuffer.Clear()
+        }
+        [System.IO.File]::AppendAllText($script:LogFile, $line + [Environment]::NewLine)
+    } catch { }
+}
 
 # Walk up the process tree from this hook (which runs inside the Copilot CLI /
 # terminal process tree) to the first ancestor that owns a real window. That is
@@ -182,49 +222,103 @@ function Get-StopContext {
 
 try {
     # --- Identify the session (to keep per-session timing files separate) -----
+    # Errors here are captured and logged once the log file location is known.
     $sessionId = 'default'
     $payloadCwd = $null
     $payloadTranscript = $null
+    $rawLen = 0
+    $hadSessionId = $false
+    $stdinError = $null
     try {
         $raw = [Console]::In.ReadToEnd()
         if ($raw) {
+            $rawLen = $raw.Length
             $payload = $raw | ConvertFrom-Json
-            if ($payload.session_id) { $sessionId = [string]$payload.session_id }
+            if ($payload.session_id) {
+                $sessionId = [string]$payload.session_id
+                $hadSessionId = $true
+            }
             if ($payload.cwd) { $payloadCwd = [string]$payload.cwd }
             if ($payload.transcriptPath) { $payloadTranscript = [string]$payload.transcriptPath }
         }
-    } catch { }
+    } catch {
+        $stdinError = $_.Exception.Message
+    }
 
     # --- Locate state directory (per-plugin data dir, fall back to TEMP) ------
     $dataDir = $env:COPILOT_PLUGIN_DATA
-    if (-not $dataDir) { $dataDir = Join-Path $env:TEMP 'turn-toast' }
-    if (-not (Test-Path -LiteralPath $dataDir)) {
-        New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
+    $usedFallbackDir = $false
+    if (-not $dataDir) {
+        $dataDir = Join-Path $env:TEMP 'turn-toast'
+        $usedFallbackDir = $true
+    }
+    $dirError = $null
+    try {
+        if (-not (Test-Path -LiteralPath $dataDir)) {
+            New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
+        }
+        # Log file lives alongside the state files so everything is in one place.
+        $script:LogFile = Join-Path $dataDir 'turn-toast.log'
+    } catch {
+        $dirError = $_.Exception.Message
     }
 
     $safeId = ($sessionId -replace '[^A-Za-z0-9_.-]', '_')
     $stateFile = Join-Path $dataDir "turn-$safeId.txt"
 
+    Write-Log ("invoked. rawStdinLen=$rawLen hadSessionId=$hadSessionId session=$safeId " +
+        "dataDir='$dataDir' fallbackDir=$usedFallbackDir")
+    if ($stdinError) { Write-Log "stdin read/parse failed: $stdinError" 'WARN' }
+    if ($dirError) { Write-Log "data dir prep failed: $dirError (logging/state may be degraded)" 'ERROR' }
+
     # ------------------------------------------------------------------ START -
     if ($Phase -eq 'Start') {
-        $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-        [System.IO.File]::WriteAllText($stateFile, [string]$nowMs)
+        try {
+            $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+            [System.IO.File]::WriteAllText($stateFile, [string]$nowMs)
+            Write-Log "Start: wrote state file '$stateFile' startMs=$nowMs"
+        } catch {
+            Write-Log "Start: FAILED to write state file '$stateFile': $($_.Exception.Message)" 'ERROR'
+        }
         return
     }
 
     # ------------------------------------------------------------------- STOP -
-    if (-not (Test-Path -LiteralPath $stateFile)) { return }
+    if (-not (Test-Path -LiteralPath $stateFile)) {
+        Write-Log "Stop: no state file '$stateFile' -> nothing to time (returning)"
+        return
+    }
 
     $startMs = [int64]0
-    [void][int64]::TryParse(((Get-Content -LiteralPath $stateFile -Raw)).Trim(), [ref]$startMs)
-    Remove-Item -LiteralPath $stateFile -Force -ErrorAction SilentlyContinue
-    if ($startMs -le 0) { return }
+    try {
+        $rawState = (Get-Content -LiteralPath $stateFile -Raw)
+        [void][int64]::TryParse($rawState.Trim(), [ref]$startMs)
+    } catch {
+        Write-Log "Stop: FAILED to read state file '$stateFile': $($_.Exception.Message)" 'ERROR'
+    }
+    try {
+        Remove-Item -LiteralPath $stateFile -Force
+    } catch {
+        Write-Log "Stop: could not delete state file '$stateFile': $($_.Exception.Message)" 'WARN'
+    }
+    if ($startMs -le 0) {
+        Write-Log "Stop: could not parse a valid startMs from state file (returning)" 'ERROR'
+        return
+    }
 
     $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 
     $threshold = 60
     if ($env:TURN_TOAST_THRESHOLD_SEC) {
-        [void][int]::TryParse($env:TURN_TOAST_THRESHOLD_SEC, [ref]$threshold)
+        if (-not [int]::TryParse($env:TURN_TOAST_THRESHOLD_SEC, [ref]$threshold)) {
+            Write-Log ("Stop: TURN_TOAST_THRESHOLD_SEC='$($env:TURN_TOAST_THRESHOLD_SEC)' " +
+                "is not an integer; using default $threshold") 'WARN'
+        }
+    }
+    Write-Log "Stop: elapsedSec=$elapsedSec thresholdSec=$threshold"
+    if ($elapsedSec -lt $threshold) {
+        Write-Log "Stop: below threshold -> no toast (returning)"
+        return
     }
 
     # Decide whether this stop is a real "ready for your input" moment, and from
@@ -264,9 +358,13 @@ try {
     }
 
     # --- Resolve pwsh + the terminal window and click handler ----------------
+
     $psExe = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
     if (-not $psExe) { $psExe = (Get-Command powershell -ErrorAction SilentlyContinue).Source }
-    if (-not $psExe) { return }
+    if (-not $psExe) {
+        Write-Log "Stop: no pwsh/powershell on PATH -> cannot show toast (returning)" 'ERROR'
+        return
+    }
 
     $hwnd = Get-TerminalHwnd
     $focusScript = Join-Path (Split-Path -Parent $PSCommandPath) 'Focus-Window.ps1'
@@ -316,7 +414,16 @@ try {
 "@
     $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($toastScript))
 
-    Start-Process -FilePath $psExe -WindowStyle Hidden -ArgumentList @(
-        '-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded
-    ) -ErrorAction SilentlyContinue | Out-Null
-} catch { }
+    try {
+        Start-Process -FilePath $psExe -WindowStyle Hidden -ArgumentList @(
+            '-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded
+        ) | Out-Null
+        Write-Log "Stop: launched detached toast via '$psExe' elapsedText='$elapsedText' (done)"
+    } catch {
+        Write-Log "Stop: FAILED to launch detached toast via '$psExe': $($_.Exception.Message)" 'ERROR'
+    }
+} catch {
+    # Last-resort catch: log with position so unexpected failures are visible.
+    Write-Log ("UNHANDLED EXCEPTION: " + $_.Exception.Message +
+        " @ " + $_.InvocationInfo.ScriptLineNumber) 'ERROR'
+}

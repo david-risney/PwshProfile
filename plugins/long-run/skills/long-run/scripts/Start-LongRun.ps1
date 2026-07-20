@@ -326,24 +326,39 @@ function Open-Viewer([string[]]$ViewerArgs) {
 }
 
 # --- Launch -----------------------------------------------------------------
+# Forward the caller's environment into the psmux panes. On Windows the psmux
+# (tmux) server does NOT inherit the launching client's process environment, so
+# volatile, shell-injected vars (e.g. a dev shell that prepends depot_tools /
+# toolchain dirs to PATH but never persists them to the User/Machine registry)
+# are otherwise invisible inside a pane. tmux `-e NAME=VALUE` (supported by
+# new-session/new-window/split-window in tmux 3.0+) snapshots them explicitly.
+# Only forward simply-named vars (skip names with '(' like 'ProgramFiles(x86)',
+# which tmux can't parse and which the server already has anyway).
+$psmuxEnvArgs = @()
+foreach ($ev in Get-ChildItem env:) {
+    if ($ev.Name -match '^[A-Za-z_][A-Za-z0-9_]*$') {
+        $psmuxEnvArgs += @('-e', "$($ev.Name)=$($ev.Value)")
+    }
+}
+
 $reopenHint = ''
 if ($muxKind -eq 'psmux') {
     if ($inPsmux) {
         # Already inside a psmux session: open the job as a new tab (window) in
         # the current session, then split it into one pane per extra command.
         # Rely on the inherited TMUX env to target the current session/window.
-        & $muxPath new-window -n $Session -- pwsh @(Get-WrapperArgs $wrapperFiles[0]) | Out-Null
+        & $muxPath new-window @psmuxEnvArgs -n $Session -- pwsh @(Get-WrapperArgs $wrapperFiles[0]) | Out-Null
         for ($k = 1; $k -lt $n; $k++) {
-            & $muxPath split-window -- pwsh @(Get-WrapperArgs $wrapperFiles[$k]) | Out-Null
+            & $muxPath split-window @psmuxEnvArgs -- pwsh @(Get-WrapperArgs $wrapperFiles[$k]) | Out-Null
         }
         if ($n -gt 1) { & $muxPath select-layout tiled | Out-Null }
     } else {
         # Create a DETACHED session that hosts the job(s) (works headlessly, so
         # they start immediately and are decoupled even before a viewer
         # attaches), then split in one pane per extra command.
-        & $muxPath new-session -s $Session -d -- pwsh @(Get-WrapperArgs $wrapperFiles[0]) | Out-Null
+        & $muxPath new-session @psmuxEnvArgs -s $Session -d -- pwsh @(Get-WrapperArgs $wrapperFiles[0]) | Out-Null
         for ($k = 1; $k -lt $n; $k++) {
-            & $muxPath split-window -t $Session -- pwsh @(Get-WrapperArgs $wrapperFiles[$k]) | Out-Null
+            & $muxPath split-window @psmuxEnvArgs -t $Session -- pwsh @(Get-WrapperArgs $wrapperFiles[$k]) | Out-Null
         }
         if ($n -gt 1) { & $muxPath select-layout -t $Session tiled | Out-Null }
         if (-not $NoViewer) {
