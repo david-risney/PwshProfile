@@ -21,6 +21,22 @@ $script:PsmuxIconFileName = 'psmux-icon.png';
 $script:PsmuxRepoIconPath = "%USERPROFILE%\PwshProfile\psmux\$script:PsmuxIconFileName";
 $script:PsmuxSourceIconPath = Join-Path (Split-Path -Parent $PSCommandPath) "psmux\$script:PsmuxIconFileName";
 
+# Resolve an icon for the "Edge" New Tab submenu. Prefers the installed Microsoft
+# Edge browser executable (Windows Terminal extracts the real Edge logo from it),
+# checking both the 64-bit and 32-bit install locations; falls back to a globe
+# emoji when Edge isn't installed. Environment-variable form is used so the stored
+# path stays valid across machines.
+function Get-EdgeIconPath {
+  $candidates = @(
+    '%ProgramFiles%\Microsoft\Edge\Application\msedge.exe',
+    '%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe'
+  );
+  foreach ($c in $candidates) {
+    if (Test-Path -LiteralPath ([System.Environment]::ExpandEnvironmentVariables($c))) { return $c; }
+  }
+  return "$([char]0xD83C)$([char]0xDF10)";  # globe emoji fallback
+}
+
 # Ensure a Windows Terminal settings.json has the PowerShell Core (pwsh) profile
 # present and enabled, and hides the profiles we don't want in the dropdown:
 # Windows PowerShell (powershell.exe), Command Prompt (cmd.exe), Azure Cloud Shell,
@@ -141,22 +157,40 @@ function Update-TerminalProfiles ($settingsPath) {
       [PSCustomObject]@{ type = 'matchProfiles'; source = $script:TerminalSessionFragmentSource }
     );
   };
+  # Ensure an "Edge" folder that auto-groups the Edge / Chromium dev-environment
+  # profiles emitted into the dev-env fragment (source PwshProfileDevEnv). Same
+  # allowEmpty:false behaviour so it disappears when there are no enlistments.
+  $edgeFolder = [PSCustomObject]@{
+    type       = 'folder';
+    name       = 'Edge';
+    icon       = (Get-EdgeIconPath);
+    allowEmpty = $false;
+    entries    = @(
+      [PSCustomObject]@{ type = 'matchProfiles'; source = $script:TerminalDevEnvFragmentSource }
+    );
+  };
   $menu = @();
   if ($json.PSObject.Properties['newTabMenu'] -and $json.newTabMenu) {
     $menu = @($json.newTabMenu);
   } else {
-    # Default menu: everything at top level, then our Sessions folder.
+    # Default menu: everything at top level, then our folders.
     $menu = @([PSCustomObject]@{ type = 'remainingProfiles' });
   }
-  $hasSessionsFolder = $menu | Where-Object {
-    $_.type -eq 'folder' -and $_.entries -and (@($_.entries) | Where-Object {
-      $_.type -eq 'matchProfiles' -and $_.source -eq $script:TerminalSessionFragmentSource
-    });
+  $hasFolderForSource = {
+    param($src)
+    @($menu | Where-Object {
+      $_.type -eq 'folder' -and $_.entries -and (@($_.entries) | Where-Object {
+        $_.type -eq 'matchProfiles' -and $_.source -eq $src
+      });
+    }).Count -gt 0;
   };
-  if (!$hasSessionsFolder) {
+  if (!(& $hasFolderForSource $script:TerminalSessionFragmentSource)) {
     $menu += $sessionsFolder;
-    $json | Add-Member -NotePropertyName newTabMenu -NotePropertyValue @($menu) -Force;
   }
+  if (!(& $hasFolderForSource $script:TerminalDevEnvFragmentSource)) {
+    $menu += $edgeFolder;
+  }
+  $json | Add-Member -NotePropertyName newTabMenu -NotePropertyValue @($menu) -Force;
 
   $outJson = $json | ConvertTo-Json -Depth 32;
   Out-FileAtomic $outJson $settingsPath;
