@@ -227,6 +227,7 @@ function Set-LiveInfo($records) {
     # owning process) for hundreds of sessions is expensive and only the handful
     # we actually display/act on need it.
     foreach ($r in @($records)) {
+        if ($null -eq $r) { continue }
         if ($r.PSObject.Properties['LiveResolved'] -and $r.LiveResolved) { continue }
         $livePid = Get-LiveLockPid $r.Dir
         $r.Live = [bool]$livePid
@@ -675,7 +676,20 @@ try {
         # -Resume: jump straight into the top-ranked session instead of listing.
         if ($Resume) {
             if (-not $hits -or $hits.Count -eq 0) {
-                Write-Host 'No session to resume for the current filters.' -ForegroundColor Yellow
+                Write-Host 'No matching session found; starting a new Copilot session...' -ForegroundColor Yellow
+                $exe = Get-CopilotExe
+                $newCwd = (Get-Location).Path
+                if ($ResumeDirection -eq 'InPlace') {
+                    & $exe
+                } else {
+                    $paneHost = Open-CopilotPane -CopilotArgs @() -Cwd $newCwd -Side $ResumeDirection
+                    if ($paneHost) {
+                        Write-Host "Opened a new session in a $($ResumeDirection.ToLower()) pane ($paneHost)." -ForegroundColor Green
+                    } else {
+                        Write-Host 'No pane manager (psmux/zellij/Windows Terminal) detected; starting a new session in place.' -ForegroundColor DarkGray
+                        & $exe
+                    }
+                }
                 return
             }
             $target = $hits[0]
