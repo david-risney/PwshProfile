@@ -160,3 +160,61 @@ $WellKnownGuids = @{
     "Edge" = New-UuidV5 -Namespace (New-UuidV5 -NameStringOrBytes "EdgeDev") -NameStringOrBytes "Edge";
     "Chromium" = New-UuidV5 -Namespace (New-UuidV5 -NameStringOrBytes "EdgeDev") -NameStringOrBytes "Chromium";
 }
+
+# ---------------------------------------------------------------------------
+# Startup change-gating helpers.
+#
+# A lot of profile.ps1 work is idempotent and rarely changes between shells
+# (merging Terminal settings, setting global git config, generating the
+# oh-my-posh init script). Re-doing it on every shell just burns startup time.
+# These helpers let a block run only when a cheap "signature" of its inputs has
+# changed since the last shell, persisting the signature under LOCALAPPDATA so
+# the gate survives across sessions.
+# ---------------------------------------------------------------------------
+
+# The folder where per-shell gate markers and cached artifacts live. Created on
+# first use.
+function Get-PwshProfileCacheDir {
+  $dir = Join-Path $env:LOCALAPPDATA 'PwshProfile\cache';
+  if (!(Test-Path -LiteralPath $dir)) {
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null;
+  }
+  $dir;
+}
+
+# Stable hex SHA1 of a string, used to build compact signatures from file
+# contents / argument strings.
+function Get-StringHash {
+  param([Parameter(Mandatory)][AllowEmptyString()][string]$Text);
+  $sha = [System.Security.Cryptography.SHA1]::Create();
+  try {
+    (($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Text))) |
+      ForEach-Object { $_.ToString('x2') }) -join '';
+  } finally {
+    $sha.Dispose();
+  }
+}
+
+# Run $Action only when $Signature differs from the value stored for $Key by a
+# previous shell. The marker is written only AFTER $Action completes without
+# throwing, so a failed run is retried on the next shell rather than being
+# silently skipped. Returns $true when $Action ran, $false when it was skipped.
+function Invoke-WhenChanged {
+  param(
+    [Parameter(Mandatory)][string]$Key,
+    [Parameter(Mandatory)][AllowEmptyString()][string]$Signature,
+    [Parameter(Mandatory)][scriptblock]$Action
+  )
+
+  $markerPath = Join-Path (Get-PwshProfileCacheDir) ($Key + '.sig');
+  $previous = $null;
+  if (Test-Path -LiteralPath $markerPath) {
+    try { $previous = [System.IO.File]::ReadAllText($markerPath); } catch { }
+  }
+
+  if ($previous -eq $Signature) { return $false; }
+
+  & $Action;
+  try { [System.IO.File]::WriteAllText($markerPath, $Signature); } catch { }
+  return $true;
+}

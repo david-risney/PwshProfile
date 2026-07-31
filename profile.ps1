@@ -178,21 +178,10 @@ if ($Update -eq "On") {
   Write-Verbose "Update Terminal-Icons";
   Install-Module -Name Terminal-Icons -Repository PSGallery -Force -SkipPublisherCheck;
 }
-# Terminal-Icons rewrites its cached theme .xml files (Export-Clixml) on every
-# module load, but reads them back with an unguarded Import-Clixml. When several
-# terminals start at once, one session can read a file another is mid-write,
-# producing "Import-Clixml: Name cannot begin with the ' ' character". If that
-# happens, delete the corrupt theme cache and retry so it regenerates cleanly.
-try {
-  Import-Module Terminal-Icons -ErrorAction Stop;
-} catch {
-  Write-Verbose "Terminal-Icons import failed ($($_.Exception.Message)); clearing theme cache and retrying.";
-  $terminalIconsCache = Join-Path $env:APPDATA "powershell\Community\Terminal-Icons";
-  if (Test-Path $terminalIconsCache) {
-    Get-ChildItem $terminalIconsCache -Filter *.xml -ErrorAction Ignore | Remove-Item -Force -ErrorAction Ignore;
-  }
-  Import-Module Terminal-Icons -Force -ErrorAction Continue;
-}
+# Terminal-Icons only affects Get-ChildItem/dir output formatting, and cd-extras
+# only augments cd + Tab, so neither is needed to draw the first prompt. Importing
+# them eagerly costs ~0.7s of time-to-first-prompt, so both are deferred to the
+# first idle after the prompt renders (see the cd-extras region below).
 #endregion
 
 #region cd-extras
@@ -203,11 +192,36 @@ if ($Update -eq "On") {
   Write-Verbose "Update cd-extras";
   Install-Module cd-extras -SkipPublisherCheck;
 }
-Import-Module cd-extras;
-setocd ColorCompletion; # Adds color to tab completion
 
-Set-Alias back cd-;
-Set-Alias fwd cd+;
+# Import Terminal-Icons and cd-extras on the first idle after the prompt is drawn
+# rather than during startup. The OnIdle action runs in this interactive runspace,
+# and Import-Module -Global lands the modules in the session, so both are fully
+# functional a moment after the prompt appears. -MaxTriggerCount 1 makes it a
+# one-shot (it unregisters itself after firing).
+$deferredModuleInit = {
+  # Terminal-Icons rewrites its cached theme .xml files (Export-Clixml) on every
+  # module load, but reads them back with an unguarded Import-Clixml. When several
+  # terminals start at once, one session can read a file another is mid-write,
+  # producing "Import-Clixml: Name cannot begin with the ' ' character". If that
+  # happens, delete the corrupt theme cache and retry so it regenerates cleanly.
+  try {
+    Import-Module Terminal-Icons -Global -ErrorAction Stop;
+  } catch {
+    $terminalIconsCache = Join-Path $env:APPDATA "powershell\Community\Terminal-Icons";
+    if (Test-Path $terminalIconsCache) {
+      Get-ChildItem $terminalIconsCache -Filter *.xml -ErrorAction Ignore | Remove-Item -Force -ErrorAction Ignore;
+    }
+    Import-Module Terminal-Icons -Global -Force -ErrorAction Continue;
+  }
+
+  # MenuComplete was already bound in the PSReadLine region above (before this
+  # deferred import, as cd-extras expects), so tab completion behaves correctly.
+  Import-Module cd-extras -Global;
+  setocd ColorCompletion; # Adds color to tab completion
+  Set-Alias back cd- -Scope Global;
+  Set-Alias fwd cd+ -Scope Global;
+};
+[void](Register-EngineEvent -SourceIdentifier PowerShell.OnIdle -MaxTriggerCount 1 -Action $deferredModuleInit);
 #endregion
 
 #region burnttoast
@@ -218,7 +232,16 @@ if ($Update -eq "On") {
   Write-Verbose "Updating BurntToast";
   Install-Module -Name BurntToast -SkipPublisherCheck;
 }
-Import-Module BurntToast;
+# BurntToast is only used on demand (the long-running-command completion toast in
+# the prompt wrapper below). Importing it eagerly costs ~100ms+ on every shell for
+# something most shells never fire, so defer it with a self-replacing stub: the
+# first New-BurntToastNotification call imports the module (which redefines the
+# real command) and then invokes it.
+function New-BurntToastNotification {
+  Remove-Item Function:\New-BurntToastNotification -ErrorAction Ignore;
+  Import-Module BurntToast;
+  New-BurntToastNotification @args;
+}
 #endregion
 
 #region zellij
@@ -253,7 +276,30 @@ if ($Update -eq "On") {
   winget install JanDeDobbeleer.OhMyPosh -s winget
 }
 $ohmyposhConfigPath = (Join-Path $PSScriptRoot "oh-my-posh.json");
-oh-my-posh init pwsh --config $ohmyposhConfigPath | Invoke-Expression;
+# `oh-my-posh init pwsh` shells out on every startup (~50ms just to spawn the exe)
+# to emit a small bootstrap that (1) sets a per-session POSH_SESSION_ID, (2) sets
+# POSH_CONFIG, and (3) dot-sources the heavy generated init script in oh-my-posh's
+# appdata. Cache that bootstrap and only regenerate when the theme config or the
+# oh-my-posh executable changes. The hard-coded POSH_SESSION_ID is rewritten to a
+# fresh-per-shell GUID so cached shells don't collide on oh-my-posh's per-session
+# state.
+$ohmyposhInitCachePath = (Join-Path (Get-PwshProfileCacheDir) "oh-my-posh.init.ps1");
+$ohmyposhExe = (Get-Command oh-my-posh -ErrorAction Ignore).Source;
+$ohmyposhExeStamp = if ($ohmyposhExe -and (Test-Path $ohmyposhExe)) { (Get-Item $ohmyposhExe).LastWriteTimeUtc.Ticks } else { '0' };
+$ohmyposhSig = ((Get-FileHash $ohmyposhConfigPath).Hash) + '|' + $ohmyposhExeStamp;
+[void](Invoke-WhenChanged -Key 'oh-my-posh-init' -Signature $ohmyposhSig -Action {
+  $ompInit = (oh-my-posh init pwsh --config $ohmyposhConfigPath) -join "`n";
+  $ompInit = [regex]::Replace($ompInit, '\$env:POSH_SESSION_ID = "[^"]*"',
+    { param($m) '$env:POSH_SESSION_ID = [guid]::NewGuid().ToString()' });
+  Set-Content -Path $ohmyposhInitCachePath -Value $ompInit -Encoding utf8;
+});
+$ohmyposhInitialized = $false;
+if (Test-Path $ohmyposhInitCachePath) {
+  try { . $ohmyposhInitCachePath; $ohmyposhInitialized = $true; } catch { }
+}
+if (!$ohmyposhInitialized) {
+  oh-my-posh init pwsh --config $ohmyposhConfigPath | Invoke-Expression;
+}
 #endregion
 
 #region poshgit
@@ -492,35 +538,53 @@ Update-FormatData -PrependPath $terminableClickableFormatPath;
 IncrementProgress "Applying Terminal settings";
 $terminalSettingsPatchPath = (Join-Path $PSScriptRoot "terminal-settings.json");
 
-@(Get-TerminalSettingsPath) | ForEach-Object {
-  $terminalSettingsPath = $_;
-  # Windows Terminal watches these files and reloads on change, so a write can
-  # momentarily lose a race for the file (Terminal/OneDrive/Defender holding it).
-  # Out-FileAtomic already retries; if it still fails, degrade gracefully rather
-  # than surfacing a profile error - the next shell / hook will reconcile.
-  try {
-    MergeJsonFiles -inJsonFilePaths $terminalSettingsPath,$terminalSettingsPatchPath -outJsonFilePath (($terminalSettingsPath));
-    # Ensure the pwsh profile is present and hide cmd / Windows PowerShell /
-    # Azure Cloud Shell / Visual Studio profiles.
-    Update-TerminalProfiles $terminalSettingsPath;
-  } catch {
-    Write-Verbose "Terminal settings update skipped for '$terminalSettingsPath': $($_.Exception.Message)";
+# The settings.json merge (our patch + hiding profiles + the Edge/Sessions New Tab
+# submenu) is idempotent and only changes when our patch file, the terminal helper
+# logic, or the set of installed Terminal editions changes. Gate it so a normal
+# shell doesn't re-merge and re-write every editions' settings.json each start.
+$terminalMergeSignature = @(
+  (Get-FileHash $terminalSettingsPatchPath).Hash,
+  (Get-Item (Join-Path $PSScriptRoot "helper-terminal.ps1")).LastWriteTimeUtc.Ticks,
+  (@(Get-TerminalSettingsPath) -join ';')
+) -join '|';
+[void](Invoke-WhenChanged -Key 'terminal-settings-merge' -Signature $terminalMergeSignature -Action {
+  @(Get-TerminalSettingsPath) | ForEach-Object {
+    $terminalSettingsPath = $_;
+    # Windows Terminal watches these files and reloads on change, so a write can
+    # momentarily lose a race for the file (Terminal/OneDrive/Defender holding it).
+    # Out-FileAtomic already retries; if it still fails, degrade gracefully rather
+    # than surfacing a profile error - the next shell / hook will reconcile.
+    try {
+      MergeJsonFiles -inJsonFilePaths $terminalSettingsPath,$terminalSettingsPatchPath -outJsonFilePath (($terminalSettingsPath));
+      # Ensure the pwsh profile is present and hide cmd / Windows PowerShell /
+      # Azure Cloud Shell / Visual Studio profiles.
+      Update-TerminalProfiles $terminalSettingsPath;
+    } catch {
+      Write-Verbose "Terminal settings update skipped for '$terminalSettingsPath': $($_.Exception.Message)";
+    }
   }
+});
+
+# Refresh the fragments that expose a Windows Terminal profile per running zellij /
+# psmux session and per local Edge / Chromium dev enlistment. These reflect live
+# state (running sessions, hydrated enlistments) so they can't be change-gated, but
+# Windows Terminal live-reloads fragment files independently of this shell, so we
+# push the work (git per enlistment + settings/state reconciliation) onto a
+# background thread instead of blocking the first prompt. Falls back to a process
+# job if the ThreadJob module isn't present.
+$fragmentRefresh = {
+  param($scriptRoot);
+  . (Join-Path $scriptRoot "helper-misc.ps1");
+  . (Join-Path $scriptRoot "helper-json.ps1");
+  . (Join-Path $scriptRoot "helper-terminal.ps1");
+  try { Update-TerminalSessionProfileFragment; } catch { }
+  try { Update-TerminalDevEnvironmentProfileFragment; } catch { }
+};
+if (Get-Command Start-ThreadJob -ErrorAction Ignore) {
+  [void](Start-ThreadJob -Name PwshProfileFragments -ScriptBlock $fragmentRefresh -ArgumentList $PSScriptRoot);
+} else {
+  [void](Start-Job -Name PwshProfileFragments -ScriptBlock $fragmentRefresh -ArgumentList $PSScriptRoot);
 }
-
-# Refresh the fragment that exposes a Windows Terminal profile per running zellij
-# / psmux session. psmux keeps this current in real time via hooks in psmux.conf;
-# this startup pass is the baseline that also covers zellij (which has no session
-# hooks) and drops any sessions that have since exited.
-try { Update-TerminalSessionProfileFragment; }
-catch { Write-Verbose "Terminal session fragment update skipped: $($_.Exception.Message)"; }
-
-# Refresh the fragment that exposes an "<Edge|Chromium> Shell (<root>)" profile for
-# every local dev enlistment. Emitted as a fragment (not a settings.json edit) so it
-# self-cleans and never mutates the user's settings; also migrates away any profiles
-# the old direct-edit mechanism left behind.
-try { Update-TerminalDevEnvironmentProfileFragment; }
-catch { Write-Verbose "Terminal dev-environment fragment update skipped: $($_.Exception.Message)"; }
 #endregion
 
 #region z
@@ -576,10 +640,15 @@ $env:BAT_PAGER = ("less " + $env:LESS);
 
 # Delta config
 $deltaArgs = "--line-numbers --hyperlinks --hyperlinks-file-link-format=`"vscode://file/{path}:{line}`" --hunk-header-decoration-style=`"bold`" --file-decoration-style=`"ol white bold`""
-git config --global core.pager "delta $deltaArgs" 2> $null;
-git config --global interactive.diffFilter "delta --color-only $deltaArgs" 2> $null;
-git config --global delta.navigate true 2> $null;
-git config --global merge.conflictStyle zdiff3 2> $null;
+# The global delta/merge config is machine-wide and set-once; it only needs to be
+# re-applied when $deltaArgs changes. Gate it so a normal shell doesn't spawn four
+# `git config --global` processes every start.
+[void](Invoke-WhenChanged -Key 'git-global-delta-config' -Signature (Get-StringHash $deltaArgs) -Action {
+  git config --global core.pager "delta $deltaArgs" 2> $null;
+  git config --global interactive.diffFilter "delta --color-only $deltaArgs" 2> $null;
+  git config --global delta.navigate true 2> $null;
+  git config --global merge.conflictStyle zdiff3 2> $null;
+});
 $gitRemote = git remote get-url origin 2> $null;
 if ($gitRemote) {
   if ($gitRemote -eq "https://chromium.googlesource.com/chromium/src.git") {
@@ -654,27 +723,36 @@ $copilotSettingsAdditions = $copilotSettingsAdditions.Replace("%USERPROFILE%", $
 # Merge the additions into the existing copilot settings.json
 $copilotSettingsPath = (Join-Path $env:USERPROFILE ".copilot\settings.json");
 
-if (Test-Path $copilotSettingsPath) {
-  MergeJsonFilesAndStrings @($copilotSettingsPath) @($copilotSettingsAdditions) $copilotSettingsPath;
-} else {
-  Copy-Item $copilotSettingsAdditionsPath $copilotSettingsPath;
-}
+# Merging the additions and regenerating companyAnnouncements is idempotent and
+# only needs to happen when the additions file, the gif announcement frames, or the
+# target file's existence change. Gate it so a normal shell doesn't re-merge and
+# re-parse the copilot settings.json every start.
+$copilotOneAnsiFiles = @(Get-ChildItem (Join-Path $PSScriptRoot "gifs") -File -Filter *.one.ansi -ErrorAction Ignore);
+$copilotGifsSignature = "$($copilotOneAnsiFiles.Count)|" + (($copilotOneAnsiFiles | ForEach-Object { $_.LastWriteTimeUtc.Ticks } | Measure-Object -Maximum).Maximum);
+$copilotSignature = (Get-StringHash $copilotSettingsAdditions) + '|' + $copilotGifsSignature + '|' + [bool](Test-Path $copilotSettingsPath);
+[void](Invoke-WhenChanged -Key 'copilot-settings' -Signature $copilotSignature -Action {
+  if (Test-Path $copilotSettingsPath) {
+    MergeJsonFilesAndStrings @($copilotSettingsPath) @($copilotSettingsAdditions) $copilotSettingsPath;
+  } else {
+    Copy-Item $copilotSettingsAdditionsPath $copilotSettingsPath;
+  }
 
-# Populate companyAnnouncements from the gifs\*.one.ansi frames. Only regenerate
-# when the count is out of sync with the number of *.one.ansi files (cheap check).
-$oneAnsiCount = @(Get-ChildItem (Join-Path $PSScriptRoot "gifs") -File -Filter *.one.ansi).Count;
-$announcementCount = 0;
-if (Test-Path $copilotSettingsPath) {
-  try {
-    $copilotSettings = Get-Content $copilotSettingsPath -Raw | ConvertFrom-Json;
-    if ($copilotSettings.PSObject.Properties['companyAnnouncements']) {
-      $announcementCount = @($copilotSettings.companyAnnouncements).Count;
-    }
-  } catch { }
-}
-if ($announcementCount -ne $oneAnsiCount) {
-  . (Join-Path $PSScriptRoot "copilot" "Update-CompanyAnnouncements.ps1");
-}
+  # Populate companyAnnouncements from the gifs\*.one.ansi frames. Only regenerate
+  # when the count is out of sync with the number of *.one.ansi files (cheap check).
+  $oneAnsiCount = $copilotOneAnsiFiles.Count;
+  $announcementCount = 0;
+  if (Test-Path $copilotSettingsPath) {
+    try {
+      $copilotSettings = Get-Content $copilotSettingsPath -Raw | ConvertFrom-Json;
+      if ($copilotSettings.PSObject.Properties['companyAnnouncements']) {
+        $announcementCount = @($copilotSettings.companyAnnouncements).Count;
+      }
+    } catch { }
+  }
+  if ($announcementCount -ne $oneAnsiCount) {
+    . (Join-Path $PSScriptRoot "copilot" "Update-CompanyAnnouncements.ps1");
+  }
+});
 
 #endregion
 
