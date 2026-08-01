@@ -73,13 +73,19 @@ if ($Update -eq "On") {
 
 if ($Update -eq "On") {
   Write-Verbose "Updating GH CLI";
-  winget install GitHub.cli
+  winget install GitHub.cli --accept-source-agreements --accept-package-agreements --disable-interactivity
 
   if (Get-Command gh -ErrorAction Ignore) {
-    # If gh is already installed, then update it
-    if (!(gh extension list | findstr copilot)) {
-      gh auth login;
-      gh extension install github/gh-copilot;
+    # Never run 'gh auth login' from the profile: it blocks startup waiting on an
+    # interactive browser/device auth flow. Only touch extensions when gh is
+    # already authenticated, and point at the manual step when it isn't.
+    gh auth status 2>&1 | Out-Null;
+    if ($LASTEXITCODE -eq 0) {
+      if (!(gh extension list 2>$null | Select-String -SimpleMatch -Quiet "copilot")) {
+        gh extension install github/gh-copilot;
+      }
+    } else {
+      Write-Warning "gh is not authenticated, so skipping the gh-copilot extension. Run 'gh auth login' manually, then rerun with -Update On.";
     }
   }
 }
