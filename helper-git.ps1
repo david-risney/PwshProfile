@@ -54,6 +54,124 @@ function Get-GitPullRequestUri {
   $repoUri;
 }
 
+function Get-GitPathPullRequestStatus {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory=$true, Position=0, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]
+    [Alias("FullName")]
+    [string[]] $Path
+  );
+
+  begin {
+    $resolvedPaths = [System.Collections.Generic.List[string]]::new();
+  }
+
+  process {
+    foreach ($pathPattern in $Path) {
+      $resolvedMatches = @(Resolve-Path -Path $pathPattern -ErrorAction SilentlyContinue);
+      if ($resolvedMatches.Count -eq 0) {
+        Write-Error "Path pattern did not match anything: $pathPattern";
+        continue;
+      }
+
+      foreach ($match in $resolvedMatches) {
+        if (!(Test-Path -LiteralPath $match.ProviderPath -PathType Container)) {
+          Write-Error "Path is not a directory: $($match.ProviderPath)";
+          continue;
+        }
+
+        $resolvedPaths.Add($match.ProviderPath);
+      }
+    }
+  }
+
+  end {
+    $seenGitRoots = [System.Collections.Generic.HashSet[string]]::new(
+      [System.StringComparer]::OrdinalIgnoreCase);
+
+    foreach ($resolvedPath in $resolvedPaths) {
+      $gitRootOutput = @(& git -C $resolvedPath rev-parse --show-toplevel 2>&1);
+      if ($LASTEXITCODE -ne 0) {
+        Write-Error "Path is not in a git repository: $resolvedPath";
+        continue;
+      }
+
+      $gitRoot = (Get-Item -LiteralPath ($gitRootOutput | Select-Object -Last 1).ToString()).FullName;
+      if (!$seenGitRoots.Add($gitRoot)) {
+        continue;
+      }
+
+      $branchOutput = @(& git -C $gitRoot rev-parse --abbrev-ref HEAD 2>&1);
+      if ($LASTEXITCODE -ne 0) {
+        throw "Failed to get the branch for '$gitRoot': $($branchOutput -join [Environment]::NewLine)";
+      }
+      $branch = ($branchOutput | Select-Object -Last 1).ToString();
+
+      $remoteOutput = @(& git -C $gitRoot remote get-url origin 2>&1);
+      if ($LASTEXITCODE -ne 0) {
+        Write-Verbose "Repository '$gitRoot' has no origin remote.";
+        $remote = $null;
+      } else {
+        $remote = ($remoteOutput | Select-Object -Last 1).ToString();
+      }
+
+      $pullRequestUri = $null;
+      $pullRequestNumber = $null;
+      $pullRequestStatus = $null;
+
+      if ($remote -match "(?i)github\.com[/:]") {
+        if (!(Get-Command gh -ErrorAction Ignore)) {
+          throw "GitHub CLI ('gh') is required to get pull request status for '$gitRoot'.";
+        }
+
+        Push-Location $gitRoot;
+        try {
+          $ghOutput = @(gh pr list --head $branch --state all --limit 1 --json number,url,state 2>&1);
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to get the GitHub pull request for '$gitRoot': $($ghOutput -join [Environment]::NewLine)";
+          }
+
+          $githubPullRequests = @($ghOutput | ConvertFrom-Json);
+          if ($githubPullRequests.Count -gt 0) {
+            $pullRequestUri = $githubPullRequests[0].url;
+            $pullRequestNumber = $githubPullRequests[0].number;
+            $pullRequestStatus = $githubPullRequests[0].state;
+          }
+        } finally {
+          Pop-Location;
+        }
+      } elseif ($remote -match "(?i)(dev\.azure\.com|visualstudio\.com)") {
+        Push-Location $gitRoot;
+        try {
+          $adoResult = Get-AdoPullRequestForBranch -BranchNames @($branch) -OutputFormat PSObject;
+          $adoPullRequest = $adoResult.value |
+            Sort-Object -Property creationDate -Descending |
+            Select-Object -First 1;
+
+          if ($adoPullRequest) {
+            $pullRequestUri = "$remote/pullrequest/$($adoPullRequest.pullRequestId)";
+            $pullRequestNumber = $adoPullRequest.pullRequestId;
+            $pullRequestStatus = $adoPullRequest.status;
+          }
+        } finally {
+          Pop-Location;
+        }
+      }
+
+      [PSCustomObject] @{
+        Path = $gitRoot;
+        Branch = $branch;
+        PR = if ($pullRequestUri) {
+          "`e]8;;$pullRequestUri`e\PR#$pullRequestNumber`e]8;;`e\";
+        } else {
+          $null;
+        };
+        PRStatus = $pullRequestStatus;
+      };
+    }
+  }
+}
+
 function Open-PullRequest {
   $uri = Get-AdoPullRequestForBranch -OutputFormat Uri -ErrorAction Ignore;
   if (!($uri)) {
@@ -313,6 +431,66 @@ function GetAdoAuthTokenForOrigin {
   param([string] $OriginUri);
 
   az account get-access-token --query accessToken --output tsv # --resource=$OriginUri;
+}
+
+function Get-AdoRepositoryInfo {
+  [CmdletBinding()]
+  param(
+    [string] $Remote = (git remote get-url origin)
+  );
+
+  if ($Remote -match "^https?://(?:[^@/]+@)?dev\.azure\.com/([^/]+)/([^/]+)/_git/([^/?#]+)") {
+    $organization = $matches[1];
+    $project = $matches[2];
+    $repository = $matches[3];
+  } elseif ($Remote -match "^https?://([^.]+)\.visualstudio\.com/(?:DefaultCollection/)?([^/]+)/_git/([^/?#]+)") {
+    $organization = $matches[1];
+    $project = $matches[2];
+    $repository = $matches[3];
+  } elseif ($Remote -match "^(?:[^@]+@)?ssh\.dev\.azure\.com:v3/([^/]+)/([^/]+)/(.+)$") {
+    $organization = $matches[1];
+    $project = $matches[2];
+    $repository = $matches[3];
+  } else {
+    throw "Remote is not an Azure DevOps repository: $Remote";
+  }
+
+  [PSCustomObject] @{
+    Organization = [uri]::UnescapeDataString($organization);
+    OrganizationUri = "https://dev.azure.com/$([uri]::UnescapeDataString($organization))";
+    Project = [uri]::UnescapeDataString($project);
+    Repository = [uri]::UnescapeDataString($repository);
+    Remote = $Remote.TrimEnd("/");
+  };
+}
+
+function Invoke-AzCli {
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory=$true)]
+    [string[]] $Arguments,
+    [ValidateSet("Json", "Text")]
+    [string] $OutputFormat = "Json"
+  );
+
+  if (!(Get-Command az -ErrorAction Ignore)) {
+    throw "Azure CLI ('az') is required.";
+  }
+
+  $azOutputFormat = if ($OutputFormat -eq "Json") { "json" } else { "tsv" };
+  $output = @(& az @Arguments --output $azOutputFormat --only-show-errors 2>&1);
+  if ($LASTEXITCODE -ne 0) {
+    throw "Azure CLI command failed: az $($Arguments -join ' ')`n$($output -join [Environment]::NewLine)";
+  }
+
+  $outputText = $output -join [Environment]::NewLine;
+  if ($OutputFormat -eq "Json") {
+    if ($outputText) {
+      $outputText | ConvertFrom-Json;
+    }
+  } else {
+    $outputText;
+  }
 }
 
 function Get-ReviewedBy {
@@ -719,65 +897,54 @@ function Get-AdoPullRequestIssues {
     param(
         [string] $Path = ".",
         [Alias("prid")] [string] $PullRequestId,
-        [string] $Organization,# = "microsoft",
-        [string[]] $ProjectNames,# = @("OS"),
-        [string[]] $RepositoryNames,# = @("os"),
+        [string] $Organization,
+        [string[]] $ProjectNames,
+        [string[]] $RepositoryNames,
         [string[]] $BranchNames = @(),
-        [string] $AuthenticationPersonalAccessToken,
         [ValidateSet("Text", "ErrorText", "PSObject")] [string] $OutputFormat = "Text",
-        [string] $ApiHost = "dev.azure.com",
-        [string] $ApiName = "_apis/git/repositories",
         [string] $BuildErrors = "exclude"
         );
     
     Push-Location $Path;
 
-    $gitRemote = (git remote -v)[0].Split("`t")[1].Split(" ")[0];
-    if ($gitRemote -match "https\:\/\/([^\.]+)\.visualstudio.com\/([^/]+)\/_git\/(.*)") {
-      $Organization = $matches[1].ToLower();
-      $ProjectNames = $matches[2];
-      $RepositoryNames = $matches[3];
-    } elseif ($gitRemote -match "https\:\/\/([^\.]+)\.visualstudio.com\/DefaultCollection/([^/]+)\/_git\/(.*)") {
-      $Organization = $matches[1].ToLower();
-      $ProjectNames = $matches[2];
-      $RepositoryNames = $matches[3];
+    $repositoryInfo = Get-AdoRepositoryInfo;
+    $organizationUri = if ($Organization) {
+      if ($Organization -match "^https?://") {
+        $Organization.TrimEnd("/");
+      } else {
+        "https://dev.azure.com/$Organization";
+      }
+    } else {
+      $repositoryInfo.OrganizationUri;
     }
-  
-    if (!($AuthenticationPersonalAccessToken)) {
-        $AuthenticationPersonalAccessToken = $env:AuthenticationPersonalAccessToken;
-    }
-  
-    if (!($AuthenticationPersonalAccessToken)) {
-      $AuthenticationPersonalAccessToken = GetAdoAuthTokenForOrigin "https://$ApiHost";
-    }
-  
-    if (!($AuthenticationPersonalAccessToken)) {
-        throw "Must provide valid AuthenticationPersonalAccessToken parameter. See https://www.visualstudio.com/en-us/docs/integrate/get-started/auth/overview";
-    }
+    $projectName = if ($ProjectNames) { @($ProjectNames)[0] } else { $repositoryInfo.Project };
+    $repoName = if ($RepositoryNames) { @($RepositoryNames)[0] } else { $repositoryInfo.Repository };
   
     if (!($BranchNames)) {
       $BranchNames = (git rev-parse --abbrev-ref HEAD);
     }
 
     if (!$PullRequestId) {
-        $PullRequestId = Get-AdoPullRequestForBranch;
+        $PullRequestId = Get-AdoPullRequestForBranch `
+          -Organization $organizationUri `
+          -ProjectNames @($projectName) `
+          -RepositoryNames @($repoName) `
+          -BranchNames @($BranchNames);
     }
   
     $BranchNames = @($BranchNames);
-    $ProjectNames = @($ProjectNames);
-    $RepositoryNames = @($RepositoryNames);
-    $repoName = $RepositoryNames[0];
-  
-    $fullUri = "https://$ApiHost/$Organization/$ProjectNames/$ApiName/$repoName/pullRequests/$PullRequestId/threads?api-version=7.1-preview.1";
-  
-    $user = "";
-    $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(("{0}:{1}" -f $user,$AuthenticationPersonalAccessToken)));
-  
-    Write-Verbose $fullUri
 
     $results = @();
     
-    $result = (Invoke-RestMethod -Uri $fullUri -Method Get -ContentType "application/json" -Headers @{Authorization=("Basic {0}" -f $base64AuthInfo)});
+    $result = Invoke-AzCli -Arguments @(
+      "devops", "invoke",
+      "--organization", $organizationUri,
+      "--area", "git",
+      "--resource", "pullRequestThreads",
+      "--route-parameters", "project=$projectName", "repositoryId=$repoName", "pullRequestId=$PullRequestId",
+      "--http-method", "GET",
+      "--api-version", "7.1"
+    );
     $result.value | Where-Object { 
         $_.status -eq "active" -and
         $_.threadContext -and
@@ -816,12 +983,26 @@ function Get-AdoPullRequestIssues {
           }
         }) | Where-Object { $_ };
       $buildIds | ForEach-Object {
-        $build = (Get-AdoBuild -BuildId $_);
-        $timelineUri = $build._links.timeline.href;
-        $timelineResult = (Invoke-RestMethod -Uri $timelineUri -Method Get -ContentType "application/json" -Headers @{Authorization=("Basic {0}" -f $base64AuthInfo)});
+        $buildId = $_;
+        $timelineResult = Invoke-AzCli -Arguments @(
+          "devops", "invoke",
+          "--organization", $organizationUri,
+          "--area", "build",
+          "--resource", "timeline",
+          "--route-parameters", "project=$projectName", "buildId=$buildId",
+          "--http-method", "GET",
+          "--api-version", "7.1"
+        );
         $timelineResult.records | Where-Object { $_.issues } | ForEach-Object {
-          $logUri = $_.log.url;
-          $logResult = (Invoke-RestMethod -Uri $logUri -Method Get -ContentType "application/json" -Headers @{Authorization=("Basic {0}" -f $base64AuthInfo)});
+          $logResult = Invoke-AzCli -OutputFormat Text -Arguments @(
+            "devops", "invoke",
+            "--organization", $organizationUri,
+            "--area", "build",
+            "--resource", "logs",
+            "--route-parameters", "project=$projectName", "buildId=$buildId", "logId=$($_.log.id)",
+            "--http-method", "GET",
+            "--api-version", "7.1"
+          );
           $logResult.Split("`n") | Where-Object { $_.Contains(" error:") } | ForEach-Object {
             $spaceIdx = $_.IndexOf(" ");
             $line = $_.Substring($spaceIdx + 1);
@@ -1011,84 +1192,61 @@ function Get-AdoBuildLogs {
 
 function Get-AdoPullRequestForBranch {
   [CmdletBinding()]
-    param(
-        [string] $Organization,# = "microsoft",
-        [string[]] $ProjectNames,# = @("OS"),
-        [string[]] $RepositoryNames,# = @("os"),
-        [string[]] $BranchNames = @(),
-        [string] $AuthenticationPersonalAccessToken,
-        [ValidateSet("Id", "Uri", "PSObject")] [string] $OutputFormat = "Id",
-        [string] $ApiHost = "dev.azure.com",
-        [string] $ApiName = "_apis/git/repositories"
-        );
-    
-    $gitRemote = (git remote -v)[0].Split("`t")[1].Split(" ")[0];
-    if ($gitRemote -match "https\:\/\/([^\.]+)\.visualstudio.com\/([^/]+)\/_git\/(.*)") {
-      $Organization = $matches[1].ToLower();
-      $ProjectNames = $matches[2];
-      $RepositoryNames = $matches[3];
-    } elseif ($gitRemote -match "https\:\/\/([^\.]+)\.visualstudio.com\/DefaultCollection/([^/]+)\/_git\/(.*)") {
-      $Organization = $matches[1].ToLower();
-      $ProjectNames = $matches[2];
-      $RepositoryNames = $matches[3];
+  param(
+    [string] $Organization,
+    [string[]] $ProjectNames,
+    [string[]] $RepositoryNames,
+    [string[]] $BranchNames = @(),
+    [ValidateSet("Id", "Uri", "PSObject")] [string] $OutputFormat = "Id"
+  );
+
+  $repositoryInfo = Get-AdoRepositoryInfo;
+  $organizationUri = if ($Organization) {
+    if ($Organization -match "^https?://") {
+      $Organization.TrimEnd("/");
+    } else {
+      "https://dev.azure.com/$Organization";
     }
-  
-    if (!($AuthenticationPersonalAccessToken)) {
-        $AuthenticationPersonalAccessToken = $env:AuthenticationPersonalAccessToken;
-    }
-  
-    if (!($AuthenticationPersonalAccessToken)) {
-      $AuthenticationPersonalAccessToken = GetAdoAuthTokenForOrigin "https://$ApiHost";
-    }
-  
-    if (!($AuthenticationPersonalAccessToken)) {
-        throw "Must provide valid AuthenticationPersonalAccessToken parameter. See https://www.visualstudio.com/en-us/docs/integrate/get-started/auth/overview";
-    }
-  
-    if (!($BranchNames)) {
-      if ($env:SDXROOT) {
-        $currentBranch = "official/$(SourceControl.Git.ShellAdapter GetOfficialBranch)"; #(gc (join-path $env:SDXROOT ".git\HEAD")).substring("ref: refs/heads/".length);
-        $BranchNames = @($currentBranch);
-      }
-      else {
-        $BranchNames = (git rev-parse --abbrev-ref HEAD);
+  } else {
+    $repositoryInfo.OrganizationUri;
+  }
+  $projectName = if ($ProjectNames) { @($ProjectNames)[0] } else { $repositoryInfo.Project };
+  $repositoryName = if ($RepositoryNames) { @($RepositoryNames)[0] } else { $repositoryInfo.Repository };
+
+  if (!($BranchNames)) {
+    $BranchNames = @((git rev-parse --abbrev-ref HEAD));
+  }
+  $branchName = @($BranchNames)[0];
+
+  $pullRequests = @(Invoke-AzCli -Arguments @(
+    "repos", "pr", "list",
+    "--organization", $organizationUri,
+    "--project", $projectName,
+    "--repository", $repositoryName,
+    "--source-branch", $branchName,
+    "--status", "all"
+  ));
+
+  switch ($OutputFormat) {
+    "Id" {
+      $pullRequests | ForEach-Object {
+        $_.pullRequestId;
       }
     }
-  
-    $BranchNames = @($BranchNames);
-    $ProjectNames = @($ProjectNames);
-    $RepositoryNames = @($RepositoryNames);
-    $repoName = $RepositoryNames[0];
-    $branchName = $BranchNames[0];
-  
-    $fullUri = "https://$ApiHost/$Organization/$ProjectNames/$ApiName/$repoName/pullrequests?searchCriteria.sourceRefName=refs/heads/$branchName&api-version=7.1-preview.1";
-  
-    $user = "";
-    $base64AuthInfo = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(("{0}:{1}" -f $user,$AuthenticationPersonalAccessToken)));
-  
-    Write-Verbose $fullUri
 
-    $result = (Invoke-RestMethod -Uri $fullUri -Method Get -ContentType "application/json" -Headers @{Authorization=("Basic {0}" -f $base64AuthInfo)});
-    if ($result) {
-      switch ($OutputFormat) {
-          "Id" {
-              $result.value | ForEach-Object {
-                  $_.pullRequestId;
-              }
-          }
-
-          "Uri" {
-              $result.value | ForEach-Object {
-                  $repoUri = (git config remote.origin.url);
-                  ($repoUri + "/pullrequest/" + $_.pullRequestId);
-              }
-          }
-
-          "PSObject" {
-              $result;
-          }
+    "Uri" {
+      $pullRequests | ForEach-Object {
+        "$($repositoryInfo.Remote)/pullrequest/$($_.pullRequestId)";
       }
     }
+
+    "PSObject" {
+      [PSCustomObject] @{
+        count = $pullRequests.Count;
+        value = $pullRequests;
+      };
+    }
+  }
 }
 
 function Get-NotesPath {
