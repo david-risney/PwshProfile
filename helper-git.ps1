@@ -118,8 +118,10 @@ function Get-GitPathPullRequestStatus {
       $pullRequestUri = $null;
       $pullRequestNumber = $null;
       $pullRequestStatus = $null;
+      $changeLabel = "PR";
+      $shouldLookupPullRequest = $branch -notin @("main", "master");
 
-      if ($remote -match "(?i)github\.com[/:]") {
+      if ($shouldLookupPullRequest -and $remote -match "(?i)github\.com[/:]") {
         if (!(Get-Command gh -ErrorAction Ignore)) {
           throw "GitHub CLI ('gh') is required to get pull request status for '$gitRoot'.";
         }
@@ -128,19 +130,32 @@ function Get-GitPathPullRequestStatus {
         try {
           $ghOutput = @(gh pr list --head $branch --state all --limit 1 --json number,url,state 2>&1);
           if ($LASTEXITCODE -ne 0) {
-            throw "Failed to get the GitHub pull request for '$gitRoot': $($ghOutput -join [Environment]::NewLine)";
-          }
-
-          $githubPullRequests = @($ghOutput | ConvertFrom-Json);
-          if ($githubPullRequests.Count -gt 0) {
-            $pullRequestUri = $githubPullRequests[0].url;
-            $pullRequestNumber = $githubPullRequests[0].number;
-            $pullRequestStatus = $githubPullRequests[0].state;
+            $ghError = $ghOutput -join [Environment]::NewLine;
+            if ($ghError -match "(?i)Could not resolve to a Repository") {
+              Write-Warning "GitHub repository for '$gitRoot' is unavailable; skipping pull request lookup.";
+            } else {
+              throw "Failed to get the GitHub pull request for '$gitRoot': $ghError";
+            }
+          } else {
+            $githubPullRequests = @($ghOutput | ConvertFrom-Json);
+            if ($githubPullRequests.Count -gt 0) {
+              $pullRequestUri = $githubPullRequests[0].url;
+              $pullRequestNumber = $githubPullRequests[0].number;
+              $pullRequestStatus = $githubPullRequests[0].state;
+            }
           }
         } finally {
           Pop-Location;
         }
-      } elseif ($remote -match "(?i)(dev\.azure\.com|visualstudio\.com)") {
+      } elseif ($shouldLookupPullRequest -and $remote -match "(?i)chromium\.googlesource\.com[/:]chromium/src") {
+        $gerritChange = Get-GerritChangeForBranch -Path $gitRoot -BranchName $branch;
+        if ($gerritChange) {
+          $pullRequestUri = $gerritChange.Uri;
+          $pullRequestNumber = $gerritChange.Number;
+          $pullRequestStatus = $gerritChange.Status;
+          $changeLabel = "CL";
+        }
+      } elseif ($shouldLookupPullRequest -and $remote -match "(?i)(dev\.azure\.com|visualstudio\.com)") {
         Push-Location $gitRoot;
         try {
           $adoResult = Get-AdoPullRequestForBranch -BranchNames @($branch) -OutputFormat PSObject;
@@ -161,12 +176,15 @@ function Get-GitPathPullRequestStatus {
       [PSCustomObject] @{
         Path = $gitRoot;
         Branch = $branch;
-        PR = if ($pullRequestUri) {
-          "`e]8;;$pullRequestUri`e\PR#$pullRequestNumber`e]8;;`e\";
+        PRStatus = if ($pullRequestUri) {
+          $displayText = "$changeLabel#$pullRequestNumber";
+          if ($pullRequestStatus) {
+            $displayText += " $pullRequestStatus";
+          }
+          "`e]8;;$pullRequestUri`e\$displayText`e]8;;`e\";
         } else {
           $null;
         };
-        PRStatus = $pullRequestStatus;
       };
     }
   }
@@ -184,12 +202,93 @@ function Open-PullRequest {
 }
 
 function Get-GerritPullRequestUri {
-  $result = (git cl issue --json - 2>&1);
-  if (!($result[0] -match "is not a git command")) {
-    $jsonString = $result[-1];
-    $json = $jsonString | ConvertFrom-Json;
-    $json.issue_url;
+  $change = Get-GerritChangeForBranch -SkipStatus;
+  if ($change) {
+    $change.Uri;
   }
+}
+
+function Get-DepotToolsPath {
+  [CmdletBinding()]
+  param(
+    [string] $RepositoryPath = "."
+  );
+
+  $candidates = @();
+  if ($env:DEPOT_TOOLS) {
+    $candidates += $env:DEPOT_TOOLS;
+  }
+  $candidates += Join-Path (Split-Path (Get-Item $RepositoryPath).FullName -Parent) "depot_tools";
+
+  $gitClCommand = Get-Command git-cl -ErrorAction Ignore;
+  if ($gitClCommand) {
+    $candidates += Split-Path $gitClCommand.Source -Parent;
+  }
+
+  $candidates |
+    Where-Object { $_ } |
+    ForEach-Object { (Get-Item $_ -ErrorAction Ignore).FullName } |
+    Where-Object { $_ -and (Test-Path (Join-Path $_ "git-cl") -PathType Leaf) } |
+    Select-Object -First 1;
+}
+
+function Get-GerritChangeForBranch {
+  [CmdletBinding()]
+  param(
+    [string] $Path = ".",
+    [string] $BranchName,
+    [switch] $SkipStatus
+  );
+
+  if (!$BranchName) {
+    $BranchName = git -C $Path rev-parse --abbrev-ref HEAD;
+    if ($LASTEXITCODE -ne 0) {
+      throw "Failed to get the branch for '$Path'.";
+    }
+  }
+
+  $issue = git -C $Path config --get "branch.$BranchName.gerritissue";
+  if ($LASTEXITCODE -ne 0 -or !$issue) {
+    return;
+  }
+
+  $server = git -C $Path config --get "branch.$BranchName.gerritserver";
+  if ($LASTEXITCODE -ne 0 -or !$server) {
+    $remote = git -C $Path remote get-url origin;
+    if ($remote -match "(?i)chromium\.googlesource\.com") {
+      $server = "https://chromium-review.googlesource.com";
+    } else {
+      throw "No Gerrit server is configured for branch '$BranchName' in '$Path'.";
+    }
+  }
+  $server = $server.TrimEnd("/");
+
+  $status = $null;
+  if (!$SkipStatus) {
+    $depotToolsPath = Get-DepotToolsPath -RepositoryPath $Path;
+    if ($depotToolsPath) {
+      $originalPath = $env:PATH;
+      try {
+        $env:PATH = "$depotToolsPath;$originalPath";
+        $statusOutput = @(& git -C $Path cl status --field status 2>&1);
+        if ($LASTEXITCODE -ne 0) {
+          Write-Warning "Failed to get Gerrit status for CL $issue in '$Path': $($statusOutput -join [Environment]::NewLine)";
+        } elseif ($statusOutput.Count -gt 0) {
+          $status = ($statusOutput | Select-Object -Last 1).ToString().Trim();
+        }
+      } finally {
+        $env:PATH = $originalPath;
+      }
+    } else {
+      Write-Warning "depot_tools was not found for '$Path'; returning CL $issue without status.";
+    }
+  }
+
+  [PSCustomObject] @{
+    Number = [int]$issue;
+    Status = $status;
+    Uri = "$server/$issue";
+  };
 }
 
 New-Alias -f Create-PullRequest Open-PullRequest;
