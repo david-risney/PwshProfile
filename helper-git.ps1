@@ -1375,3 +1375,36 @@ function Get-Notes {
   }
 }
 New-Alias -f notes Get-Notes;
+
+
+function DevStatus {
+  @() + 
+    @(Find-DevEnvironmentEnlistment | %{ join-path $_.root "depot_tools*" }) + 
+    @(Find-DevEnvironmentEnlistment | %{ join-path $_.root "src" }) + 
+    @(join-path $env:USERPROFILE "source\repos\*") | %{ get-gitpathpullrequeststatus $_ } | %{
+      $path = $_.Path;
+      # Use OSC 8 hyperlink to make the Path clickable to the path
+      $pathAsLink = Format-TerminalClickableString $path $path;
+
+      $emojiForRepo = repoEmoji $_.Path;
+
+      $output = " $emojiForRepo " + $pathAsLink;
+
+      $pathParts = $path -split "[\\/]";
+      $ignoreBranches = @("main", "master", "HEAD");
+      if (!($pathParts[$pathParts.Count - 1].Contains(".")) -and -not ($ignoreBranches -contains $_.Branch)) {
+        $output += ", " + $_.Branch;
+      }
+
+      if ($_.PR) {
+        $status = $_.Status;
+        $pr = $_.PR;
+        $prUrl = $_.PRUri;
+        $prAsLink = Format-TerminalClickableString $prUrl $pr;
+
+        $output += ", " + $prAsLink + " ($status)";
+      }
+
+      $output;
+  }
+}

@@ -335,6 +335,23 @@ if ($Update -eq "On") {
 #  * add scrollbar mark support
 IncrementProgress "Prompt shim";
 Copy-Item Function:prompt Function:poshPrompt;
+function repoEmoji {
+  param($gitRoot);
+
+  $repoEmoji = "📂","📦","🔀","🌿","⚙️","🛠️","🔧","💻","🗂️","📁","🚀","✨","🎯","🔥","💡","🏗️",
+    "🧪","🎨","🌐","🔒","📡","🧩","🪐","⚡","🦊","🐙","🔬","🎲","🧲","💎","🌀","🍀",
+    "🪄","🎵","🛡️","🦾","📌","🗺️","🧭","⛏️","🔑","🪵","🌊","🏔️","🎪","🧿","🪩","🫧",
+    "🐝","🦋","🐢","🐳","🦈","🦑","🦎","🐍","🦩","🦜","🐧","🦉","🐺","🦁","🐯","🐻",
+    "🍄","🌵","🌴","🎋","🌸","🌻","🍁","🍂","🍊","🍋","🍇","🍉","🥝","🥥","🌶️","🧅",
+    "🎸","🎺","🥁","🎻","🎹","🎷","📯","🪘","🧊","🔮","🪬","🧸","🎭","🎠","🎡","🎢",
+    "🏰","🗼","🗽","⛩️","🕌","🕍","⛪","🏛️","🛸","🚂","🚁","⛵","🚤","🏎️","🛻","🚜";
+  # Quick string hash using prime 31 (same as Java's String.hashCode) for good distribution.
+  # Mask with 0x7FFFFFFF each iteration to stay a positive int and avoid float promotion.
+  $hash = 0; foreach ($c in $gitRoot.ToCharArray()) { $hash = ($hash * 31 + [int]$c) -band 0x7FFFFFFF; }
+  $repoEmoji[$hash % $repoEmoji.Length];
+
+}
+
 function prompt {
     $previousSuccess = $?;
     $previousLastExitCode = $global:LASTEXITCODE;
@@ -362,17 +379,7 @@ function prompt {
           } elseif ($gitOrigin -match "https://[^.]+.visualstudio.com/[^/]+/([^/]+)/_git/.+") {
             $Host.UI.RawUI.WindowTitle = $matches[1];
           } else {
-            $repoEmoji = "📂","📦","🔀","🌿","⚙️","🛠️","🔧","💻","🗂️","📁","🚀","✨","🎯","🔥","💡","🏗️",
-              "🧪","🎨","🌐","🔒","📡","🧩","🪐","⚡","🦊","🐙","🔬","🎲","🧲","💎","🌀","🍀",
-              "🪄","🎵","🛡️","🦾","📌","🗺️","🧭","⛏️","🔑","🪵","🌊","🏔️","🎪","🧿","🪩","🫧",
-              "🐝","🦋","🐢","🐳","🦈","🦑","🦎","🐍","🦩","🦜","🐧","🦉","🐺","🦁","🐯","🐻",
-              "🍄","🌵","🌴","🎋","🌸","🌻","🍁","🍂","🍊","🍋","🍇","🍉","🥝","🥥","🌶️","🧅",
-              "🎸","🎺","🥁","🎻","🎹","🎷","📯","🪘","🧊","🔮","🪬","🧸","🎭","🎠","🎡","🎢",
-              "🏰","🗼","🗽","⛩️","🕌","🕍","⛪","🏛️","🛸","🚂","🚁","⛵","🚤","🏎️","🛻","🚜";
-            # Quick string hash using prime 31 (same as Java's String.hashCode) for good distribution.
-            # Mask with 0x7FFFFFFF each iteration to stay a positive int and avoid float promotion.
-            $hash = 0; foreach ($c in $gitRoot.ToCharArray()) { $hash = ($hash * 31 + [int]$c) -band 0x7FFFFFFF; }
-            $Host.UI.RawUI.WindowTitle = $repoEmoji[$hash % $repoEmoji.Length] + " " + (Split-Path $gitRoot -Leaf);
+            $Host.UI.RawUI.WindowTitle =  repoEmoji($gitRoot) + " " + (Split-Path $gitRoot -Leaf);
           }
         } else {
           if (!$env:DefaultWindowTitle) {
