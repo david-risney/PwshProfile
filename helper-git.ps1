@@ -176,15 +176,9 @@ function Get-GitPathPullRequestStatus {
       [PSCustomObject] @{
         Path = $gitRoot;
         Branch = $branch;
-        PRStatus = if ($pullRequestUri) {
-          $displayText = "$changeLabel#$pullRequestNumber";
-          if ($pullRequestStatus) {
-            $displayText += " $pullRequestStatus";
-          }
-          "`e]8;;$pullRequestUri`e\$displayText`e]8;;`e\";
-        } else {
-          $null;
-        };
+        PR = if ($pullRequestNumber) { "$changeLabel#$pullRequestNumber" } else { $null };
+        Status = $pullRequestStatus;
+        PRUri = $pullRequestUri;
       };
     }
   }
