@@ -1,0 +1,99 @@
+$ErrorActionPreference = 'Stop'
+
+function Write-HookResult([hashtable]$Result) {
+    [Console]::Out.Write(($Result | ConvertTo-Json -Compress -Depth 20))
+}
+
+function Test-ExplicitOptOut([string]$Command) {
+    if ($env:COPILOT_PSMUX -eq '0') { return $true }
+    return $Command -match '(?i)(?:COPILOT_PSMUX\s*=\s*[''"]?0|\$env:COPILOT_PSMUX\s*=\s*[''"]0[''"])'
+}
+
+function Test-PsmuxCommand([string]$Command) {
+    return $Command -match '(?i)(?:^|[\s;&|])(?:psmux|pmux|tmux)(?:\.exe)?(?:\s|$)'
+}
+
+function Test-PsmuxAvailable {
+    if (Get-Command psmux, pmux -ErrorAction SilentlyContinue |
+        Select-Object -First 1) {
+        return $true
+    }
+    if ($env:LOCALAPPDATA) {
+        return Test-Path -LiteralPath (
+            Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links\psmux.exe') `
+            -PathType Leaf
+    }
+    return $false
+}
+
+function Test-ExactOutput([pscustomobject]$ToolArgs, [string]$Command) {
+    if ($env:COPILOT_PSMUX_EXACT_OUTPUT -eq '1') { return $true }
+    if ($ToolArgs.description -match '(?i)\b(binary|byte stream|exact bytes?|machine-readable)\b') {
+        return $true
+    }
+    return $Command -match '(?ix)
+        (?:^|\s)-AsByteStream(?:\s|$) |
+        (?:^|\s)-Encoding\s+Byte(?:\s|$) |
+        \[Console\]::OpenStandard(?:Output|Error) |
+        \bConvertTo-Json\b |
+        (?:^|\s)--json(?:\s|=|$) |
+        (?:^|\s)-(?:json|raw)(?:\s|$)
+    '
+}
+
+try {
+    $raw = [Console]::In.ReadToEnd()
+    if (-not $raw) { Write-HookResult @{}; exit 0 }
+    $payload = $raw | ConvertFrom-Json
+    $toolArgs = $payload.toolArgs
+    if (-not $toolArgs -or -not ($toolArgs.command -is [string])) {
+        Write-HookResult @{}
+        exit 0
+    }
+
+    $command = [string]$toolArgs.command
+    $isBackground = ($toolArgs.mode -eq 'async') -or ($toolArgs.detach -eq $true)
+    $skip = [bool]$env:PSMUX_SESSION -or
+        (Test-PsmuxCommand $command) -or
+        $isBackground -or
+        (Test-ExactOutput $toolArgs $command) -or
+        (Test-ExplicitOptOut $command) -or
+        -not (Test-PsmuxAvailable)
+    if ($skip) {
+        Write-HookResult @{}
+        exit 0
+    }
+
+    $tempRoot = Join-Path $env:TEMP 'long-run-hook'
+    New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
+    $commandFile = Join-Path $tempRoot ("command-{0}.ps1" -f [guid]::NewGuid().ToString('N'))
+    [System.IO.File]::WriteAllText(
+        $commandFile,
+        $command,
+        [System.Text.UTF8Encoding]::new($false))
+
+    $runner = Join-Path $env:COPILOT_PLUGIN_ROOT 'skills\long-run\scripts\Start-LongRun.ps1'
+    $cwd = if ($payload.cwd) { [string]$payload.cwd } else { (Get-Location).Path }
+    $quote = {
+        param([string]$Value)
+        "'" + ($Value -replace "'", "''") + "'"
+    }
+    $wrapped = "try { & $(& $quote $runner) -CommandFile $(& $quote $commandFile) -RemoveCommandFile " +
+        "-WorkingDirectory $(& $quote $cwd) } finally { Remove-Item -LiteralPath " +
+        "$(& $quote $commandFile) -Force -ErrorAction SilentlyContinue }; exit `$LASTEXITCODE"
+
+    $modified = [ordered]@{}
+    foreach ($property in $toolArgs.PSObject.Properties) {
+        $modified[$property.Name] = $property.Value
+    }
+    $modified.command = $wrapped
+    $modified.mode = 'sync'
+    $modified.Remove('detach')
+
+    Write-HookResult @{ modifiedArgs = $modified }
+} catch {
+    # preToolUse command hooks fail closed on non-zero exit. Parsing or local
+    # setup trouble must leave the original tool call untouched instead.
+    Write-HookResult @{}
+    exit 0
+}

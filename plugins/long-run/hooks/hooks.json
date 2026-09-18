@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "description": "Route eligible synchronous PowerShell tool calls through attached psmux sessions.",
+  "hooks": {
+    "preToolUse": [
+      {
+        "type": "command",
+        "matcher": "powershell",
+        "powershell": "& \"$env:COPILOT_PLUGIN_ROOT/hooks/Invoke-LongRunHook.ps1\"",
+        "timeoutSec": 10
+      }
+    ]
+  }
+}
