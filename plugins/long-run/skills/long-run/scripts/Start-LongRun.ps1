@@ -522,11 +522,9 @@ try {
         $transcriptDoneFile = Join-Path $stateDir "transcript$suffix.done"
         $captureReadyFile = Join-Path $stateDir "capture$suffix.ready"
         $recorderReadyFile = Join-Path $stateDir "recorder$suffix.ready"
-        $pipeCommand = (
-            '"{0}" -NoProfile -NonInteractive -ExecutionPolicy Bypass ' +
-            '-File "{1}" "{2}" "{3}" "{4}" "{5}"'
-        ) -f
-                ($pwshPath -replace '"', '""'),
+        $pipeCommand =
+            'pwsh.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass ' +
+            '-File "{0}" "{1}" "{2}" "{3}" "{4}"' -f
                 ($recorderFile -replace '"', '""'),
                 ($transcriptFile -replace '"', '""'),
                 ($transcriptDoneFile -replace '"', '""'),

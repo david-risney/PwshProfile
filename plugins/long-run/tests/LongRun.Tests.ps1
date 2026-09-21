@@ -92,7 +92,7 @@ switch ($args[0]) {
                     '"((?:[^"]|"")*)"') | ForEach-Object {
                     $_.Groups[1].Value -replace '""', '"'
                 })
-            if ($quoted.Count -ge 6) {
+            if ($quoted.Count -ge 5) {
                 New-Item -ItemType File -Path $quoted[-2] -Force | Out-Null
                 New-Item -ItemType File -Path $quoted[-1] -Force | Out-Null
                 New-Item -ItemType File `
@@ -220,10 +220,7 @@ exit 23
             Where-Object { $_[0] -eq 'pipe-pane' } |
             Select-Object -First 1)[0]
         $pipePane | Should Not BeNullOrEmpty
-        [string]$pipePane[-1] | Should Match (
-            '^"' +
-            [regex]::Escape((Get-Command pwsh -CommandType Application).Source) +
-            '" ')
+        [string]$pipePane[-1] | Should Match '^pwsh\.exe '
     }
 
     It 'continues an automatic remote run when gateway startup fails' {
@@ -646,6 +643,9 @@ Describe 'Invoke-LongRunHook' {
 
     $skipCases = @(
         @{ name = 'a psmux command'; args = @{ command = 'psmux list-sessions'; mode = 'sync' }; env = @{} },
+        @{ name = 'a quoted psmux path'; args = @{ command = '& ''C:\Program Files\psmux\psmux.exe'' attach-session'; mode = 'sync' }; env = @{} },
+        @{ name = 'a relative psmux path'; args = @{ command = '.\tools\pmux.exe list-sessions'; mode = 'sync' }; env = @{} },
+        @{ name = 'a psmux path variable'; args = @{ command = '& $PsmuxPath attach-session'; mode = 'sync' }; env = @{} },
         @{ name = 'an async command'; args = @{ command = 'Start-Sleep 20'; mode = 'async' }; env = @{} },
         @{ name = 'a detached command'; args = @{ command = 'Start-Sleep 20'; mode = 'async'; detach = $true }; env = @{} },
         @{ name = 'machine-readable output'; args = @{ command = 'gh pr view --json title'; mode = 'sync' }; env = @{} },

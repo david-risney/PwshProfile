@@ -57,13 +57,22 @@ function request(port, pathname, options = {}) {
   });
 }
 
-function websocketUpgrade(port, pathname, headers = {}) {
+function websocketUpgrade(port, pathname, headers = {}, timeoutMs = 2000) {
   return new Promise((resolve, reject) => {
     const key = crypto.randomBytes(16).toString("base64");
     const socket = net.createConnection({ host: "127.0.0.1", port });
     let response = "";
-    socket.once("error", reject);
-    socket.once("connect", () => {
+    const cleanup = () => {
+      clearTimeout(timer);
+      socket.off("error", onError);
+      socket.off("connect", onConnect);
+      socket.off("data", onData);
+    };
+    const onError = (error) => {
+      cleanup();
+      reject(error);
+    };
+    const onConnect = () => {
       socket.write([
         `GET ${pathname} HTTP/1.1`,
         "Host: 127.0.0.1",
@@ -75,13 +84,22 @@ function websocketUpgrade(port, pathname, headers = {}) {
         "",
         "",
       ].join("\r\n"));
-    });
-    socket.on("data", (chunk) => {
+    };
+    const onData = (chunk) => {
       response += chunk.toString("latin1");
       if (response.includes("\r\n\r\n")) {
+        cleanup();
         resolve({ socket, response });
       }
-    });
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      socket.destroy();
+      reject(new Error("Timed out waiting for WebSocket upgrade."));
+    }, timeoutMs);
+    socket.once("error", onError);
+    socket.once("connect", onConnect);
+    socket.on("data", onData);
   });
 }
 
@@ -270,12 +288,13 @@ setTimeout(
     port: 0,
     stateDirectory: directory,
     psmux: { file: process.execPath, args: [psmux, stateFile] },
-    ttyd: { file: process.execPath, args: [ttyd] },
+    ttyd: options.ttyd || { file: process.execPath, args: [ttyd] },
     shell: process.execPath,
     version: "2.4.38",
     defaultWorkingDirectory: directory,
     terminalStartupIdleSeconds: options.terminalStartupIdleSeconds || 10,
     terminalDisconnectIdleSeconds: options.terminalDisconnectIdleSeconds || 0.1,
+    ttydStartupTimeoutMs: options.ttydStartupTimeoutMs || 10000,
     terminalFontFamily: '"Long Run Nerd Font", "CaskaydiaCove NFM", Consolas, monospace',
     terminalFontPath,
     terminalCapability: "test-terminal-capability",
@@ -364,6 +383,51 @@ test("classifies routine terminal proxy disconnects", () => {
   }
   assert.equal(isExpectedProxyDisconnect({ code: "ECONNREFUSED" }), false);
   assert.equal(isExpectedProxyDisconnect(new Error("unknown")), false);
+});
+
+test("times out incomplete WebSocket upgrades", async () => {
+  const server = net.createServer();
+  const sockets = new Set();
+  server.on("connection", (socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    await assert.rejects(
+      websocketUpgrade(server.address().port, "/", {}, 100),
+      /Timed out waiting for WebSocket upgrade/,
+    );
+  } finally {
+    for (const socket of sockets) {
+      socket.destroy();
+    }
+    await new Promise((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+});
+
+test("settles terminal shutdown when ttyd cannot spawn", async () => {
+  const current = await fixture({
+    ttyd: {
+      file: path.join(os.tmpdir(), `missing-ttyd-${crypto.randomUUID()}.exe`),
+      args: [],
+    },
+    ttydStartupTimeoutMs: 200,
+  });
+  try {
+    const response = await authorizedRequest(current, "/tmux/session/newer/");
+    assert.equal(response.status, 500);
+    await Promise.race([
+      current.gateway.close(),
+      new Promise((resolve, reject) => {
+        setTimeout(() => reject(new Error("Gateway close timed out.")), 1000);
+      }),
+    ]);
+  } finally {
+    fs.rmSync(current.directory, { recursive: true, force: true });
+  }
 });
 
 test("writes redacted structured gateway lifecycle events", async () => {

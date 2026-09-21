@@ -342,6 +342,7 @@ Describe 'Long-run real browser transport integration' {
         $commandFile = Join-Path $root 'command.ps1'
         $resultFile = Join-Path $root 'input.txt'
         $owner = $null
+        $gateway = $null
         try {
             foreach ($dependency in @('node', 'ttyd')) {
                 (Get-Command $dependency -ErrorAction SilentlyContinue) |
@@ -349,6 +350,9 @@ Describe 'Long-run real browser transport integration' {
             }
             $gateway = & $startGateway -LocalOnly `
                 -StateDirectory $gatewayState -PsmuxPath $psmux
+            $gateway | Should Not BeNullOrEmpty
+            $gateway.Port | Should BeGreaterThan 0
+            $gateway.TerminalCapability | Should Not BeNullOrEmpty
             @"
 `$line = [Console]::ReadLine()
 [IO.File]::WriteAllText(
@@ -393,10 +397,7 @@ Describe 'Long-run real browser transport integration' {
         } finally {
             Stop-LongRunIntegrationProcess $owner
             Stop-LongRunIntegrationSession $psmux $session
-            if (Test-Path -LiteralPath (
-                    Join-Path $gatewayState 'gateway.json')) {
-                & $stopGateway -StateDirectory $gatewayState
-            }
+            & $stopGateway -StateDirectory $gatewayState
             Remove-Item -LiteralPath $root -Recurse -Force `
                 -ErrorAction SilentlyContinue
         }

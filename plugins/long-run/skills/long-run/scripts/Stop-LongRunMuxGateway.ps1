@@ -56,7 +56,13 @@ try {
         -ExpectedStartTimeUtcTicks ([long]$metadata.gatewayStartTimeUtcTicks) `
         -ExpectedPath ([string]$metadata.gatewayRunnerPath) | Out-Null
     if ($metadata.tunnelId -and $metadata.devTunnelPath) {
-        & $metadata.devTunnelPath delete $metadata.tunnelId -f 2>$null | Out-Null
+        $null = & ([string]$metadata.devTunnelPath) delete `
+            ([string]$metadata.tunnelId) -f 2>$null
+        $deleteExitCode = $LASTEXITCODE
+        if ($deleteExitCode -ne 0) {
+            throw "devtunnel failed to delete tunnel '$($metadata.tunnelId)' " +
+                "(exit $deleteExitCode). Gateway state was retained for retry."
+        }
     }
     Remove-Item -LiteralPath $StateDirectory -Recurse -Force
     Write-LongRunLog -Component 'gateway-launcher' -Event 'stopped'

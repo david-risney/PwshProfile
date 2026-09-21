@@ -1052,6 +1052,8 @@ function createGateway(config) {
       terminal.finishExit();
     });
     child.once("error", (error) => {
+      clearTimeout(terminal.startupTimer);
+      clearTimeout(terminal.disconnectTimer);
       if (terminals.get(session) === terminal) {
         terminals.delete(session);
       }
@@ -1060,6 +1062,7 @@ function createGateway(config) {
         errorType: error.name,
         errorCode: error.code || null,
       }, "error");
+      terminal.finishExit();
     });
 
     try {

@@ -252,9 +252,8 @@ $bootstrapTail
         Write-LongRunLog -Component 'shell' -Event 'watcher-start-failed' `
             -Level 'warning' -Session $Session `
             -Data @{ errorType = $_.Exception.GetType().FullName }
-        Write-Warning (
-            'The persistent-shell cleanup watcher could not be started; ' +
-            "the shell will continue: $($_.Exception.Message)")
+        throw "The persistent-shell cleanup watcher could not be started: " +
+            $_.Exception.Message
     }
 
     $openedLocally = $false

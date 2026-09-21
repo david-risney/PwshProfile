@@ -10,7 +10,30 @@ function Test-ExplicitOptOut([string]$Command) {
 }
 
 function Test-PsmuxCommand([string]$Command) {
-    return $Command -match '(?i)(?:^|[\s;&|])(?:psmux|pmux|tmux)(?:\.exe)?(?:\s|$)'
+    $tokens = $null
+    $parseErrors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseInput(
+        $Command,
+        [ref]$tokens,
+        [ref]$parseErrors)
+    $commands = @($ast.FindAll({
+                param($node)
+                $node -is [System.Management.Automation.Language.CommandAst]
+            }, $true))
+    foreach ($commandAst in $commands) {
+        $commandName = $commandAst.GetCommandName()
+        if (-not $commandName -and $commandAst.CommandElements.Count -gt 0) {
+            $commandName =
+                $commandAst.CommandElements[0].Extent.Text.Trim("'`"")
+        }
+        if (-not $commandName) { continue }
+        $leaf = [System.IO.Path]::GetFileNameWithoutExtension(
+            $commandName.TrimStart('$'))
+        if ($leaf -match '^(?i:psmux|pmux|tmux)(?:path)?$') {
+            return $true
+        }
+    }
+    return $false
 }
 
 function Test-PsmuxAvailable {

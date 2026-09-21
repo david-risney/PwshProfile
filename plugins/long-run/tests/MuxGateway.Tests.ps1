@@ -145,7 +145,12 @@ switch ($args[0]) {
         [Console]::Out.Flush()
         while ($true) { Start-Sleep -Seconds 60 }
     }
-    'delete' { exit 0 }
+    'delete' {
+        if ($env:TEST_DEVTUNNEL_DELETE_EXIT) {
+            exit [int]$env:TEST_DEVTUNNEL_DELETE_EXIT
+        }
+        exit 0
+    }
 }
 '@.Replace('__TEST_ROOT__', $escapedRoot)
         $fakeDevTunnel = New-GatewayCommandWrapper $root 'fake-devtunnel' $devTunnelBody
@@ -303,6 +308,41 @@ switch ($args[0]) {
         (Get-Process -Id $result.GatewayPid -ErrorAction SilentlyContinue) |
             Should BeNullOrEmpty
         Test-Path -LiteralPath $stateDirectory | Should Be $false
+    }
+
+    It 'retains gateway state when dev tunnel deletion fails' {
+        New-Item -ItemType Directory -Path $stateDirectory | Out-Null
+        $failingDevTunnel = New-GatewayCommandWrapper `
+            $root 'failing-devtunnel' 'exit 9'
+        $metadataPath = Join-Path $stateDirectory 'gateway.json'
+        [System.IO.File]::WriteAllText(
+            $metadataPath,
+            (@{
+                    tunnelId = 'failed-delete'
+                    devTunnelPath = $failingDevTunnel
+                    tunnelPid = 0
+                    tunnelStartTimeUtcTicks = 0
+                    tunnelRunnerPath = ''
+                    gatewayPid = 0
+                    gatewayStartTimeUtcTicks = 0
+                    gatewayRunnerPath = ''
+                } | ConvertTo-Json -Compress),
+            [System.Text.UTF8Encoding]::new($false))
+        try {
+            $failure = $null
+            try {
+                & $stopGateway -StateDirectory $stateDirectory
+            } catch {
+                $failure = $_
+            }
+            $failure | Should Not BeNullOrEmpty
+            $failure.Exception.Message | Should Match 'exit 9'
+            Test-Path -LiteralPath $metadataPath | Should Be $true
+        } finally {
+            if (Test-Path -LiteralPath $metadataPath) {
+                Remove-Item -LiteralPath $stateDirectory -Recurse -Force
+            }
+        }
     }
 
     It 'does not reuse a gateway when its immutable session id changed' {
