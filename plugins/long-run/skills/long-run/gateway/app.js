@@ -61,6 +61,7 @@ function nextSessionName() {
 
 async function api(path, options = {}) {
   const headers = new Headers(options.headers);
+  const signal = options.signal || AbortSignal.timeout(30_000);
   if (options.body) {
     headers.set("Content-Type", "application/json");
   }
@@ -71,6 +72,7 @@ async function api(path, options = {}) {
     cache: "no-store",
     ...options,
     headers,
+    signal,
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => null);

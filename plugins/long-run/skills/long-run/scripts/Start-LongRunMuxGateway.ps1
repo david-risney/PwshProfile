@@ -273,31 +273,32 @@ try {
     $requiredProcessesHealthy = $false
     $gatewayHealthy = $false
     if ($metadata) {
-        $requiredProcessesHealthy = if ($LocalOnly) {
-            $true
-        } else {
-            Test-LongRunProcessIdentity `
-                -ProcessId ([int]$metadata.tunnelPid) `
-                -ExpectedStartTimeUtcTicks ([long]$metadata.tunnelStartTimeUtcTicks) `
-                -ExpectedPath ([string]$metadata.tunnelRunnerPath)
-        }
-        $gatewayHealthy = if ($metadata.gatewaySession) {
-            try {
+        try {
+            $requiredProcessesHealthy = if ($LocalOnly) {
+                $true
+            } else {
+                Test-LongRunProcessIdentity `
+                    -ProcessId ([int]$metadata.tunnelPid) `
+                    -ExpectedStartTimeUtcTicks ([long]$metadata.tunnelStartTimeUtcTicks) `
+                    -ExpectedPath ([string]$metadata.tunnelRunnerPath)
+            }
+            $gatewayHealthy = if ($metadata.gatewaySession) {
                 [bool](Get-LongRunPsmuxSessions $PsmuxPath |
                     Where-Object {
                         $_.Name -eq [string]$metadata.gatewaySession -and
                         $_.Created -eq [long]$metadata.gatewaySessionCreated -and
                         $_.Id -eq [string]$metadata.gatewaySessionId
                     })
-            } catch {
-                Write-Verbose "Could not inspect the existing psmux session: $($_.Exception.Message)"
-                $false
+            } else {
+                Test-LongRunProcessIdentity `
+                    -ProcessId ([int]$metadata.gatewayPid) `
+                    -ExpectedStartTimeUtcTicks ([long]$metadata.gatewayStartTimeUtcTicks) `
+                    -ExpectedPath ([string]$metadata.gatewayRunnerPath)
             }
-        } else {
-            Test-LongRunProcessIdentity `
-                -ProcessId ([int]$metadata.gatewayPid) `
-                -ExpectedStartTimeUtcTicks ([long]$metadata.gatewayStartTimeUtcTicks) `
-                -ExpectedPath ([string]$metadata.gatewayRunnerPath)
+        } catch {
+            Write-Verbose "Existing gateway metadata is incomplete or invalid: $($_.Exception.Message)"
+            $requiredProcessesHealthy = $false
+            $gatewayHealthy = $false
         }
     }
     if ($metadata -and
