@@ -11,11 +11,22 @@ $root = $env:TEST_PSMUX_ROOT
 $active = Join-Path $root 'active'
 $sessionFile = Join-Path $root 'session'
 $log = Join-Path $root 'calls.jsonl'
+$logMutex = [Threading.Mutex]::new(
+    $false,
+    'Local\LongRunFakePsmuxCalls-' + (Split-Path -Leaf $root))
+$logLocked = $false
+try {
+    $logLocked = $logMutex.WaitOne([TimeSpan]::FromSeconds(5))
+    if (-not $logLocked) { throw 'Timed out waiting to write the fake psmux call log.' }
+    [System.IO.File]::AppendAllText(
+        $log,
+        (($args | ConvertTo-Json -Compress) + [Environment]::NewLine))
+} finally {
+    if ($logLocked) { $logMutex.ReleaseMutex() }
+    $logMutex.Dispose()
+}
 switch ($args[0]) {
     'new-session' {
-        [System.IO.File]::AppendAllText(
-            $log,
-            (($args | ConvertTo-Json -Compress) + [Environment]::NewLine))
         $sessionName = $args[[Array]::IndexOf($args, '-s') + 1]
         Set-Content -LiteralPath $sessionFile -Value $sessionName -NoNewline
         New-Item -ItemType File -Path $active -Force | Out-Null
@@ -27,7 +38,16 @@ switch ($args[0]) {
         }
         $program = $args[$separator + 1]
         $programArgs = @($args[($separator + 2)..($args.Count - 1)])
-        & $program @programArgs
+        $savedPane = $env:PSMUX_PANE
+        $savedSession = $env:PSMUX_SESSION
+        try {
+            $env:PSMUX_PANE = '%1'
+            $env:PSMUX_SESSION = $sessionName
+            & $program @programArgs
+        } finally {
+            $env:PSMUX_PANE = $savedPane
+            $env:PSMUX_SESSION = $savedSession
+        }
         Remove-Item -LiteralPath $active -Force -ErrorAction SilentlyContinue
         exit 0
     }
@@ -36,8 +56,26 @@ switch ($args[0]) {
         exit 1
     }
     'list-sessions' {
+        $listCountFile = Join-Path $root 'list-session-count'
+        $listCount = if (Test-Path -LiteralPath $listCountFile) {
+            1 + [int](Get-Content -LiteralPath $listCountFile -Raw)
+        } else {
+            1
+        }
+        Set-Content -LiteralPath $listCountFile -Value $listCount -NoNewline
+        if ($env:TEST_PSMUX_HANG_LIST_CALL -and
+            $listCount -eq [int]$env:TEST_PSMUX_HANG_LIST_CALL) {
+            Start-Sleep -Seconds 60
+        }
         if (Test-Path -LiteralPath $active) {
             "$(Get-Content -LiteralPath $sessionFile -Raw)`t1700000000`t`$1"
+            exit 0
+        }
+        exit 1
+    }
+    'list-panes' {
+        if (Test-Path -LiteralPath $active) {
+            '%1'
             exit 0
         }
         exit 1
@@ -46,6 +84,10 @@ switch ($args[0]) {
         New-Item -ItemType File -Path (Join-Path $root 'killed') -Force | Out-Null
         Remove-Item -LiteralPath $active -Force -ErrorAction SilentlyContinue
         exit 0
+    }
+    'pipe-pane' {
+        if ($env:TEST_PSMUX_PIPE_SUCCESS -eq '1') { exit 0 }
+        exit 1
     }
     default { exit 0 }
 }
@@ -67,12 +109,26 @@ function Invoke-Hook([hashtable]$ToolArgs, [hashtable]$Environment = @{}) {
 
     $saved = @{}
     $pwsh = (Get-Command pwsh -CommandType Application).Source
+    $isolatedEnvironment = @{
+        COPILOT_AGENT_SESSION_ID = $null
+        DRAGON_PORT = $null
+        DRAGON_INSTANCE = $null
+        DRAGON_REMOTE = $null
+        DRAGON_SIDE_BY_SIDE = $null
+        'DRAGON-SERVER' = $null
+    }
+    foreach ($entry in $Environment.GetEnumerator()) {
+        $isolatedEnvironment[$entry.Key] = $entry.Value
+    }
     try {
         $saved.COPILOT_PLUGIN_ROOT = $env:COPILOT_PLUGIN_ROOT
         $env:COPILOT_PLUGIN_ROOT = $pluginRoot
-        foreach ($entry in $Environment.GetEnumerator()) {
+        foreach ($entry in $isolatedEnvironment.GetEnumerator()) {
             $saved[$entry.Key] = [Environment]::GetEnvironmentVariable($entry.Key, 'Process')
-            [Environment]::SetEnvironmentVariable($entry.Key, [string]$entry.Value, 'Process')
+            [Environment]::SetEnvironmentVariable(
+                $entry.Key,
+                $(if ($null -eq $entry.Value) { $null } else { [string]$entry.Value }),
+                'Process')
         }
         return ($payload | & $pwsh -NoProfile -File $hookScript | ConvertFrom-Json)
     } finally {
@@ -133,6 +189,22 @@ exit 23
         ($newSession -contains '-d') | Should Be $false
         ($newSession -contains '-s') | Should Be $true
         ($newSession -contains $session) | Should Be $true
+        $statusOption = @(Get-Content -LiteralPath (
+                Join-Path $env:TEST_PSMUX_ROOT 'calls.jsonl') |
+            ForEach-Object { $_ | ConvertFrom-Json -NoEnumerate } |
+            Where-Object {
+                $_[0] -eq 'set-option' -and
+                $_[-2] -eq 'status' -and
+                $_[-1] -eq 'off'
+            } |
+            Select-Object -First 1)[0]
+        $statusOption | Should Not BeNullOrEmpty
+        $pipePane = @(Get-Content -LiteralPath (
+                Join-Path $env:TEST_PSMUX_ROOT 'calls.jsonl') |
+            ForEach-Object { $_ | ConvertFrom-Json -NoEnumerate } |
+            Where-Object { $_[0] -eq 'pipe-pane' } |
+            Select-Object -First 1)[0]
+        $pipePane | Should Not BeNullOrEmpty
     }
 
     It 'continues an automatic remote run when gateway startup fails' {
@@ -154,6 +226,76 @@ exit 23
         } finally {
             $env:DRAGON_REMOTE = $savedRemote
         }
+    }
+
+    It 'releases the child when session discovery times out' {
+        $session = 'capture-session-timeout'
+        $commandFile = Join-Path $TestDrive 'capture-session-timeout.ps1'
+        Set-Content -LiteralPath $commandFile `
+            -Value "Write-Output 'session-timeout-fallback'; exit 0"
+        $saved = $env:TEST_PSMUX_HANG_LIST_CALL
+        try {
+            $env:TEST_PSMUX_HANG_LIST_CALL = '2'
+            $output = & pwsh -NoProfile -File $startScript `
+                -CommandFile $commandFile -WorkingDirectory $TestDrive `
+                -Session $session -NoViewer -RemoteMode Never `
+                -CaptureSetupTimeoutSeconds 1 -PsmuxPath $fakePsmux 2>&1
+            $LASTEXITCODE | Should Be 0
+            ($output -join "`n") | Should Match 'session-timeout-fallback'
+        } finally {
+            $env:TEST_PSMUX_HANG_LIST_CALL = $saved
+        }
+    }
+
+    It 'falls back when the transcript recorder never becomes ready' {
+        $session = 'capture-recorder-timeout'
+        $commandFile = Join-Path $TestDrive 'capture-recorder-timeout.ps1'
+        Set-Content -LiteralPath $commandFile `
+            -Value "Write-Output 'recorder-timeout-fallback'; exit 0"
+        $saved = $env:TEST_PSMUX_PIPE_SUCCESS
+        try {
+            $env:TEST_PSMUX_PIPE_SUCCESS = '1'
+            $output = & pwsh -NoProfile -File $startScript `
+                -CommandFile $commandFile -WorkingDirectory $TestDrive `
+                -Session $session -NoViewer -RemoteMode Never `
+                -CaptureSetupTimeoutSeconds 1 -PsmuxPath $fakePsmux 2>&1
+            $LASTEXITCODE | Should Be 0
+            ($output -join "`n") | Should Match 'recorder-timeout-fallback'
+        } finally {
+            $env:TEST_PSMUX_PIPE_SUCCESS = $saved
+        }
+    }
+
+    It 'publishes the remote URL before starting the synchronous command' {
+        $session = 'remote-before-command'
+        $commandFile = Join-Path $TestDrive 'remote-order.ps1'
+        $gatewayScript = Join-Path $TestDrive 'fake-gateway.ps1'
+        Set-Content -LiteralPath $commandFile -Value "Write-Output 'COMMAND_STARTED'; exit 0"
+        @'
+[pscustomobject]@{
+    Url = 'https://example.devtunnels.ms/tmux/?accessToken=capability'
+    BaseUrl = 'https://example.devtunnels.ms'
+    TerminalCapability = 'capability'
+}
+'@ | Set-Content -LiteralPath $gatewayScript
+
+        $output = & pwsh -NoProfile -File $startScript `
+            -CommandFile $commandFile -WorkingDirectory $TestDrive `
+            -Session $session -NoViewer -RemoteMode Always `
+            -PsmuxPath $fakePsmux -GatewayScript $gatewayScript 2>&1
+
+        $LASTEXITCODE | Should Be 0
+        $lines = @($output | ForEach-Object { [string]$_ })
+        $urlIndex = [Array]::FindIndex(
+            [string[]]$lines,
+            [Predicate[string]]{
+                param($line)
+                $line -match '^LONGRUN_REMOTE_URL='
+            })
+        $commandIndex = [Array]::IndexOf([string[]]$lines, 'COMMAND_STARTED')
+        $urlIndex | Should BeGreaterThan -1
+        $commandIndex | Should BeGreaterThan $urlIndex
+        ($lines -join "`n") | Should Match "Long-running command session: $session"
     }
 
     It 'returns the psmux failure code when the child never starts' {
@@ -431,6 +573,8 @@ Describe 'Invoke-LongRunHook' {
         $result.modifiedArgs.initial_wait | Should Be 120
         $result.modifiedArgs.mode | Should Be 'sync'
         $result.modifiedArgs.command | Should Match 'Start-LongRun\.ps1'
+        $result.modifiedArgs.command | Should Match "-Session 'lr-write-output-quoted-value-[a-f0-9]{8}'"
+        $result.modifiedArgs.command | Should Match '-RemoteMode Never'
         $result.modifiedArgs.command | Should Match 'finally \{ Remove-Item'
         $tokens = $null
         $errors = $null
@@ -441,6 +585,21 @@ Describe 'Invoke-LongRunHook' {
         $match = [regex]::Match($result.modifiedArgs.command, "-CommandFile '([^']+)'")
         $match.Success | Should Be $true
         [System.IO.File]::ReadAllText($match.Groups[1].Value) | Should Be "Write-Output 'quoted value'"
+        Remove-Item -LiteralPath $match.Groups[1].Value -Force
+    }
+
+    It 'forces remote gateway mode for Dragon before the command starts' {
+        $result = Invoke-Hook @{
+            command = 'Start-Sleep 30'
+            description = 'Run a normal command'
+            mode = 'sync'
+        } @{ DRAGON_REMOTE = '1' }
+
+        $result.modifiedArgs.command | Should Match "-Session 'lr-start-sleep-[a-f0-9]{8}'"
+        $result.modifiedArgs.command | Should Match '-RemoteMode Always'
+        $match = [regex]::Match(
+            $result.modifiedArgs.command,
+            "-CommandFile '([^']+)'")
         Remove-Item -LiteralPath $match.Groups[1].Value -Force
     }
 
@@ -465,6 +624,72 @@ Describe 'Invoke-LongRunHook' {
         It "does not rewrite $($case.name)" {
             $result = Invoke-Hook $case.args $case.env
             @($result.PSObject.Properties).Count | Should Be 0
+        }
+    }
+}
+
+Describe 'Long-run diagnostics' {
+    It 'records hook wrap and skip decisions without command text' {
+        $logPath = Join-Path $TestDrive 'hook-events.jsonl'
+        $wrapped = Invoke-Hook @{
+            command = "Write-Output 'do-not-log-this'"
+            description = 'Run a normal command'
+            mode = 'sync'
+        } @{ LONG_RUN_LOG_PATH = $logPath }
+        $match = [regex]::Match($wrapped.modifiedArgs.command, "-CommandFile '([^']+)'")
+        Remove-Item -LiteralPath $match.Groups[1].Value -Force
+
+        Invoke-Hook @{
+            command = 'psmux list-sessions'
+            mode = 'sync'
+        } @{ LONG_RUN_LOG_PATH = $logPath } | Out-Null
+
+        $lines = @(Get-Content -LiteralPath $logPath)
+        $events = @($lines | ForEach-Object { $_ | ConvertFrom-Json })
+        @($events | Where-Object event -EQ 'wrapped').Count | Should Be 1
+        @($events | Where-Object {
+                $_.event -eq 'skipped' -and $_.reason -eq 'psmux-command'
+            }).Count | Should Be 1
+        ($lines -join "`n") | Should Not Match 'do-not-log-this'
+    }
+
+    It 'writes concurrent redacted JSONL events without changing behavior on failure' {
+            $common = Join-Path $scriptRoot 'LongRun.Common.ps1'
+            . $common
+            $logPath = Join-Path $TestDrive 'events.jsonl'
+            $savedLogPath = $env:LONG_RUN_LOG_PATH
+            try {
+                $env:LONG_RUN_LOG_PATH = $logPath
+                (Get-LongRunGatewayLogPath (Join-Path $TestDrive 'gateway-a')) |
+                    Should Match 'events\.gateway-[a-f0-9]{12}\.jsonl$'
+                (Get-LongRunGatewayLogPath (Join-Path $TestDrive 'gateway-a')) |
+                    Should Be (Get-LongRunGatewayLogPath (Join-Path $TestDrive 'gateway-a'))
+                (Get-LongRunGatewayLogPath (Join-Path $TestDrive 'gateway-a')) |
+                    Should Not Be (Get-LongRunGatewayLogPath (Join-Path $TestDrive 'gateway-b'))
+                $processes = 1..8 | ForEach-Object {
+                    $command = ". '$($common -replace "'", "''")'; " +
+                        "Write-LongRunLog -Component test -Event concurrent " +
+                        "-Session command-secret-$_ -Data @{ index = $_; accessToken = 'secret'; command = 'private' }"
+                    $encoded = [Convert]::ToBase64String(
+                        [Text.Encoding]::Unicode.GetBytes($command))
+                    Start-Process pwsh -ArgumentList @(
+                        '-NoProfile', '-EncodedCommand', $encoded
+                    ) -PassThru -WindowStyle Hidden
+                }
+                $processes | Wait-Process
+
+                $lines = @(Get-Content -LiteralPath $logPath)
+                $lines.Count | Should Be 8
+                $events = @($lines | ForEach-Object { $_ | ConvertFrom-Json })
+                @($events | Where-Object event -EQ 'concurrent').Count | Should Be 8
+                @($events | Where-Object sessionHash).Count | Should Be 8
+                ($lines -join "`n") | Should Not Match 'secret|private|accessToken|command-secret'
+
+                $env:LONG_RUN_LOG_PATH = $TestDrive
+                { Write-LongRunLog -Component test -Event ignored } | Should Not Throw
+                6 * 7 | Should Be 42
+            } finally {
+                $env:LONG_RUN_LOG_PATH = $savedLogPath
         }
     }
 }

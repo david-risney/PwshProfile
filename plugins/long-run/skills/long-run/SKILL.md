@@ -14,16 +14,35 @@ Eligible synchronous commands are rewritten to:
 4. Preserve the hook payload's working directory and the caller's complete
    process environment.
 5. Return the real child exit code to the PowerShell tool.
-6. Forward terminal input, including `Ctrl+C`, through the attached psmux client.
+6. Forward terminal input and attempt to forward `Ctrl+C` through the attached
+   psmux client.
 7. Remove the psmux session, wrapper scripts, environment snapshot, result file,
    and hook-created command file afterward.
+
+Command-only sessions disable their psmux status line so terminal chrome is not
+included in Copilot's captured tool output. Persistent interactive shells keep
+the user's normal psmux status configuration.
+
+psmux 3.3.8 has a known Ctrl+C delivery defect: both a real browser client and
+`psmux send-keys C-c` can deliver the key without interrupting the pane process.
+Use a psmux build containing the later Ctrl+C fixes before relying on that path.
+Command panes install `pipe-pane` before releasing the original command and
+stream that complete pane transcript to Copilot. This avoids losing output to
+full-screen viewport redraws. The transcript remains a terminal stream with
+merged stdout/stderr and ANSI control sequences, so exact-output commands must
+remain excluded.
 
 psmux supports multiple simultaneous clients. After
 `LONG_RUN_VIEWER_DELAY_SECONDS` seconds (10 by default), a watcher checks whether
 the session is still running and, on a local Copilot session, opens another
 read/write client in the current Windows Terminal window or a new PowerShell
 window. Remote sessions instead publish the command's named session through the
-shared mux gateway.
+shared mux gateway. The hook detects Dragon and remotely steerable Copilot
+sessions before rewriting the tool call, reserves the session name, and passes
+`-RemoteMode Always` to the wrapper. The wrapper ensures the gateway and prints
+`LONGRUN_REMOTE_URL` and `LONGRUN_TMUX_URL` before it starts the synchronous
+attached psmux command, so report the terminal URL to the user as soon as it
+appears.
 
 ## Hook exceptions
 
@@ -37,6 +56,73 @@ The hook leaves the original tool call unchanged when:
 
 Set `COPILOT_PSMUX_EXACT_OUTPUT=1` when an otherwise ordinary-looking command
 requires byte-for-byte stdout/stderr behavior.
+
+## Diagnostics
+
+The hook, command and shell launchers, cleanup watchers, gateway launcher, Node
+gateway, ttyd lifecycle, and WebSocket acceptance/rejection write redacted JSON
+Lines events to:
+
+```text
+%LOCALAPPDATA%\long-run\logs\events.jsonl
+%LOCALAPPDATA%\long-run\logs\events.gateway-<state-hash>.jsonl
+```
+
+Each log rotates to a `.1` archive at 5 MiB. A separate file per gateway state
+directory avoids cross-runtime and multi-gateway rotation races. Events record
+names, timestamps, component and process identifiers, opaque session hashes,
+mode, exit codes, and safe error categories. They do not record session names,
+command text, environment values,
+capabilities, access tokens, cookies, or passwords. Existing gateway service and
+per-terminal stdout/stderr logs remain in the mux gateway state directory; the
+structured terminal-start event references only their containing directory.
+
+Inspect recent activity with:
+
+```powershell
+Get-Content "$env:LOCALAPPDATA\long-run\logs\events*.jsonl" -Tail 100 |
+  ForEach-Object { $_ | ConvertFrom-Json } |
+  Sort-Object timestamp |
+  Format-Table timestamp, component, event, sessionHash, pid, exitCode
+```
+
+Set `LONG_RUN_LOG_PATH` to use a trial-specific PowerShell event file; the
+gateway uses the same basename with `.gateway-<state-hash>` inserted before
+`.jsonl`. Set it to `0` to disable structured logging.
+
+## Integration tests
+
+The regular Pester suite uses fake processes. Repeat the real dependency tests
+with:
+
+```powershell
+pwsh -NoProfile -File tests\Invoke-LongRunIntegrationTests.ps1
+```
+
+The default `Core` group exercises real psmux command execution, cwd and
+environment preservation, exit-code and state cleanup, secondary-client input,
+owner-death cleanup, concurrent sessions, and complete 5,000-line transcript
+capture. Additional opt-in groups are:
+
+```powershell
+# Local gateway -> WebSocket -> ttyd -> psmux -> command stdin
+pwsh -NoProfile -File tests\Invoke-LongRunIntegrationTests.ps1 -Group Browser
+
+# Opens a visible terminal tab/window and verifies a second client attaches
+pwsh -NoProfile -File tests\Invoke-LongRunIntegrationTests.ps1 -Group UI
+
+# Loads the worktree only with --plugin-dir in an isolated Copilot home
+pwsh -NoProfile -File tests\Invoke-LongRunIntegrationTests.ps1 -Group Copilot
+
+# Expected to fail on psmux 3.3.8; use to detect a Ctrl+C dependency fix
+pwsh -NoProfile -File tests\Invoke-LongRunIntegrationTests.ps1 `
+  -Group KnownLimitations
+```
+
+`-Group All` includes the expected-failure probes, so it is not the normal
+validation command. Browser tests require `node` and `ttyd`; UI tests visibly
+open a local terminal; Copilot tests make real model/tool calls. Every test owns
+a unique session name and removes only that session and its temporary state.
 
 ## Direct usage
 
@@ -52,30 +138,56 @@ second local client. The call is synchronous and exits with the command's code.
 ## Persistent interactive shell
 
 When the user asks for a new command prompt, persistent shell, or terminal in
-the chat's working directory, run `Start-LongRunShell.ps1`. Prefix the tool call
-with `COPILOT_PSMUX=0` so the pre-tool hook does not wrap this intentionally
-asynchronous psmux operation:
+the chat's working directory, decide the launch mode before creating anything:
+
+1. Source `LongRun.Common.ps1` and call `Test-LongRunRemoteSession`.
+2. Treat Dragon, `remote_steerable` Copilot sessions, and explicit remote-access
+   requests as remote. Treat an ordinary Copilot CLI on the user's machine as
+   local.
+3. Ensure the mode's dependencies are available. Install missing commands with
+   `winget`:
+   - Always: `Microsoft.PowerShell` (`pwsh`) and `marlocarlo.psmux`.
+   - Remote: `OpenJS.NodeJS.LTS`, `tsl0922.ttyd`, and `Microsoft.devtunnel`.
+   - Local: `Microsoft.WindowsTerminal` when `wt.exe` is unavailable.
+4. For remote mode, run `devtunnel user show`; if it reports no authenticated
+   user, run `devtunnel user login` before starting the shell.
+
+Then run `Start-LongRunShell.ps1`. Prefix the tool call with
+`COPILOT_PSMUX=0` so the pre-tool hook does not wrap it:
 
 ```powershell
 $env:COPILOT_PSMUX = '0'
 & <skill>\scripts\Start-LongRunShell.ps1 `
   -Session 'shell-descriptive-name' `
-  -WorkingDirectory '<chat cwd>'
+  -WorkingDirectory '<chat cwd>' `
+  -RemoteMode Auto
 ```
+
+Run this PowerShell tool call synchronously. The script itself starts the
+persistent shell, cleanup watcher, gateway, and dev tunnel as detached
+processes, then returns the connection details.
 
 The script:
 
 - creates a detached named psmux session and leaves it running;
-- restores the chat tool's complete process environment;
-- resolves applications explicitly and starts `pwsh` when available, falling
-  back to Windows PowerShell and then `cmd`;
+- restores the chat tool's environment except agent/session markers and
+  noninteractive or color-suppression overrides (`COPILOT_*`, `DRAGON_*`,
+  psmux/tmux markers, `NO_COLOR`, `FORCE_COLOR`, Git askpass/config overrides,
+  and related variables), while preserving `PSMUX_CONFIG_FILE` and
+  `PSMUX_PICKER_SCRIPT` so user psmux themes and actions still load;
+- starts `pwsh` by default, falling back to Windows PowerShell and then `cmd`
+  only when necessary;
+- opens a new Windows Terminal tab immediately in local mode, falling back to
+  a new PowerShell window when Windows Terminal is unavailable;
 - prints `LONGRUN_SHELL_LOCAL_ATTACH` with the exact local attach command;
 - prints `LONGRUN_SHELL_REMOTE_URL` and `LONGRUN_TMUX_URL` when remote access is
   enabled;
 - cleans the shell's generated metadata when the user exits the psmux session.
 
-Always repeat the printed local attach command to the user. When a remote URL is
-printed, repeat that URL too.
+Use `-NoOpen` only when the user does not want a local terminal opened. Always
+repeat the printed local attach command as a fallback. In remote mode, give the
+user `LONGRUN_SHELL_REMOTE_URL` as the primary result and
+`LONGRUN_TMUX_URL` as the session inventory.
 
 ### Shared remote mux gateway
 

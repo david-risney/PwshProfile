@@ -21,6 +21,7 @@ param(
 
 $ErrorActionPreference = 'SilentlyContinue'
 . (Join-Path $PSScriptRoot 'LongRun.Common.ps1')
+Write-LongRunLog -Component 'shell-watcher' -Event 'started' -Session $Session
 
 while ($true) {
     $record = Get-LongRunPsmuxSessions $PsmuxPath |
@@ -34,9 +35,13 @@ while ($true) {
     Start-Sleep -Seconds 1
 }
 
+Write-LongRunLog -Component 'shell-watcher' -Event 'session-ended' -Session $Session
 $ownerTokenFile = Join-Path $StateDirectory 'owner-token'
 if ((Test-Path -LiteralPath $ownerTokenFile) -and
     [System.IO.File]::ReadAllText($ownerTokenFile) -eq $OwnerToken) {
     Remove-Item -LiteralPath $StateDirectory -Recurse -Force `
         -ErrorAction SilentlyContinue
+    Write-LongRunLog -Component 'shell-watcher' -Event 'state-cleanup-completed' `
+        -Session $Session `
+        -Data @{ stateRemoved = -not (Test-Path -LiteralPath $StateDirectory) }
 }

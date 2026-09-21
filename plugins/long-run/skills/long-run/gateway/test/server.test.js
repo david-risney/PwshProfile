@@ -10,6 +10,7 @@ const path = require("node:path");
 const test = require("node:test");
 const {
   createGateway,
+  isExpectedProxyDisconnect,
   parseSessionPath,
   psmuxAttachEnvironment,
   withoutPsmuxSessionEnvironment,
@@ -183,6 +184,10 @@ if (args[0] === "new-session") {
     path.join(path.dirname(stateFile), "session-environment.json"),
     JSON.stringify({
       NO_COLOR: process.env.NO_COLOR || null,
+      FORCE_COLOR: process.env.FORCE_COLOR || null,
+      COPILOT_CLI: process.env.COPILOT_CLI || null,
+      DRAGON_INSTANCE: process.env.DRAGON_INSTANCE || null,
+      GIT_TERMINAL_PROMPT: process.env.GIT_TERMINAL_PROMPT || null,
       TERM: process.env.TERM || null,
       COLORTERM: process.env.COLORTERM || null,
     }),
@@ -213,8 +218,12 @@ fs.writeFileSync(${JSON.stringify(path.join(directory, "ttyd-environment.json"))
   TMUX: process.env.TMUX || null,
   TMUX_PANE: process.env.TMUX_PANE || null,
   NO_COLOR: process.env.NO_COLOR || null,
+  FORCE_COLOR: process.env.FORCE_COLOR || null,
+  COPILOT_CLI: process.env.COPILOT_CLI || null,
+  DRAGON_INSTANCE: process.env.DRAGON_INSTANCE || null,
+  GIT_TERMINAL_PROMPT: process.env.GIT_TERMINAL_PROMPT || null,
 }));
-if (process.env.PSMUX_PIPE_VT !== "1") {
+if (process.env.PSMUX_PIPE_VT) {
   process.exit(73);
 }
 const port = Number(args[args.indexOf("-p") + 1]);
@@ -222,6 +231,10 @@ const basePath = args[args.indexOf("-b") + 1];
 const once = args.includes("-o");
 let acceptedConnection = false;
 const server = http.createServer((req, res) => {
+  if (req.url.endsWith("/reset")) {
+    req.socket.destroy();
+    return;
+  }
   res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
   res.end("<!doctype html><html><head></head><body>fake ttyd " + basePath + " " + req.url + "</body></html>");
 });
@@ -259,13 +272,14 @@ setTimeout(
     psmux: { file: process.execPath, args: [psmux, stateFile] },
     ttyd: { file: process.execPath, args: [ttyd] },
     shell: process.execPath,
-    version: "2.4.30",
+    version: "2.4.38",
     defaultWorkingDirectory: directory,
     terminalStartupIdleSeconds: options.terminalStartupIdleSeconds || 10,
     terminalDisconnectIdleSeconds: options.terminalDisconnectIdleSeconds || 0.1,
     terminalFontFamily: '"Long Run Nerd Font", "CaskaydiaCove NFM", Consolas, monospace',
     terminalFontPath,
     terminalCapability: "test-terminal-capability",
+    logPath: path.join(directory, "events.jsonl"),
     environment: {
       ...process.env,
       PSMUX_SESSION: "long-run-util-gateway-1",
@@ -275,6 +289,10 @@ setTimeout(
       TMUX: "test-tmux",
       TMUX_PANE: "%1",
       NO_COLOR: "1",
+      FORCE_COLOR: "false",
+      COPILOT_CLI: "1",
+      DRAGON_INSTANCE: "test",
+      GIT_TERMINAL_PROMPT: "0",
       TERM: "xterm-256color",
       COLORTERM: "truecolor",
     },
@@ -319,7 +337,7 @@ test("parses only safe named-session routes", () => {
   );
 });
 
-test("enables piped VT only for psmux terminal attach clients", () => {
+test("keeps ttyd psmux attach clients in console input mode", () => {
   assert.deepEqual(
     psmuxAttachEnvironment({
       Path: "C:\\tools",
@@ -331,9 +349,45 @@ test("enables piped VT only for psmux terminal attach clients", () => {
     {
       Path: "C:\\tools",
       TERM: "xterm-256color",
-      PSMUX_PIPE_VT: "1",
     },
   );
+});
+
+test("classifies routine terminal proxy disconnects", () => {
+  for (const code of [
+    "ECONNABORTED",
+    "ECONNRESET",
+    "EPIPE",
+    "ERR_STREAM_PREMATURE_CLOSE",
+  ]) {
+    assert.equal(isExpectedProxyDisconnect({ code }), true);
+  }
+  assert.equal(isExpectedProxyDisconnect({ code: "ECONNREFUSED" }), false);
+  assert.equal(isExpectedProxyDisconnect(new Error("unknown")), false);
+});
+
+test("writes redacted structured gateway lifecycle events", async () => {
+  const current = await fixture();
+  try {
+    const response = await authorizedRequest(current, "/tmux/session/newer/");
+    assert.equal(response.status, 200);
+    await current.gateway.close();
+    const entries = fs.readFileSync(
+      path.join(current.directory, "events.jsonl"),
+      "utf8",
+    ).trim().split(/\r?\n/).map((line) => JSON.parse(line));
+    assert.ok(entries.some((entry) => entry.event === "started"));
+    assert.ok(entries.some((entry) => entry.event === "stopped"));
+    assert.ok(entries.some((entry) =>
+      entry.event === "terminal-starting" && entry.sessionHash));
+    const serialized = JSON.stringify(entries);
+    assert.doesNotMatch(
+      serialized,
+      /test-terminal-capability|accessToken|cookie|newer/i,
+    );
+  } finally {
+    fs.rmSync(current.directory, { recursive: true, force: true });
+  }
 });
 
 test("serves a script inventory and session REST resources", async () => {
@@ -343,7 +397,7 @@ test("serves a script inventory and session REST resources", async () => {
     const response = await authorizedRequest(current, "/tmux/");
     assert.equal(response.status, 200);
     assert.match(response.body, /psmux sessions/);
-    assert.match(response.body, /Long-run version 2\.4\.30/);
+    assert.match(response.body, /Long-run version 2\.4\.38/);
     assert.doesNotMatch(response.body, /Opening a session starts/);
     assert.match(response.body, /<h2>Sessions<\/h2>/);
     assert.match(response.body, /<h2>Long-run utilities<\/h2>/);
@@ -514,6 +568,7 @@ test("recreates ttyd after disconnect and allows later session visits", async ()
     const first = await request(current.port, "/tmux/session/newer/", {
       headers: { cookie },
     });
+
     assert.equal(first.status, 200);
     assert.match(first.body, /fake ttyd \/tmux\/session\/newer/);
     assert.match(first.body, /font-family:"Long Run Nerd Font"/);
@@ -544,10 +599,14 @@ test("recreates ttyd after disconnect and allows later session visits", async ()
         PSMUX_SESSION: null,
         PSMUX_TARGET_SESSION: null,
         PSMUX_CLAUDE_TEAMMATE_MODE: null,
-        PSMUX_PIPE_VT: "1",
+        PSMUX_PIPE_VT: null,
         TMUX: null,
         TMUX_PANE: null,
         NO_COLOR: null,
+        FORCE_COLOR: null,
+        COPILOT_CLI: null,
+        DRAGON_INSTANCE: null,
+        GIT_TERMINAL_PROMPT: null,
       },
     );
     const font = await authorizedRequest(
@@ -633,6 +692,35 @@ test("recreates ttyd after disconnect and allows later session visits", async ()
   }
 });
 
+test("records reset terminal proxies without raw errors or format placeholders", async () => {
+  const current = await fixture();
+  const errors = [];
+  const originalConsoleError = console.error;
+  console.error = (...args) => errors.push(args);
+  try {
+    await assert.rejects(
+      authorizedRequest(current, "/tmux/session/newer/reset"),
+    );
+    await waitFor(() => {
+      const log = fs.readFileSync(
+        path.join(current.directory, "events.jsonl"),
+        "utf8",
+      );
+      return log.includes('"event":"terminal-proxy-disconnected"');
+    });
+    assert.equal(errors.length, 0);
+    const log = fs.readFileSync(
+      path.join(current.directory, "events.jsonl"),
+      "utf8",
+    );
+    assert.doesNotMatch(log, /ECONNRESET.*at TCP|%s|newer/);
+    assert.match(log, /"errorCode":"ECONNRESET"/);
+  } finally {
+    console.error = originalConsoleError;
+    await current.close();
+  }
+});
+
 test("deduplicates requests while ttyd is still starting", async () => {
   const current = await fixture({ ttydListenDelayMs: 500 });
   try {
@@ -700,6 +788,10 @@ test("REST mutations require CSRF and keep terminal cleanup separate", async () 
       )),
       {
         NO_COLOR: null,
+        FORCE_COLOR: null,
+        COPILOT_CLI: null,
+        DRAGON_INSTANCE: null,
+        GIT_TERMINAL_PROMPT: null,
         TERM: "xterm-256color",
         COLORTERM: "truecolor",
       },

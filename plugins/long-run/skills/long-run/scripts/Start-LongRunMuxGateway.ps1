@@ -188,6 +188,8 @@ $mutexName = Get-LongRunGatewayMutexName $StateDirectory
 $mutex = [Threading.Mutex]::new($false, $mutexName)
 $locked = $false
 try {
+    Write-LongRunLog -Component 'gateway-launcher' -Event 'start-requested' `
+        -Data @{ localOnly = [bool]$LocalOnly }
     $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(45))
     if (-not $locked) {
         throw 'Timed out waiting for another mux gateway startup to finish.'
@@ -254,6 +256,7 @@ try {
         [bool]$LocalOnly
         $TunnelExpirationDays
         [bool]$AllowAnonymous
+        (Get-LongRunGatewayLogPath $StateDirectory)
     ) -join "`n"
     $configurationFingerprint = [Convert]::ToHexString(
         [Security.Cryptography.SHA256]::HashData(
@@ -304,6 +307,8 @@ try {
         $gatewayHealthy -and
         $requiredProcessesHealthy -and
         (Test-GatewayHealth ([int]$metadata.port) ([string]$metadata.terminalCapability))) {
+        Write-LongRunLog -Component 'gateway-launcher' -Event 'reused' `
+            -Data @{ localOnly = [bool]$LocalOnly; port = [int]$metadata.port }
         Write-Verbose "Reusing gateway session '$($metadata.gatewaySession)' on port $($metadata.port)."
         Write-Output ([pscustomobject]@{
             Url = "$($metadata.url.TrimEnd('/'))/tmux/?accessToken=$(
@@ -363,6 +368,7 @@ try {
         terminalFontFamily = $TerminalFontFamily
         terminalFontPath = $TerminalFontPath
         terminalCapability = $terminalCapability
+        logPath = Get-LongRunGatewayLogPath $StateDirectory
     }
     [System.IO.File]::WriteAllText(
         $configFile,
@@ -422,6 +428,8 @@ try {
             $baseUrl = "http://127.0.0.1:$port"
             $metadata['url'] = $baseUrl
             Write-GatewayMetadata $metadataFile $metadata
+            Write-LongRunLog -Component 'gateway-launcher' -Event 'started' `
+                -Data @{ localOnly = $true; port = $port; gatewayPid = $gatewayPid }
             Write-Output ([pscustomobject]@{
                 Url = "$baseUrl/tmux/?accessToken=$(
                     [uri]::EscapeDataString($terminalCapability))"
@@ -490,6 +498,13 @@ try {
         Write-Verbose "Dev tunnel is available at '$baseUrl'."
         $metadata['url'] = $baseUrl
         Write-GatewayMetadata $metadataFile $metadata
+        Write-LongRunLog -Component 'gateway-launcher' -Event 'started' `
+            -Data @{
+                localOnly = $false
+                port = $port
+                gatewayPid = $gatewayPid
+                tunnelPid = $tunnelPid
+            }
         Write-Output ([pscustomobject]@{
             Url = "$baseUrl/tmux/?accessToken=$(
                 [uri]::EscapeDataString($terminalCapability))"
@@ -503,6 +518,8 @@ try {
             Reused = $false
         })
     } catch {
+        Write-LongRunLog -Component 'gateway-launcher' -Event 'start-failed' `
+            -Level 'error' -Data @{ errorType = $_.Exception.GetType().FullName }
         if ($tunnelPid -gt 0) {
             $tunnelProcess = Get-Process -Id $tunnelPid -ErrorAction SilentlyContinue
             Stop-LongRunProcessTree `

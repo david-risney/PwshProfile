@@ -41,6 +41,10 @@ param(
 
     [string]$GatewayStateDirectory,
 
+    [string]$WindowsTerminalPath,
+
+    [switch]$NoOpen,
+
     [string]$GatewayScript = (Join-Path $PSScriptRoot 'Start-LongRunMuxGateway.ps1')
 )
 
@@ -59,10 +63,15 @@ if ($env:PSMUX_SESSION) {
     throw 'Start-LongRunShell.ps1 must not be nested inside psmux.'
 }
 
+$remote = switch ($RemoteMode) {
+    'Always' { $true }
+    'Never' { $false }
+    default { Test-LongRunRemoteSession }
+}
+
 $WorkingDirectory = (Resolve-Path -LiteralPath $WorkingDirectory).Path
 $PsmuxPath = Resolve-LongRunCommandPath $PsmuxPath @('psmux', 'pmux') `
     'Install it with: winget install --id marlocarlo.psmux'
-
 $ShellPath = Resolve-LongRunShellPath $ShellPath
 
 if (-not $Session) { $Session = Get-SafeSessionName $WorkingDirectory }
@@ -74,12 +83,6 @@ if ($LASTEXITCODE -eq 0) {
     throw "A psmux session named '$Session' already exists."
 }
 
-$remote = switch ($RemoteMode) {
-    'Always' { $true }
-    'Never' { $false }
-    default { Test-LongRunRemoteSession }
-}
-
 $ownsStateDir = $false
 $stateToken = [guid]::NewGuid().ToString('N')
 $ownerTokenFile = Join-Path $stateDir 'owner-token'
@@ -87,6 +90,8 @@ $sessionCreated = [long]0
 $sessionId = $null
 
 try {
+    Write-LongRunLog -Component 'shell' -Event 'starting' -Session $Session `
+        -Data @{ remote = $remote }
     New-Item -ItemType Directory -Path $stateDir -ErrorAction Stop | Out-Null
     $ownsStateDir = $true
     [System.IO.File]::WriteAllText(
@@ -104,11 +109,7 @@ try {
         Join-Path $PSHOME 'powershell.exe'
     }
 
-    $environment = [ordered]@{}
-    foreach ($item in Get-ChildItem Env:) {
-        if ($item.Name -ieq 'NO_COLOR') { continue }
-        $environment[$item.Name] = [string]$item.Value
-    }
+    $environment = Get-LongRunInteractiveEnvironment
     [System.IO.File]::WriteAllText(
         $environmentFile,
         ($environment | ConvertTo-Json -Compress),
@@ -126,6 +127,25 @@ try {
 foreach (`$entry in `$savedEnvironment.PSObject.Properties) {
     [Environment]::SetEnvironmentVariable(`$entry.Name, [string]`$entry.Value, 'Process')
 }
+if (`$env:PSMUX_CONFIG_FILE -and
+    (Test-Path -LiteralPath `$env:PSMUX_CONFIG_FILE -PathType Leaf)) {
+    `$psmuxConfigured = `$true
+    foreach (`$entry in @{
+        PSMUX_CONFIG_FILE = `$env:PSMUX_CONFIG_FILE
+        PSMUX_PICKER_SCRIPT = `$env:PSMUX_PICKER_SCRIPT
+    }.GetEnumerator()) {
+        if (-not `$entry.Value) { continue }
+        & $(ConvertTo-LongRunPowerShellLiteral $PsmuxPath) set-environment `$entry.Key `$entry.Value |
+            Out-Null
+        if (`$LASTEXITCODE -ne 0) { `$psmuxConfigured = `$false }
+    }
+    & $(ConvertTo-LongRunPowerShellLiteral $PsmuxPath) source-file `$env:PSMUX_CONFIG_FILE |
+        Out-Null
+    if (`$LASTEXITCODE -ne 0) { `$psmuxConfigured = `$false }
+    if (-not `$psmuxConfigured) {
+        Write-Warning "psmux could not load '`$env:PSMUX_CONFIG_FILE'."
+    }
+}
 Set-Location -LiteralPath $(ConvertTo-LongRunPowerShellLiteral $WorkingDirectory)
 $bootstrapTail
 "@
@@ -139,9 +159,12 @@ $bootstrapTail
     } else {
         @($ShellPath, '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', $bootstrapFile)
     }
-    & $PsmuxPath new-session -d -s $Session -- @sessionCommand | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        throw "psmux failed to create session '$Session' (exit $LASTEXITCODE)."
+    $psmuxExitCode = Invoke-LongRunProcessWithEnvironment `
+        -FilePath $PsmuxPath `
+        -Arguments (@('new-session', '-d', '-s', $Session, '--') + $sessionCommand) `
+        -Environment $environment
+    if ($psmuxExitCode -ne 0) {
+        throw "psmux failed to create session '$Session' (exit $psmuxExitCode)."
     }
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(5)
     while ($sessionCreated -le 0 -and [DateTimeOffset]::UtcNow -lt $deadline) {
@@ -184,6 +207,9 @@ $bootstrapTail
             $inventoryUrl = $gateway.Url
             $remoteUrl = "$($gateway.BaseUrl)/tmux/session/$Session/?accessToken=$([uri]::EscapeDataString($gateway.TerminalCapability))"
         } catch {
+            Write-LongRunLog -Component 'shell' -Event 'gateway-unavailable' `
+                -Level 'warning' -Session $Session `
+                -Data @{ errorType = $_.Exception.GetType().FullName }
             if ($RemoteMode -eq 'Always') { throw }
             Write-Warning (
                 "Remote shell access is unavailable; continuing locally: " +
@@ -223,9 +249,30 @@ $bootstrapTail
             -Command $watcherCommand `
             -Name 'shell-watcher'
     } catch {
+        Write-LongRunLog -Component 'shell' -Event 'watcher-start-failed' `
+            -Level 'warning' -Session $Session `
+            -Data @{ errorType = $_.Exception.GetType().FullName }
         Write-Warning (
             'The persistent-shell cleanup watcher could not be started; ' +
             "the shell will continue: $($_.Exception.Message)")
+    }
+
+    $openedLocally = $false
+    if (-not $remote -and -not $NoOpen) {
+        try {
+            $terminalHost = Open-LongRunPsmuxClient `
+                -PsmuxPath $PsmuxPath -Session $Session `
+                -WindowsTerminalPath $WindowsTerminalPath
+            Write-Host "Opened shell in $terminalHost."
+            $openedLocally = $true
+        } catch {
+            Write-LongRunLog -Component 'shell' -Event 'local-open-failed' `
+                -Level 'warning' -Session $Session `
+                -Data @{ errorType = $_.Exception.GetType().FullName }
+            Write-Warning (
+                'The shell was created, but its local terminal could not be opened: ' +
+                $_.Exception.Message)
+        }
     }
 
     Write-Host "Shell session '$Session' started in $WorkingDirectory."
@@ -240,13 +287,18 @@ $bootstrapTail
     Write-Host ''
     Write-Host "LONGRUN_SHELL_SESSION=$Session"
     Write-Host "LONGRUN_SHELL_LOCAL_ATTACH=$localAttach"
+    Write-Host "LONGRUN_SHELL_LOCAL_OPENED=$($openedLocally.ToString().ToLowerInvariant())"
     Write-Host "LONGRUN_SHELL_REMOTE=$($remote.ToString().ToLowerInvariant())"
     if ($remoteUrl) {
         Write-Host "LONGRUN_SHELL_REMOTE_URL=$remoteUrl"
         Write-Host "LONGRUN_TMUX_URL=$inventoryUrl"
     }
     Write-Host "LONGRUN_SHELL_STATE=$stateDir"
+    Write-LongRunLog -Component 'shell' -Event 'started' -Session $Session `
+        -Data @{ remote = $remote; openedLocally = $openedLocally }
 } catch {
+    Write-LongRunLog -Component 'shell' -Event 'failed' -Level 'error' `
+        -Session $Session -Data @{ errorType = $_.Exception.GetType().FullName }
     if ($sessionCreated -gt 0) {
         Stop-LongRunPsmuxSession -PsmuxPath $PsmuxPath `
             -Session $Session -ExpectedCreated $sessionCreated `

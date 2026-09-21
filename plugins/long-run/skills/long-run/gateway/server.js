@@ -66,13 +66,24 @@ const terminalLifecycleMarkup = `<style>
 })();
 </script>`;
 const nestedPsmuxVariables = new Set([
+  "ci",
+  "clicolor",
+  "clicolor_force",
+  "force_color",
+  "gh_prompt_disabled",
+  "git_askpass",
+  "git_terminal_prompt",
   "no_color",
+  "pwsh_profile_minimal",
+  "ssh_askpass",
   "psmux_claude_teammate_mode",
   "psmux_pipe_vt",
   "psmux_session",
   "psmux_target_session",
   "tmux",
   "tmux_pane",
+  "wt_profile_id",
+  "wt_session",
 ]);
 
 function commandSpec(value) {
@@ -98,15 +109,30 @@ function spawnCommand(command, args, options = {}) {
 
 function withoutPsmuxSessionEnvironment(environment) {
   return Object.fromEntries(Object.entries(environment).filter(
-    ([name]) => !nestedPsmuxVariables.has(name.toLowerCase()),
+    ([name]) => {
+      const lowerName = name.toLowerCase();
+      return !nestedPsmuxVariables.has(lowerName) &&
+        !lowerName.startsWith("copilot_") &&
+        !lowerName.startsWith("dragon_") &&
+        lowerName !== "dragon-server" &&
+        !lowerName.startsWith("git_config_");
+    },
   ));
 }
 
 function psmuxAttachEnvironment(environment) {
-  return {
-    ...withoutPsmuxSessionEnvironment(environment),
-    PSMUX_PIPE_VT: "1",
-  };
+  // ttyd gives psmux a console/PTY. Pipe mode drops non-character console
+  // input such as arrows and function keys on Windows.
+  return withoutPsmuxSessionEnvironment(environment);
+}
+
+function isExpectedProxyDisconnect(error) {
+  return new Set([
+    "ECONNABORTED",
+    "ECONNRESET",
+    "EPIPE",
+    "ERR_STREAM_PREMATURE_CLOSE",
+  ]).has(error?.code);
 }
 
 function html(value) {
@@ -634,6 +660,59 @@ function createGateway(config) {
   const csrfToken = crypto.randomBytes(24).toString("base64url");
   const terminalCapability = config.terminalCapability ||
     crypto.randomBytes(24).toString("base64url");
+  const logPath = config.logPath || null;
+  let rejectedWebSockets = 0;
+  let lastWebSocketRejectionLog = 0;
+
+  function sessionHash(session) {
+    return session
+      ? crypto.createHash("sha256").update(session).digest("hex").slice(0, 16)
+      : null;
+  }
+
+  function logEvent(event, details = {}, level = "info") {
+    if (!logPath) return;
+    const entry = {
+      timestamp: new Date().toISOString(),
+      level,
+      component: "gateway",
+      event,
+      pid: process.pid,
+    };
+    for (const [name, value] of Object.entries(details)) {
+      if (!/(token|capability|secret|password|command|environment|session)/i.test(name)) {
+        entry[name] = value;
+      }
+    }
+    if (details.session) {
+      entry.sessionHash = sessionHash(details.session);
+    }
+    try {
+      fs.mkdirSync(path.dirname(logPath), { recursive: true });
+      if (fs.existsSync(logPath) && fs.statSync(logPath).size >= 5 * 1024 * 1024) {
+        const archive = `${logPath}.1`;
+        fs.rmSync(archive, { force: true });
+        fs.renameSync(logPath, archive);
+      }
+      fs.appendFileSync(logPath, `${JSON.stringify(entry)}\n`, "utf8");
+    } catch {
+      // Diagnostics must never affect gateway behavior.
+    }
+  }
+
+  function logWebSocketRejection(reason, session) {
+    rejectedWebSockets += 1;
+    const now = Date.now();
+    if (now - lastWebSocketRejectionLog < 10000) return false;
+    logEvent("websocket-rejected", {
+      reason,
+      session,
+      rejectionCount: rejectedWebSockets,
+    }, "warning");
+    rejectedWebSockets = 0;
+    lastWebSocketRejectionLog = now;
+    return true;
+  }
 
   function terminalUrl(session) {
     return `/tmux/session/${encodeURIComponent(session)}/`;
@@ -736,9 +815,8 @@ function createGateway(config) {
       logger: {
         info() {},
         warn() {},
-        error(message) {
-          console.error(message);
-        },
+        // The explicit proxy error handler below logs a sanitized classification.
+        error() {},
       },
       on: {
         proxyRes: responseInterceptor(async (responseBuffer, proxyRes) => {
@@ -755,9 +833,25 @@ function createGateway(config) {
           );
         }),
         error(error, req, res) {
-          console.error(error);
-          if (res && typeof res.setHeader === "function" && !res.headersSent) {
-            sendText(res, 502, `The web terminal proxy failed: ${error.message}`);
+          const expectedDisconnect = isExpectedProxyDisconnect(error);
+          const errorCode = error?.code || error?.name || "UNKNOWN";
+          const session = parseSessionPath(req?.url || "")?.session || null;
+          logEvent(
+            expectedDisconnect
+              ? "terminal-proxy-disconnected"
+              : "terminal-proxy-error",
+            { session, errorCode },
+            expectedDisconnect ? "debug" : "error",
+          );
+          if (!expectedDisconnect) {
+            console.error(`Terminal proxy error (${errorCode}).`);
+          }
+          if (expectedDisconnect) {
+            if (res && typeof res.destroy === "function") {
+              res.destroy();
+            }
+          } else if (res && typeof res.setHeader === "function" && !res.headersSent) {
+            sendText(res, 502, "The web terminal proxy failed.");
           } else if (res && typeof res.destroy === "function") {
             res.destroy();
           }
@@ -879,6 +973,7 @@ function createGateway(config) {
       return true;
     }
     terminal.stopping = true;
+    logEvent("terminal-stop-requested", { session, terminalPid: terminal.process.pid });
     clearTimeout(terminal.startupTimer);
     clearTimeout(terminal.disconnectTimer);
     if (terminal.process.exitCode === null) {
@@ -924,6 +1019,12 @@ function createGateway(config) {
     });
     fs.closeSync(stdoutFd);
     fs.closeSync(stderrFd);
+    logEvent("terminal-starting", {
+      session,
+      terminalPid: child.pid,
+      port,
+      terminalLogDirectory: logPath,
+    });
 
     const terminal = {
       session,
@@ -941,18 +1042,24 @@ function createGateway(config) {
       terminal.finishExit = resolve;
     });
     terminals.set(session, terminal);
-    child.once("exit", () => {
+    child.once("exit", (code, signal) => {
       clearTimeout(terminal.startupTimer);
       clearTimeout(terminal.disconnectTimer);
       if (terminals.get(session) === terminal) {
         terminals.delete(session);
       }
+      logEvent("terminal-exited", { session, exitCode: code, signal });
       terminal.finishExit();
     });
-    child.once("error", () => {
+    child.once("error", (error) => {
       if (terminals.get(session) === terminal) {
         terminals.delete(session);
       }
+      logEvent("terminal-error", {
+        session,
+        errorType: error.name,
+        errorCode: error.code || null,
+      }, "error");
     });
 
     try {
@@ -1096,7 +1203,10 @@ function createGateway(config) {
     }
     for (let attempt = 0; attempt < 20; attempt++) {
       const created = await getSession(name);
-      if (created) return created;
+      if (created) {
+        logEvent("session-created", { session: name, sessionId: created.id });
+        return created;
+      }
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     throw new Error(`The psmux session '${name}' was created but could not be read.`);
@@ -1188,6 +1298,7 @@ function createGateway(config) {
       } catch (error) {
         if (error.code !== 1) throw error;
       }
+      logEvent("session-killed", { session, sessionId: current.id });
       res.writeHead(204, { "Cache-Control": "no-store" });
       res.end();
       return true;
@@ -1328,13 +1439,9 @@ function createGateway(config) {
               ? "missing capability"
               : null;
       if (rejection) {
-        console.error(
-          `Rejected WebSocket upgrade: ${rejection}; ` +
-          `origin=${req.headers.origin || "(none)"}; ` +
-          `host=${req.headers.host || "(none)"}; ` +
-          `forwardedHost=${req.headers["x-forwarded-host"] || "(none)"}; ` +
-          `forwardedProto=${req.headers["x-forwarded-proto"] || "(none)"}`,
-        );
+        if (logWebSocketRejection(rejection, route?.session || null)) {
+          console.error(`Rejected WebSocket upgrade: ${rejection}.`);
+        }
         socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
         socket.destroy();
         return;
@@ -1346,17 +1453,32 @@ function createGateway(config) {
         return;
       }
       terminal.connections.add(socket);
+      logEvent("websocket-accepted", {
+        session: route.session,
+        connections: terminal.connections.size,
+      });
       clearTimeout(terminal.startupTimer);
       clearTimeout(terminal.disconnectTimer);
       req.longRunTerminalPort = terminal.port;
       terminalProxy.upgrade(req, socket, head);
     } catch (error) {
+      logEvent("websocket-failed", {
+        errorType: error.name,
+        errorCode: error.code || null,
+      }, "error");
       console.error(`WebSocket upgrade failed: ${error.message}`);
       socket.destroy();
     }
   });
 
   async function close() {
+    if (rejectedWebSockets > 0) {
+      logEvent("websocket-rejected", {
+        rejectionCount: rejectedWebSockets,
+      }, "warning");
+      rejectedWebSockets = 0;
+    }
+    logEvent("stopping", { activeTerminals: terminals.size });
     const exiting = [...terminals.values()].map((terminal) => terminal.exitPromise);
     for (const session of [...terminals.keys()]) {
       stopTerminal(session);
@@ -1368,6 +1490,7 @@ function createGateway(config) {
     await new Promise((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve());
     });
+    logEvent("stopped");
   }
 
   return {
@@ -1381,6 +1504,7 @@ function createGateway(config) {
         server.once("error", reject);
         server.listen(config.port, bindHost, () => {
           server.off("error", reject);
+          logEvent("started", { port: server.address().port });
           resolve(server.address());
         });
       });
@@ -1407,6 +1531,7 @@ async function main() {
 
 module.exports = {
   createGateway,
+  isExpectedProxyDisconnect,
   parseSessionPath,
   psmuxAttachEnvironment,
   withoutPsmuxSessionEnvironment,

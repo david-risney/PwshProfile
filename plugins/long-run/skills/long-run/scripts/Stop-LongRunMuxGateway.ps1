@@ -20,6 +20,7 @@ $mutex = [Threading.Mutex]::new(
     (Get-LongRunGatewayMutexName $StateDirectory))
 $locked = $false
 try {
+    Write-LongRunLog -Component 'gateway-launcher' -Event 'stop-requested'
     $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(45))
     if (-not $locked) {
         throw 'Timed out waiting for mux gateway startup to finish.'
@@ -27,6 +28,7 @@ try {
 
     $metadataFile = Join-Path $StateDirectory 'gateway.json'
     if (-not (Test-Path -LiteralPath $metadataFile)) {
+        Write-LongRunLog -Component 'gateway-launcher' -Event 'already-stopped'
         Write-Host 'The long-run mux gateway is not running.'
         return
     }
@@ -57,7 +59,12 @@ try {
         & $metadata.devTunnelPath delete $metadata.tunnelId -f 2>$null | Out-Null
     }
     Remove-Item -LiteralPath $StateDirectory -Recurse -Force
+    Write-LongRunLog -Component 'gateway-launcher' -Event 'stopped'
     Write-Host 'The long-run mux gateway and dev tunnel were removed.'
+} catch {
+    Write-LongRunLog -Component 'gateway-launcher' -Event 'stop-failed' `
+        -Level 'error' -Data @{ errorType = $_.Exception.GetType().FullName }
+    throw
 } finally {
     if ($locked) { $mutex.ReleaseMutex() }
     $mutex.Dispose()

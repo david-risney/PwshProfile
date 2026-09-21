@@ -1,3 +1,106 @@
+function Get-LongRunLogPath {
+    if ($env:LONG_RUN_LOG_PATH -eq '0') { return $null }
+    if ($env:LONG_RUN_LOG_PATH) { return $env:LONG_RUN_LOG_PATH }
+    $root = if ($env:LOCALAPPDATA) {
+        Join-Path $env:LOCALAPPDATA 'long-run\logs'
+    } else {
+        Join-Path $env:TEMP 'long-run-logs'
+    }
+    return Join-Path $root 'events.jsonl'
+}
+
+function Get-LongRunGatewayLogPath([string]$StateDirectory) {
+    $logPath = Get-LongRunLogPath
+    if (-not $logPath) { return $null }
+    $directory = Split-Path -Parent $logPath
+    $name = [System.IO.Path]::GetFileNameWithoutExtension($logPath)
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $stateHash = (
+            [BitConverter]::ToString($sha256.ComputeHash(
+                [Text.Encoding]::UTF8.GetBytes(
+                    $StateDirectory.ToLowerInvariant()))) `
+                -replace '-', ''
+        ).Substring(0, 12).ToLowerInvariant()
+    } finally {
+        $sha256.Dispose()
+    }
+    return Join-Path $directory "$name.gateway-$stateHash.jsonl"
+}
+
+function Write-LongRunLog {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Component,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Event,
+
+        [ValidateSet('debug', 'info', 'warning', 'error')]
+        [string]$Level = 'info',
+
+        [string]$Session,
+
+        [hashtable]$Data = @{}
+    )
+
+    $mutex = $null
+    $locked = $false
+    try {
+        $logPath = Get-LongRunLogPath
+        if (-not $logPath) { return }
+        $entry = [ordered]@{
+            timestamp = [DateTimeOffset]::UtcNow.ToString('o')
+            level = $Level
+            component = $Component
+            event = $Event
+            pid = $PID
+        }
+        if ($Session) {
+            $sessionBytes = [Text.Encoding]::UTF8.GetBytes($Session)
+            $sha256 = [Security.Cryptography.SHA256]::Create()
+            try {
+                $entry.sessionHash = (
+                    [BitConverter]::ToString($sha256.ComputeHash($sessionBytes)) `
+                        -replace '-', ''
+                ).Substring(0, 16).ToLowerInvariant()
+            } finally {
+                $sha256.Dispose()
+            }
+        }
+        foreach ($item in $Data.GetEnumerator()) {
+            if ($item.Key -match '(?i)(token|capability|secret|password|command|environment|session)') {
+                continue
+            }
+            $entry[$item.Key] = $item.Value
+        }
+        $line = ($entry | ConvertTo-Json -Compress -Depth 10) +
+            [Environment]::NewLine
+        $mutex = [Threading.Mutex]::new($false, 'Local\LongRunDiagnosticsLog')
+        $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(2))
+        if (-not $locked) { return }
+        $directory = Split-Path -Parent $logPath
+        New-Item -ItemType Directory -Force -Path $directory | Out-Null
+        if ((Test-Path -LiteralPath $logPath) -and
+            (Get-Item -LiteralPath $logPath).Length -ge 5MB) {
+            $archive = "$logPath.1"
+            Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
+            Move-Item -LiteralPath $logPath -Destination $archive -Force
+        }
+        [System.IO.File]::AppendAllText(
+            $logPath,
+            $line,
+            [System.Text.UTF8Encoding]::new($false))
+    } catch {
+        # Diagnostics must never change command behavior.
+    } finally {
+        if ($mutex) {
+            if ($locked) { $mutex.ReleaseMutex() }
+            $mutex.Dispose()
+        }
+    }
+}
+
 function Resolve-LongRunCommandPath {
     param(
         [string]$ExplicitPath,
@@ -25,6 +128,128 @@ function Resolve-LongRunShellPath([string]$ExplicitPath) {
         if ($command) { return $command.Source }
     }
     throw 'No interactive shell was found (tried pwsh, powershell, and cmd).'
+}
+
+function Test-LongRunInteractiveEnvironmentVariable([string]$Name) {
+    if ([string]::IsNullOrWhiteSpace($Name)) { return $false }
+    return $Name -notmatch (
+        '^(?i:' +
+        'CI|' +
+        'NO_COLOR|FORCE_COLOR|CLICOLOR|CLICOLOR_FORCE|' +
+        'PWSH_PROFILE_MINIMAL|' +
+        'PSMUX_(?!CONFIG_FILE$|PICKER_SCRIPT$).*|TMUX|TMUX_PANE|' +
+        'COPILOT_.*|DRAGON_.*|DRAGON-SERVER|' +
+        'GIT_ASKPASS|GIT_TERMINAL_PROMPT|GIT_CONFIG_.*|' +
+        'GH_PROMPT_DISABLED|SSH_ASKPASS|' +
+        'WT_SESSION|WT_PROFILE_ID' +
+        ')$')
+}
+
+function Get-LongRunInteractiveEnvironment {
+    $environment = [ordered]@{}
+    foreach ($item in Get-ChildItem Env:) {
+        if (Test-LongRunInteractiveEnvironmentVariable $item.Name) {
+            $environment[$item.Name] = [string]$item.Value
+        }
+    }
+    return $environment
+}
+
+function Invoke-LongRunProcessWithEnvironment {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+
+        [string[]]$Arguments = @(),
+
+        [Parameter(Mandatory = $true)]
+        [System.Collections.IDictionary]$Environment
+    )
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.UseShellExecute = $false
+    if ([System.IO.Path]::GetExtension($FilePath) -match '^(?i:\.cmd|\.bat)$') {
+        $startInfo.FileName = $env:ComSpec
+        [void]$startInfo.ArgumentList.Add('/d')
+        [void]$startInfo.ArgumentList.Add('/s')
+        [void]$startInfo.ArgumentList.Add('/c')
+        [void]$startInfo.ArgumentList.Add($FilePath)
+    } else {
+        $startInfo.FileName = $FilePath
+    }
+    foreach ($argument in $Arguments) {
+        [void]$startInfo.ArgumentList.Add($argument)
+    }
+    $startInfo.Environment.Clear()
+    foreach ($entry in $Environment.GetEnumerator()) {
+        $startInfo.Environment[[string]$entry.Key] = [string]$entry.Value
+    }
+
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+    if (-not $process) {
+        throw "Failed to start '$FilePath'."
+    }
+    try {
+        $process.WaitForExit()
+        return $process.ExitCode
+    } finally {
+        $process.Dispose()
+    }
+}
+
+function Get-LongRunCommandSessionName([string]$Command) {
+    $tokens = [regex]::Matches(
+        $Command.ToLowerInvariant(),
+        '[a-z][a-z0-9_]{2,}') |
+        ForEach-Object Value |
+        Where-Object {
+            $_ -notin @('cmd', 'exe', 'pwsh', 'powershell', 'command')
+        } |
+        Select-Object -Unique -First 4
+    $slug = ($tokens -join '-')
+    if (-not $slug) { $slug = 'run' }
+    if ($slug.Length -gt 36) {
+        $slug = $slug.Substring(0, 36).TrimEnd('-_')
+    }
+    return 'lr-{0}-{1}' -f (
+        $slug), ([guid]::NewGuid().ToString('N').Substring(0, 8))
+}
+
+function Open-LongRunPsmuxClient {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PsmuxPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Session,
+
+        [string]$WindowsTerminalPath
+    )
+
+    if (-not $WindowsTerminalPath) {
+        . (Join-Path $PSScriptRoot 'Terminal-Panes.ps1')
+        $candidate = Resolve-WtExe
+        if ($candidate -ne 'wt.exe' -or
+            (Get-Command wt.exe -ErrorAction SilentlyContinue)) {
+            $WindowsTerminalPath = $candidate
+        }
+    }
+    if ($WindowsTerminalPath) {
+        Start-Process -FilePath $WindowsTerminalPath -ArgumentList @(
+            '-w', '0', 'new-tab', '--title', $Session,
+            "`"$PsmuxPath`"", 'attach-session', '-t', $Session
+        ) | Out-Null
+        return 'Windows Terminal'
+    }
+
+    $command = "& '$($PsmuxPath -replace "'", "''")' attach-session -t '$($Session -replace "'", "''")'"
+    $encoded = [Convert]::ToBase64String(
+        [System.Text.Encoding]::Unicode.GetBytes($command))
+    Start-Process -FilePath (Resolve-LongRunShellPath) `
+        -WindowStyle Normal -ArgumentList @(
+            '-NoProfile', '-NoExit', '-EncodedCommand', $encoded
+        ) | Out-Null
+    return 'a new PowerShell window'
 }
 
 function ConvertTo-LongRunPowerShellLiteral([string]$Value) {
