@@ -329,14 +329,19 @@ function Invoke-AttachedPsmux(
             [Console]::Error.WriteLine(
                 "$captureError Falling back to attached terminal output.")
             if (Test-Path -LiteralPath $AttachedFallbackFile) {
-                $fallbackInput = [System.IO.File]::OpenRead($AttachedFallbackFile)
                 try {
-                    $fallbackInput.CopyTo([Console]::OpenStandardOutput())
-                } finally {
-                    $fallbackInput.Dispose()
+                    $fallbackInput =
+                        [System.IO.File]::OpenRead($AttachedFallbackFile)
+                    try {
+                        $fallbackInput.CopyTo([Console]::OpenStandardOutput())
+                    } finally {
+                        $fallbackInput.Dispose()
+                    }
+                } catch {
+                    [Console]::Error.WriteLine(
+                        'The long-run attached-output fallback could not be replayed.')
                 }
             }
-            throw $captureError
         }
         return $process.ExitCode
     } finally {
@@ -517,9 +522,11 @@ try {
         $transcriptDoneFile = Join-Path $stateDir "transcript$suffix.done"
         $captureReadyFile = Join-Path $stateDir "capture$suffix.ready"
         $recorderReadyFile = Join-Path $stateDir "recorder$suffix.ready"
-        $pipeCommand =
-            'pwsh.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass ' +
-            '-File "{0}" "{1}" "{2}" "{3}" "{4}"' -f
+        $pipeCommand = (
+            '"{0}" -NoProfile -NonInteractive -ExecutionPolicy Bypass ' +
+            '-File "{1}" "{2}" "{3}" "{4}" "{5}"'
+        ) -f
+                ($pwshPath -replace '"', '""'),
                 ($recorderFile -replace '"', '""'),
                 ($transcriptFile -replace '"', '""'),
                 ($transcriptDoneFile -replace '"', '""'),

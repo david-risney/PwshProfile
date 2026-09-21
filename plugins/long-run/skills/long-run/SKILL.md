@@ -144,8 +144,9 @@ the chat's working directory, decide the launch mode before creating anything:
 2. Treat Dragon, `remote_steerable` Copilot sessions, and explicit remote-access
    requests as remote. Treat an ordinary Copilot CLI on the user's machine as
    local.
-3. Ensure the mode's dependencies are available. Install missing commands with
-   `winget`:
+3. Ensure the mode's dependencies are available. If any are missing, explain
+   which commands are needed and get explicit approval before installing them
+   with `winget`:
    - Always: `Microsoft.PowerShell` (`pwsh`) and `marlocarlo.psmux`.
    - Remote: `OpenJS.NodeJS.LTS`, `tsl0922.ttyd`, and `Microsoft.devtunnel`.
    - Local: `Microsoft.WindowsTerminal` when `wt.exe` is unavailable.

@@ -86,6 +86,21 @@ switch ($args[0]) {
         exit 0
     }
     'pipe-pane' {
+        if ($env:TEST_PSMUX_RECORDER_FAIL -eq '1') {
+            $quoted = @([regex]::Matches(
+                    [string]$args[-1],
+                    '"((?:[^"]|"")*)"') | ForEach-Object {
+                    $_.Groups[1].Value -replace '""', '"'
+                })
+            if ($quoted.Count -ge 6) {
+                New-Item -ItemType File -Path $quoted[-2] -Force | Out-Null
+                New-Item -ItemType File -Path $quoted[-1] -Force | Out-Null
+                New-Item -ItemType File `
+                    -Path (Join-Path $root 'recorder-failure-injected') `
+                    -Force | Out-Null
+            }
+            exit 0
+        }
         if ($env:TEST_PSMUX_PIPE_SUCCESS -eq '1') { exit 0 }
         exit 1
     }
@@ -205,6 +220,10 @@ exit 23
             Where-Object { $_[0] -eq 'pipe-pane' } |
             Select-Object -First 1)[0]
         $pipePane | Should Not BeNullOrEmpty
+        [string]$pipePane[-1] | Should Match (
+            '^"' +
+            [regex]::Escape((Get-Command pwsh -CommandType Application).Source) +
+            '" ')
     }
 
     It 'continues an automatic remote run when gateway startup fails' {
@@ -263,6 +282,28 @@ exit 23
             ($output -join "`n") | Should Match 'recorder-timeout-fallback'
         } finally {
             $env:TEST_PSMUX_PIPE_SUCCESS = $saved
+        }
+    }
+
+    It 'returns the child code when the transcript recorder fails' {
+        $session = 'capture-recorder-failure'
+        $commandFile = Join-Path $TestDrive 'capture-recorder-failure.ps1'
+        Set-Content -LiteralPath $commandFile `
+            -Value "Write-Output 'recorder-failure-fallback'; exit 29"
+        $saved = $env:TEST_PSMUX_RECORDER_FAIL
+        try {
+            $env:TEST_PSMUX_RECORDER_FAIL = '1'
+            $output = & pwsh -NoProfile -File $startScript `
+                -CommandFile $commandFile -WorkingDirectory $TestDrive `
+                -Session $session -NoViewer -RemoteMode Never `
+                -CaptureSetupTimeoutSeconds 1 -PsmuxPath $fakePsmux 2>&1
+            $LASTEXITCODE | Should Be 29
+            ($output -join "`n") | Should Match 'recorder-failure-fallback'
+            (Test-Path -LiteralPath (
+                    Join-Path $env:TEST_PSMUX_ROOT 'recorder-failure-injected')) |
+                Should Be $true
+        } finally {
+            $env:TEST_PSMUX_RECORDER_FAIL = $saved
         }
     }
 
