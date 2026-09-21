@@ -37,7 +37,7 @@ param(
     [string]$WindowsTerminalPath
 )
 
-$ErrorActionPreference = 'SilentlyContinue'
+$ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'LongRun.Common.ps1')
 Write-LongRunLog -Component 'command-watcher' -Event 'started' -Session $Session `
     -Data @{ ownerPid = $OwnerPid; viewerEnabled = (-not $NoViewer) }
@@ -50,12 +50,19 @@ function Test-Owner {
 }
 
 function Test-Session {
-    $record = Get-LongRunPsmuxSessions $PsmuxPath |
-        Where-Object Name -EQ $Session |
-        Select-Object -First 1
-    return $record -and
-        $record.Created -eq $ExpectedCreated -and
-        $record.Id -eq $ExpectedId
+    try {
+        $record = Get-LongRunPsmuxSessions $PsmuxPath |
+            Where-Object Name -EQ $Session |
+            Select-Object -First 1
+        return $record -and
+            $record.Created -eq $ExpectedCreated -and
+            $record.Id -eq $ExpectedId
+    } catch {
+        Write-LongRunLog -Component 'command-watcher' `
+            -Event 'session-inspection-failed' -Level 'warning' -Session $Session `
+            -Data @{ errorType = $_.Exception.GetType().FullName }
+        return $null
+    }
 }
 
 function Remove-OwnedState {
@@ -80,26 +87,17 @@ function Remove-OwnedState {
 }
 
 function Open-Viewer {
-    $attachArgs = @('attach-session', '-t', $Session)
-
-    if ($WindowsTerminalSession -and $WindowsTerminalPath) {
-        Start-Process -FilePath $WindowsTerminalPath -ArgumentList (
-            @('-w', '0', 'new-tab', '--title', $Session, "`"$PsmuxPath`"") + $attachArgs
-        ) -ErrorAction Stop | Out-Null
-    } else {
-        $command = "& '$($PsmuxPath -replace "'", "''")' attach-session -t '$($Session -replace "'", "''")'"
-        $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($command))
-        Start-Process -FilePath 'pwsh' -WindowStyle Normal -ArgumentList @(
-            '-NoProfile', '-NoExit', '-EncodedCommand', $encoded
-        ) -ErrorAction Stop | Out-Null
-    }
+    Open-LongRunPsmuxClient -PsmuxPath $PsmuxPath -Session $Session `
+        -WindowsTerminalPath $WindowsTerminalPath | Out-Null
 }
 
 $deadline = [DateTimeOffset]::UtcNow.AddSeconds($DelaySeconds)
 $viewerHandled = $NoViewer
 
 $sessionDeadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
-while (-not (Test-Session)) {
+while ($true) {
+    $sessionRunning = Test-Session
+    if ($sessionRunning) { break }
     if (-not (Test-Owner)) {
         Write-LongRunLog -Component 'command-watcher' `
             -Event 'owner-exited-before-session' -Session $Session
@@ -111,7 +109,7 @@ while (-not (Test-Session)) {
             -Event 'session-start-timeout' -Level 'warning' -Session $Session
         exit 0
     }
-    Start-Sleep -Milliseconds 50
+    Start-Sleep -Milliseconds $(if ($null -eq $sessionRunning) { 1000 } else { 50 })
 }
 
 while ($true) {
@@ -124,7 +122,12 @@ while ($true) {
         Remove-OwnedState
         exit 0
     }
-    if (-not (Test-Session)) {
+    $sessionRunning = Test-Session
+    if ($null -eq $sessionRunning) {
+        Start-Sleep -Seconds 1
+        continue
+    }
+    if (-not $sessionRunning) {
         Write-LongRunLog -Component 'command-watcher' -Event 'session-ended' `
             -Session $Session
         exit 0
@@ -142,5 +145,5 @@ while ($true) {
         }
         $viewerHandled = $true
     }
-    Start-Sleep -Milliseconds 250
+    Start-Sleep -Seconds 1
 }

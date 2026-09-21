@@ -53,6 +53,7 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'LongRun.Common.ps1')
 $StateDirectory = ConvertTo-LongRunCanonicalPath $StateDirectory
+$stateMarkerFile = Join-Path $StateDirectory '.long-run-mux-gateway'
 $defaultWorkingDirectory = if ($env:USERPROFILE) {
     $env:USERPROFILE
 } else {
@@ -86,6 +87,13 @@ function Write-GatewayMetadata([string]$Path, [object]$Value) {
 
 function Remove-GatewayStateDirectory {
     if (-not (Test-Path -LiteralPath $StateDirectory)) { return }
+    $metadataFile = Join-Path $StateDirectory 'gateway.json'
+    if (-not (Test-Path -LiteralPath $stateMarkerFile) -and
+        -not (Test-Path -LiteralPath $metadataFile)) {
+        if (@(Get-ChildItem -LiteralPath $StateDirectory -Force).Count -gt 0) {
+            throw "Refusing to remove unowned gateway state directory '$StateDirectory'."
+        }
+    }
     for ($attempt = 0; $attempt -lt 50; $attempt++) {
         try {
             Remove-Item -LiteralPath $StateDirectory -Recurse -Force `
@@ -101,12 +109,19 @@ function Remove-GatewayStateDirectory {
 }
 
 function ConvertFrom-LongRunNativeJson([object[]]$Output, [string]$CommandName) {
-    $text = (@($Output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine)
-    $match = [regex]::Match($text, '(?s)\{.*\}')
-    if (-not $match.Success) {
-        throw "$CommandName did not return a JSON object."
+    $lines = @($Output | ForEach-Object { [string]$_ })
+    $lastLine = $lines | Select-Object -Last 1
+    if ($lastLine) {
+        try {
+            return $lastLine | ConvertFrom-Json -ErrorAction Stop
+        } catch { }
     }
-    return $match.Value | ConvertFrom-Json
+    $text = $lines -join [Environment]::NewLine
+    try {
+        return $text | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        throw "$CommandName did not return a valid JSON object."
+    }
 }
 
 function Resolve-TerminalFontPath([string]$RequestedPath) {
@@ -166,8 +181,13 @@ function Remove-StaleGateway {
             -ExpectedStartTimeUtcTicks ([long]$Metadata.gatewayStartTimeUtcTicks) `
             -ExpectedPath ([string]$Metadata.gatewayRunnerPath) | Out-Null
         if ($Metadata.tunnelId -and $Metadata.devTunnelPath) {
-            & $Metadata.devTunnelPath delete $Metadata.tunnelId -f 2>$null |
-                Out-Null
+            $null = & ([string]$Metadata.devTunnelPath) delete `
+                ([string]$Metadata.tunnelId) -f 2>$null
+            $deleteExitCode = $LASTEXITCODE
+            if ($deleteExitCode -ne 0) {
+                throw "devtunnel failed to delete stale tunnel '$($Metadata.tunnelId)' " +
+                    "(exit $deleteExitCode). Gateway state was retained for retry."
+            }
         }
     }
     Remove-GatewayStateDirectory
@@ -190,7 +210,12 @@ $locked = $false
 try {
     Write-LongRunLog -Component 'gateway-launcher' -Event 'start-requested' `
         -Data @{ localOnly = [bool]$LocalOnly }
-    $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(45))
+    try {
+        $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(45))
+    } catch [System.Threading.AbandonedMutexException] {
+        $locked = $true
+        Write-Verbose 'Recovered an abandoned gateway lock.'
+    }
     if (-not $locked) {
         throw 'Timed out waiting for another mux gateway startup to finish.'
     }
@@ -329,8 +354,18 @@ try {
     if ($metadata) {
         Write-Verbose 'Existing gateway state is stale or its configuration changed; replacing it.'
     }
+    if ((Test-Path -LiteralPath $StateDirectory) -and
+        -not (Test-Path -LiteralPath $stateMarkerFile) -and
+        -not (Test-Path -LiteralPath (Join-Path $StateDirectory 'gateway.json')) -and
+        @(Get-ChildItem -LiteralPath $StateDirectory -Force).Count -gt 0) {
+        throw "Refusing to use non-empty unowned gateway state directory '$StateDirectory'."
+    }
     Remove-StaleGateway $metadata
     New-Item -ItemType Directory -Force -Path $StateDirectory | Out-Null
+    [System.IO.File]::WriteAllText(
+        $stateMarkerFile,
+        'long-run mux gateway',
+        [System.Text.UTF8Encoding]::new($false))
 
     $appDirectory = Join-Path $StateDirectory 'app'
     New-Item -ItemType Directory -Path $appDirectory | Out-Null
@@ -537,11 +572,17 @@ try {
                 -ExpectedCreated $gatewaySessionCreated `
                 -ExpectedId $gatewaySessionId | Out-Null
         }
+        $cleanupComplete = $true
         if ($tunnelId) {
-            & $DevTunnelPath delete $tunnelId -f 2>$null | Out-Null
+            $null = & $DevTunnelPath delete $tunnelId -f 2>$null
+            if ($LASTEXITCODE -ne 0) {
+                $cleanupComplete = $false
+                Write-Warning "devtunnel failed to delete tunnel '$tunnelId'; gateway state was retained for retry."
+            }
         }
-        Remove-Item -LiteralPath $StateDirectory -Recurse -Force `
-            -ErrorAction SilentlyContinue
+        if ($cleanupComplete) {
+            Remove-GatewayStateDirectory
+        }
         throw
     }
 } finally {

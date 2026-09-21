@@ -50,6 +50,9 @@ function request(port, pathname, options = {}) {
       }));
     });
     req.on("error", reject);
+    req.setTimeout(options.timeoutMs || 2000, () => {
+      req.destroy(new Error("Timed out waiting for HTTP response."));
+    });
     if (options.body) {
       req.write(options.body);
     }
@@ -103,11 +106,19 @@ function websocketUpgrade(port, pathname, headers = {}, timeoutMs = 2000) {
   });
 }
 
-function browserWebSocket(port, pathname, label) {
+function browserWebSocket(port, pathname, label, timeoutMs = 2000) {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(`ws://127.0.0.1:${port}${pathname}`, ["tty"]);
-    socket.addEventListener("open", () => resolve(socket), { once: true });
+    const timer = setTimeout(() => {
+      socket.close();
+      reject(new Error(`${label} WebSocket timed out.`));
+    }, timeoutMs);
+    socket.addEventListener("open", () => {
+      clearTimeout(timer);
+      resolve(socket);
+    }, { once: true });
     socket.addEventListener("error", () => {
+      clearTimeout(timer);
       reject(new Error(`${label} WebSocket failed to open.`));
     }, { once: true });
   });
@@ -416,6 +427,7 @@ test("settles terminal shutdown when ttyd cannot spawn", async () => {
     },
     ttydStartupTimeoutMs: 200,
   });
+  let closed = false;
   try {
     const response = await authorizedRequest(current, "/tmux/session/newer/");
     assert.equal(response.status, 500);
@@ -425,17 +437,24 @@ test("settles terminal shutdown when ttyd cannot spawn", async () => {
         setTimeout(() => reject(new Error("Gateway close timed out.")), 1000);
       }),
     ]);
+    closed = true;
   } finally {
-    fs.rmSync(current.directory, { recursive: true, force: true });
+    if (closed) {
+      fs.rmSync(current.directory, { recursive: true, force: true });
+    } else {
+      await current.close();
+    }
   }
 });
 
 test("writes redacted structured gateway lifecycle events", async () => {
   const current = await fixture();
+  let closed = false;
   try {
     const response = await authorizedRequest(current, "/tmux/session/newer/");
     assert.equal(response.status, 200);
     await current.gateway.close();
+    closed = true;
     const entries = fs.readFileSync(
       path.join(current.directory, "events.jsonl"),
       "utf8",
@@ -450,7 +469,11 @@ test("writes redacted structured gateway lifecycle events", async () => {
       /test-terminal-capability|accessToken|cookie|newer/i,
     );
   } finally {
-    fs.rmSync(current.directory, { recursive: true, force: true });
+    if (closed) {
+      fs.rmSync(current.directory, { recursive: true, force: true });
+    } else {
+      await current.close();
+    }
   }
 });
 
@@ -693,6 +716,19 @@ test("recreates ttyd after disconnect and allows later session visits", async ()
     );
     assert.match(rejectedOrigin.response, /^HTTP\/1\.1 403/);
     rejectedOrigin.socket.destroy();
+
+    const terminalCountBeforeMissingCapability = current.gateway.terminals.size;
+    const rejectedMissingCapability = await websocketUpgrade(
+      current.port,
+      "/tmux/session/newer/ws",
+      { Origin: `http://127.0.0.1:${current.port}` },
+    );
+    assert.match(rejectedMissingCapability.response, /^HTTP\/1\.1 403/);
+    rejectedMissingCapability.socket.destroy();
+    assert.equal(
+      current.gateway.terminals.size,
+      terminalCountBeforeMissingCapability,
+    );
 
     fs.writeFileSync(
       path.join(current.directory, "gateway.json"),

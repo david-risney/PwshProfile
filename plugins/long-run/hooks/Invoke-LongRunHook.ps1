@@ -16,6 +16,9 @@ function Test-PsmuxCommand([string]$Command) {
         $Command,
         [ref]$tokens,
         [ref]$parseErrors)
+    if (@($parseErrors).Count -gt 0) {
+        return $true
+    }
     $commands = @($ast.FindAll({
                 param($node)
                 $node -is [System.Management.Automation.Language.CommandAst]
@@ -67,6 +70,12 @@ function Test-ExactOutput([pscustomobject]$ToolArgs, [string]$Command) {
 try {
     $common = Join-Path $env:COPILOT_PLUGIN_ROOT 'skills\long-run\scripts\LongRun.Common.ps1'
     . $common
+    $tempRoot = Join-Path $env:TEMP 'long-run-hook'
+    if (Test-Path -LiteralPath $tempRoot) {
+        Get-ChildItem -LiteralPath $tempRoot -Filter 'command-*.ps1' -File |
+            Where-Object LastWriteTimeUtc -LT ([DateTime]::UtcNow.AddHours(-24)) |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+    }
     $raw = [Console]::In.ReadToEnd()
     if (-not $raw) {
         Write-LongRunLog -Component 'hook' -Event 'skipped' `
@@ -107,7 +116,6 @@ try {
         exit 0
     }
 
-    $tempRoot = Join-Path $env:TEMP 'long-run-hook'
     New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
     $commandFile = Join-Path $tempRoot ("command-{0}.ps1" -f [guid]::NewGuid().ToString('N'))
     [System.IO.File]::WriteAllText(

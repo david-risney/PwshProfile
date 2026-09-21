@@ -191,6 +191,8 @@ switch ($args[0]) {
             '^https://fake-mux\.usw2\.devtunnels\.ms/tmux/\?accessToken=.+$')
         $first.GatewaySession | Should Match '^long-run-util-gateway-\d+$'
         $first.TerminalCapability | Should Not BeNullOrEmpty
+        Test-Path -LiteralPath (
+            Join-Path $stateDirectory '.long-run-mux-gateway') | Should Be $true
         ($verboseMessages -join "`n") | Should Match 'Started gateway session'
         ($verboseMessages -join "`n") | Should Match 'Gateway health check passed'
         ($verboseMessages -join "`n") | Should Match 'attach-session'
@@ -227,6 +229,8 @@ switch ($args[0]) {
         $calls = Get-Content (Join-Path $root 'devtunnel-calls.jsonl') |
             ForEach-Object { $_ | ConvertFrom-Json -NoEnumerate }
         @($calls | Where-Object { $_[0] -eq 'create' }).Count | Should Be 1
+        (@($calls | Where-Object { $_[0] -eq 'create' })[0] -contains
+            '--allow-anonymous') | Should Be $false
         @($calls | Where-Object { $_[0] -eq 'host' }).Count | Should Be 1
         $portCall = @($calls | Where-Object {
             $_[0] -eq 'port' -and $_[1] -eq 'create'
@@ -236,6 +240,7 @@ switch ($args[0]) {
         @($portCall | Where-Object { $_ -eq 'unchanged' }).Count | Should Be 2
 
         $arguments.TerminalStartupIdleSeconds = 121
+        $arguments.AllowAnonymous = $true
         $third = & $startGateway @arguments
         $third.Reused | Should Be $false
         $third.GatewayPid | Should Not Be $first.GatewayPid
@@ -243,6 +248,8 @@ switch ($args[0]) {
         $calls = Get-Content (Join-Path $root 'devtunnel-calls.jsonl') |
             ForEach-Object { $_ | ConvertFrom-Json -NoEnumerate }
         @($calls | Where-Object { $_[0] -eq 'create' }).Count | Should Be 2
+        (@($calls | Where-Object { $_[0] -eq 'create' })[1] -contains
+            '--allow-anonymous') | Should Be $true
 
         & $stopGateway -StateDirectory $stateDirectory
         Test-Path -LiteralPath $stateDirectory | Should Be $false
@@ -343,6 +350,59 @@ switch ($args[0]) {
                 Remove-Item -LiteralPath $stateDirectory -Recurse -Force
             }
         }
+    }
+
+    It 'retains stale gateway state when replacement tunnel deletion fails' {
+            $arguments = @{
+                StateDirectory = $stateDirectory
+                PsmuxPath = $fakePsmux
+                TtydPath = $fakePsmux
+                DevTunnelPath = $fakeDevTunnel
+                NodePath = (Get-Command node).Source
+                NpmPath = (Get-Command npm.cmd).Source
+                TerminalFontPath = $terminalFont
+            }
+            $first = & $startGateway @arguments
+            $savedDeleteExit = $env:TEST_DEVTUNNEL_DELETE_EXIT
+            try {
+                $env:TEST_DEVTUNNEL_DELETE_EXIT = '9'
+                $arguments.TerminalStartupIdleSeconds = 121
+                $failure = $null
+                try {
+                    & $startGateway @arguments
+                } catch {
+                    $failure = $_
+                }
+                $failure | Should Not BeNullOrEmpty
+                $failure.Exception.Message | Should Match 'retained for retry'
+                $metadataPath = Join-Path $stateDirectory 'gateway.json'
+                Test-Path -LiteralPath $metadataPath | Should Be $true
+                (Get-Content $metadataPath -Raw | ConvertFrom-Json).tunnelId |
+                    Should Be $first.TunnelId
+            } finally {
+                $env:TEST_DEVTUNNEL_DELETE_EXIT = $savedDeleteExit
+            }
+        }
+
+    It 'refuses to delete a non-empty unowned state directory' {
+            New-Item -ItemType Directory -Path $stateDirectory | Out-Null
+            $marker = Join-Path $stateDirectory 'user-file.txt'
+            Set-Content -LiteralPath $marker -Value 'keep'
+
+            $failure = $null
+            try {
+                & $startGateway -LocalOnly -StateDirectory $stateDirectory `
+                    -PsmuxPath $fakePsmux -TtydPath $fakePsmux `
+                    -NodePath (Get-Command node).Source `
+                    -NpmPath (Get-Command npm.cmd).Source `
+                    -TerminalFontPath $terminalFont
+            } catch {
+                $failure = $_
+            }
+
+            $failure | Should Not BeNullOrEmpty
+            $failure.Exception.Message | Should Match 'unowned gateway state directory'
+            (Get-Content -LiteralPath $marker -Raw).Trim() | Should Be 'keep'
     }
 
     It 'does not reuse a gateway when its immutable session id changed' {

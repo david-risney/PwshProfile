@@ -127,10 +127,25 @@ a unique session name and removes only that session and its temporary state.
 ## Direct usage
 
 ```powershell
-pwsh -NoProfile -File scripts\Start-LongRun.ps1 `
+pwsh -NoProfile -File <skill>\scripts\Start-LongRun.ps1 `
   -Command 'npm test' `
   -WorkingDirectory 'C:\src\project'
 ```
+
+Do not run `psmux attach-session` directly from Copilot's non-interactive
+shell. Use the provided scripts to open a user-controlled terminal or browser
+client; an attaching client intentionally remains connected until detached.
+
+## Security boundaries
+
+- Starting the remote gateway creates a local Node/ttyd service and an
+  authenticated Dev Tunnel. Confirm before installing missing dependencies or
+  enabling anonymous tunnel access.
+- Treat returned terminal URLs as credentials. Share them only with the user
+  who requested the session, and stop the gateway when remote access is no
+  longer needed.
+- The plugin may create and remove only its owned psmux sessions and marked
+  state directories. It must not delete unrelated sessions or caller files.
 
 Use `-ViewerDelaySeconds` to change the delay or `-NoViewer` to suppress the
 second local client. The call is synchronous and exits with the command's code.

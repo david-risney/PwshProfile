@@ -21,7 +21,12 @@ $mutex = [Threading.Mutex]::new(
 $locked = $false
 try {
     Write-LongRunLog -Component 'gateway-launcher' -Event 'stop-requested'
-    $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(45))
+    try {
+        $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(45))
+    } catch [System.Threading.AbandonedMutexException] {
+        $locked = $true
+        Write-Verbose 'Recovered an abandoned gateway lock.'
+    }
     if (-not $locked) {
         throw 'Timed out waiting for mux gateway startup to finish.'
     }

@@ -162,6 +162,57 @@ function Wait-Condition([scriptblock]$Condition, [int]$TimeoutSeconds = 10) {
     return $false
 }
 
+Describe 'Long-run remote detection' {
+    It 'uses Copilot workspace metadata without requiring Dragon environment variables' {
+        . (Join-Path $scriptRoot 'LongRun.Common.ps1')
+        $saved = @{
+            COPILOT_HOME = $env:COPILOT_HOME
+            COPILOT_AGENT_SESSION_ID = $env:COPILOT_AGENT_SESSION_ID
+            DRAGON_PORT = $env:DRAGON_PORT
+            DRAGON_INSTANCE = $env:DRAGON_INSTANCE
+            DRAGON_REMOTE = $env:DRAGON_REMOTE
+            DRAGON_SIDE_BY_SIDE = $env:DRAGON_SIDE_BY_SIDE
+            'DRAGON-SERVER' = ${env:DRAGON-SERVER}
+        }
+        try {
+            $env:COPILOT_HOME = Join-Path $TestDrive 'copilot-home'
+            $env:COPILOT_AGENT_SESSION_ID = 'workspace-test'
+            $env:DRAGON_PORT = $null
+            $env:DRAGON_INSTANCE = $null
+            $env:DRAGON_REMOTE = $null
+            $env:DRAGON_SIDE_BY_SIDE = $null
+            ${env:DRAGON-SERVER} = $null
+            $workspaceDirectory = Join-Path $env:COPILOT_HOME `
+                'session-state\workspace-test'
+            New-Item -ItemType Directory -Force -Path $workspaceDirectory |
+                Out-Null
+            $workspaceFile = Join-Path $workspaceDirectory 'workspace.yaml'
+
+            "client_name: dragon/vscode`nremote_steerable: false" |
+                Set-Content -LiteralPath $workspaceFile
+            Test-LongRunRemoteSession | Should Be $true
+
+            "client_name: copilot-cli`nremote_steerable: true" |
+                Set-Content -LiteralPath $workspaceFile
+            Test-LongRunRemoteSession | Should Be $true
+
+            "client_name: copilot-cli`nremote_steerable: false" |
+                Set-Content -LiteralPath $workspaceFile
+            Test-LongRunRemoteSession | Should Be $false
+
+            Remove-Item -LiteralPath $workspaceFile
+            Test-LongRunRemoteSession | Should Be $false
+        } finally {
+            foreach ($entry in $saved.GetEnumerator()) {
+                [Environment]::SetEnvironmentVariable(
+                    $entry.Key,
+                    $entry.Value,
+                    'Process')
+            }
+        }
+    }
+}
+
 Describe 'Start-LongRun' {
     BeforeEach {
         $env:TEST_PSMUX_ROOT = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
@@ -646,6 +697,7 @@ Describe 'Invoke-LongRunHook' {
         @{ name = 'a quoted psmux path'; args = @{ command = '& ''C:\Program Files\psmux\psmux.exe'' attach-session'; mode = 'sync' }; env = @{} },
         @{ name = 'a relative psmux path'; args = @{ command = '.\tools\pmux.exe list-sessions'; mode = 'sync' }; env = @{} },
         @{ name = 'a psmux path variable'; args = @{ command = '& $PsmuxPath attach-session'; mode = 'sync' }; env = @{} },
+        @{ name = 'a command with parse errors'; args = @{ command = 'if ('; mode = 'sync' }; env = @{} },
         @{ name = 'an async command'; args = @{ command = 'Start-Sleep 20'; mode = 'async' }; env = @{} },
         @{ name = 'a detached command'; args = @{ command = 'Start-Sleep 20'; mode = 'async'; detach = $true }; env = @{} },
         @{ name = 'machine-readable output'; args = @{ command = 'gh pr view --json title'; mode = 'sync' }; env = @{} },
@@ -665,6 +717,25 @@ Describe 'Invoke-LongRunHook' {
         It "does not rewrite $($case.name)" {
             $result = Invoke-Hook $case.args $case.env
             @($result.PSObject.Properties).Count | Should Be 0
+        }
+    }
+
+    It 'removes abandoned hook command files after their retention period' {
+        $tempRoot = Join-Path $env:TEMP 'long-run-hook'
+        New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
+        $staleFile = Join-Path $tempRoot (
+            'command-stale-{0}.ps1' -f [guid]::NewGuid().ToString('N'))
+        Set-Content -LiteralPath $staleFile -Value 'stale command'
+        (Get-Item -LiteralPath $staleFile).LastWriteTimeUtc =
+            [DateTime]::UtcNow.AddHours(-25)
+        try {
+            Invoke-Hook @{
+                command = 'psmux list-sessions'
+                mode = 'sync'
+            } | Out-Null
+            Test-Path -LiteralPath $staleFile | Should Be $false
+        } finally {
+            Remove-Item -LiteralPath $staleFile -Force -ErrorAction SilentlyContinue
         }
     }
 }
@@ -728,7 +799,7 @@ Describe 'Long-run diagnostics' {
 
                 $env:LONG_RUN_LOG_PATH = $TestDrive
                 { Write-LongRunLog -Component test -Event ignored } | Should Not Throw
-                6 * 7 | Should Be 42
+                @(Get-Content -LiteralPath $logPath).Count | Should Be 8
             } finally {
                 $env:LONG_RUN_LOG_PATH = $savedLogPath
         }

@@ -68,16 +68,27 @@ function Write-LongRunLog {
                 $sha256.Dispose()
             }
         }
+        $allowedDataKeys = [Collections.Generic.HashSet[string]]::new(
+            [string[]]@(
+                'reason', 'remote', 'cwd', 'errorType', 'localOnly', 'port',
+                'gatewayPid', 'tunnelPid', 'viewerDelaySeconds', 'exitCode',
+                'timedOut', 'removed', 'stateRemoved', 'remainingCommandFiles',
+                'openedLocally', 'ownerPid', 'viewerEnabled', 'sessionRemoved',
+                'index'
+            ),
+            [StringComparer]::OrdinalIgnoreCase)
         foreach ($item in $Data.GetEnumerator()) {
-            if ($item.Key -match '(?i)(token|capability|secret|password|command|environment|session)') {
-                continue
-            }
+            if (-not $allowedDataKeys.Contains([string]$item.Key)) { continue }
             $entry[$item.Key] = $item.Value
         }
         $line = ($entry | ConvertTo-Json -Compress -Depth 10) +
             [Environment]::NewLine
         $mutex = [Threading.Mutex]::new($false, 'Local\LongRunDiagnosticsLog')
-        $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(2))
+        try {
+            $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(2))
+        } catch [System.Threading.AbandonedMutexException] {
+            $locked = $true
+        }
         if (-not $locked) { return }
         $directory = Split-Path -Parent $logPath
         New-Item -ItemType Directory -Force -Path $directory | Out-Null
@@ -645,8 +656,10 @@ exit `$LASTEXITCODE
             }
             Start-Sleep -Milliseconds 100
         }
-        Stop-LongRunPsmuxSession -PsmuxPath $PsmuxPath `
-            -Session $session -ExpectedId $record.Id | Out-Null
+        if ($record) {
+            Stop-LongRunPsmuxSession -PsmuxPath $PsmuxPath `
+                -Session $session -ExpectedId $record.Id | Out-Null
+        }
         throw "Timed out waiting for psmux session '$session' to start."
     }
     throw "Could not allocate a psmux session named '$SessionPrefix-{N}'."

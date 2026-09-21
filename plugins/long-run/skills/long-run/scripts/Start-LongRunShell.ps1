@@ -88,6 +88,7 @@ $stateToken = [guid]::NewGuid().ToString('N')
 $ownerTokenFile = Join-Path $stateDir 'owner-token'
 $sessionCreated = [long]0
 $sessionId = $null
+$sessionStarted = $false
 
 try {
     Write-LongRunLog -Component 'shell' -Event 'starting' -Session $Session `
@@ -166,6 +167,7 @@ $bootstrapTail
     if ($psmuxExitCode -ne 0) {
         throw "psmux failed to create session '$Session' (exit $psmuxExitCode)."
     }
+    $sessionStarted = $true
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(5)
     while ($sessionCreated -le 0 -and [DateTimeOffset]::UtcNow -lt $deadline) {
         $record = Get-LongRunPsmuxSessions $PsmuxPath |
@@ -302,6 +304,8 @@ $bootstrapTail
         Stop-LongRunPsmuxSession -PsmuxPath $PsmuxPath `
             -Session $Session -ExpectedCreated $sessionCreated `
             -ExpectedId $sessionId | Out-Null
+    } elseif ($sessionStarted) {
+        & $PsmuxPath kill-session -t $Session 2>$null | Out-Null
     }
     if ($ownsStateDir -and
         (Test-Path -LiteralPath $ownerTokenFile) -and

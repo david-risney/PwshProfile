@@ -39,6 +39,9 @@ switch ($args[0]) {
         exit 0
     }
     'list-sessions' {
+        if ($env:TEST_PSMUX_LIST_EXIT) {
+            exit [int]$env:TEST_PSMUX_LIST_EXIT
+        }
         if (Test-Path -LiteralPath $active) {
             "$(Get-Content -LiteralPath $sessionFile -Raw)`t1700000000`t`$1"
             exit 0
@@ -285,6 +288,37 @@ param(
         $LASTEXITCODE | Should Not Be 0
         (Test-Path -LiteralPath (Join-Path $root 'active')) | Should Be $true
         (Test-Path -LiteralPath (Join-Path $root 'killed')) | Should Be $false
+    }
+
+    It 'kills a newly created session when identity verification fails' {
+        $savedListExit = $env:TEST_PSMUX_LIST_EXIT
+        try {
+            $env:TEST_PSMUX_LIST_EXIT = '9'
+            & pwsh -NoProfile -File $startShellScript `
+                -Session $session -WorkingDirectory $TestDrive `
+                -RemoteMode Never -PsmuxPath $fakePsmux 2>$null
+
+            $LASTEXITCODE | Should Not Be 0
+            Test-Path -LiteralPath (Join-Path $root 'killed') | Should Be $true
+            Test-Path -LiteralPath $stateDir | Should Be $false
+        } finally {
+            $env:TEST_PSMUX_LIST_EXIT = $savedListExit
+        }
+    }
+
+    It 'keeps replacement shell state when a stale watcher exits' {
+        New-Item -ItemType Directory -Path $stateDir | Out-Null
+        Set-Content -LiteralPath (Join-Path $stateDir 'owner-token') `
+            -Value 'new-owner' -NoNewline
+        $marker = Join-Path $stateDir 'replacement-state'
+        Set-Content -LiteralPath $marker -Value 'keep'
+
+        & pwsh -NoProfile -File (Join-Path $scriptRoot 'Watch-LongRunShell.ps1') `
+            -PsmuxPath $fakePsmux -Session $session `
+            -ExpectedCreated 1700000000 -ExpectedId '$1' `
+            -OwnerToken old-owner -StateDirectory $stateDir
+
+        Test-Path -LiteralPath $marker | Should Be $true
     }
 
     It 'does not delete a state directory owned by another invocation' {

@@ -19,14 +19,22 @@ param(
     [string]$StateDirectory
 )
 
-$ErrorActionPreference = 'SilentlyContinue'
+$ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'LongRun.Common.ps1')
 Write-LongRunLog -Component 'shell-watcher' -Event 'started' -Session $Session
 
 while ($true) {
-    $record = Get-LongRunPsmuxSessions $PsmuxPath |
-        Where-Object Name -EQ $Session |
-        Select-Object -First 1
+    try {
+        $record = Get-LongRunPsmuxSessions $PsmuxPath |
+            Where-Object Name -EQ $Session |
+            Select-Object -First 1
+    } catch {
+        Write-LongRunLog -Component 'shell-watcher' `
+            -Event 'session-inspection-failed' -Level 'warning' -Session $Session `
+            -Data @{ errorType = $_.Exception.GetType().FullName }
+        Start-Sleep -Seconds 1
+        continue
+    }
     if (-not $record -or
         $record.Created -ne $ExpectedCreated -or
         $record.Id -ne $ExpectedId) {

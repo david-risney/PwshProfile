@@ -435,6 +435,10 @@ openTerminal.addEventListener("click", async () => {
 
 killSession.addEventListener("click", async () => {
   if (!selectedSession) return;
+  if (!selectedSession.id) {
+    setStatus("This session cannot be killed because psmux did not report its identity.", true);
+    return;
+  }
   try {
     const target = new URL(selectedSession.links.self, window.location.origin);
     target.searchParams.set("sessionId", selectedSession.id);
