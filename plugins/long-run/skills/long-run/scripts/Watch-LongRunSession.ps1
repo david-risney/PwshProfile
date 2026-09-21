@@ -30,6 +30,9 @@ param(
     [ValidateRange(0, 86400)]
     [int]$DelaySeconds = 10,
 
+    [ValidateRange(1, 86400)]
+    [int]$SessionWarningSeconds = 10,
+
     [switch]$NoViewer,
 
     [string]$WindowsTerminalSession,
@@ -94,7 +97,7 @@ function Open-Viewer {
 $deadline = [DateTimeOffset]::UtcNow.AddSeconds($DelaySeconds)
 $viewerHandled = $NoViewer
 
-$sessionDeadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
+$sessionDeadline = [DateTimeOffset]::UtcNow.AddSeconds($SessionWarningSeconds)
 while ($true) {
     $sessionRunning = Test-Session
     if ($sessionRunning) { break }
@@ -107,7 +110,8 @@ while ($true) {
     if ([DateTimeOffset]::UtcNow -ge $sessionDeadline) {
         Write-LongRunLog -Component 'command-watcher' `
             -Event 'session-start-timeout' -Level 'warning' -Session $Session
-        exit 0
+        $sessionDeadline =
+            [DateTimeOffset]::UtcNow.AddSeconds($SessionWarningSeconds)
     }
     Start-Sleep -Milliseconds $(if ($null -eq $sessionRunning) { 1000 } else { 50 })
 }

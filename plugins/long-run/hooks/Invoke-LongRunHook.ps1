@@ -129,7 +129,7 @@ try {
     $remoteMode = if (Test-LongRunRemoteSession) { 'Always' } else { 'Never' }
     $quote = {
         param([string]$Value)
-        "'" + ($Value -replace "'", "''") + "'"
+        ConvertTo-LongRunPowerShellLiteral $Value
     }
     $wrapped = "try { & $(& $quote $runner) -CommandFile $(& $quote $commandFile) -RemoveCommandFile " +
         "-WorkingDirectory $(& $quote $cwd) -Session $(& $quote $session) " +

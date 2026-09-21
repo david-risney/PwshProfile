@@ -1,6 +1,6 @@
 ---
 name: long-run
-description: "Run Copilot commands through psmux. Transparently wraps eligible synchronous PowerShell tool calls while preserving cwd, environment, output, cancellation, and exit code. Also starts persistent named interactive shells in the chat cwd and provides a shared authenticated /tmux/ web inventory for Dragon or remotely steerable Copilot sessions. Use when asked to run a long command, open a shell/command prompt for the chat, create a persistent terminal session, or provide remote terminal access."
+description: "Route synchronous Copilot PowerShell calls transparently through attached psmux sessions, or start persistent named shells in the chat cwd. A shared authenticated dev tunnel provides an on-demand ttyd proxy and inventory for all named psmux sessions. Use when asked to run a long command, open a persistent shell, or provide remote terminal access."
 ---
 
 # Long Run

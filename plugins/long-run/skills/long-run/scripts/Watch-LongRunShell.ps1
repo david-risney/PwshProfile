@@ -23,6 +23,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'LongRun.Common.ps1')
 Write-LongRunLog -Component 'shell-watcher' -Event 'started' -Session $Session
 
+$inspectionRetrySeconds = 1
 while ($true) {
     try {
         $record = Get-LongRunPsmuxSessions $PsmuxPath |
@@ -32,9 +33,11 @@ while ($true) {
         Write-LongRunLog -Component 'shell-watcher' `
             -Event 'session-inspection-failed' -Level 'warning' -Session $Session `
             -Data @{ errorType = $_.Exception.GetType().FullName }
-        Start-Sleep -Seconds 1
+        Start-Sleep -Seconds $inspectionRetrySeconds
+        $inspectionRetrySeconds = [Math]::Min(30, $inspectionRetrySeconds * 2)
         continue
     }
+    $inspectionRetrySeconds = 1
     if (-not $record -or
         $record.Created -ne $ExpectedCreated -or
         $record.Id -ne $ExpectedId) {

@@ -32,9 +32,11 @@ switch ($args[0]) {
         New-Item -ItemType File -Path $active -Force | Out-Null
         $separator = [Array]::IndexOf($args, '--')
         if ($separator -lt 0) {
-            $separator = [Array]::FindIndex(
+            $programIndex = [Array]::FindIndex(
                 [string[]]$args,
-                [Predicate[string]]{ param($value) $value -match '(?i)(?:^|[\\/])pwsh(?:\.exe)?$' }) - 1
+                [Predicate[string]]{ param($value) $value -match '(?i)(?:^|[\\/])pwsh(?:\.exe)?$' })
+            if ($programIndex -lt 0) { throw 'Could not locate the psmux child program.' }
+            $separator = $programIndex - 1
         }
         $program = $args[$separator + 1]
         $programArgs = @($args[($separator + 2)..($args.Count - 1)])
@@ -492,10 +494,11 @@ Start-Sleep -Seconds 60
                 '-OwnerToken', 'startup-owner',
                 '-StateDirectory', "`"$TestDrive`"",
                 '-DelaySeconds', '999',
+                '-SessionWarningSeconds', '1',
                 '-NoViewer'
             )
         try {
-            Start-Sleep -Milliseconds 300
+            Start-Sleep -Milliseconds 1500
             $watcher.HasExited | Should Be $false
             New-Item -ItemType File `
                 -Path (Join-Path $env:TEST_PSMUX_ROOT 'active') | Out-Null

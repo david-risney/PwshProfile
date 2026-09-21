@@ -184,7 +184,8 @@ $bootstrapTail
         throw "The psmux session '$Session' was created but its identity could not be verified."
     }
 
-    $localAttach = "& '$($PsmuxPath -replace "'", "''")' attach-session -t '$Session'"
+    $localAttach = "& $(ConvertTo-LongRunPowerShellLiteral $PsmuxPath) " +
+        "attach-session -t $(ConvertTo-LongRunPowerShellLiteral $Session)"
     $remoteUrl = $null
     $inventoryUrl = $null
     if ($remote) {
