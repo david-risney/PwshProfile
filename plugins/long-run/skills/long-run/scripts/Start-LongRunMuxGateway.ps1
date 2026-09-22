@@ -181,12 +181,29 @@ function Remove-StaleGateway {
             -ExpectedStartTimeUtcTicks ([long]$Metadata.gatewayStartTimeUtcTicks) `
             -ExpectedPath ([string]$Metadata.gatewayRunnerPath) | Out-Null
         if ($Metadata.tunnelId -and $Metadata.devTunnelPath) {
-            $null = & ([string]$Metadata.devTunnelPath) delete `
-                ([string]$Metadata.tunnelId) -f 2>$null
-            $deleteExitCode = $LASTEXITCODE
-            if ($deleteExitCode -ne 0) {
+            $storedDevTunnelPath = [string]$Metadata.devTunnelPath
+            $deleteCommand = if (Test-Path -LiteralPath $storedDevTunnelPath `
+                    -PathType Leaf) {
+                $storedDevTunnelPath
+            } else {
+                $DevTunnelPath
+            }
+            $deleteFailure = $null
+            try {
+                if (-not $deleteCommand) {
+                    throw 'No installed devtunnel executable is available.'
+                }
+                $null = & $deleteCommand delete ([string]$Metadata.tunnelId) `
+                    -f 2>$null
+                if ($LASTEXITCODE -ne 0) {
+                    $deleteFailure = "exit $LASTEXITCODE"
+                }
+            } catch {
+                $deleteFailure = $_.Exception.Message
+            }
+            if ($deleteFailure) {
                 throw "devtunnel failed to delete stale tunnel '$($Metadata.tunnelId)' " +
-                    "(exit $deleteExitCode). Gateway state was retained for retry."
+                    "($deleteFailure). Gateway state was retained for retry."
             }
         }
     }

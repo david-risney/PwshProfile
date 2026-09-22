@@ -95,8 +95,8 @@ switch ($args[0]) {
                     $_.Groups[1].Value -replace '""', '"'
                 })
             if ($quoted.Count -ge 5) {
-                New-Item -ItemType File -Path $quoted[-2] -Force | Out-Null
-                New-Item -ItemType File -Path $quoted[-1] -Force | Out-Null
+                New-Item -ItemType File -LiteralPath $quoted[-2] -Force | Out-Null
+                New-Item -ItemType File -LiteralPath $quoted[-1] -Force | Out-Null
                 New-Item -ItemType File `
                     -Path (Join-Path $root 'recorder-failure-injected') `
                     -Force | Out-Null

@@ -299,14 +299,34 @@ $bootstrapTail
     Write-LongRunLog -Component 'shell' -Event 'started' -Session $Session `
         -Data @{ remote = $remote; openedLocally = $openedLocally }
 } catch {
+    $originalError = $_
     Write-LongRunLog -Component 'shell' -Event 'failed' -Level 'error' `
         -Session $Session -Data @{ errorType = $_.Exception.GetType().FullName }
-    if ($sessionCreated -gt 0) {
-        Stop-LongRunPsmuxSession -PsmuxPath $PsmuxPath `
-            -Session $Session -ExpectedCreated $sessionCreated `
-            -ExpectedId $sessionId | Out-Null
-    } elseif ($sessionStarted) {
-        & $PsmuxPath kill-session -t $Session 2>$null | Out-Null
+    try {
+        if ($sessionCreated -gt 0) {
+            Stop-LongRunPsmuxSession -PsmuxPath $PsmuxPath `
+                -Session $Session -ExpectedCreated $sessionCreated `
+                -ExpectedId $sessionId | Out-Null
+        } elseif ($sessionStarted) {
+            $cleanupRecord = $null
+            for ($attempt = 0; $attempt -lt 5 -and -not $cleanupRecord; $attempt++) {
+                try {
+                    $cleanupRecord = Get-LongRunPsmuxSessions $PsmuxPath |
+                        Where-Object Name -EQ $Session |
+                        Select-Object -First 1
+                } catch { }
+                if (-not $cleanupRecord) { Start-Sleep -Milliseconds 100 }
+            }
+            if ($cleanupRecord) {
+                Stop-LongRunPsmuxSession -PsmuxPath $PsmuxPath `
+                    -Session $Session -ExpectedCreated $cleanupRecord.Created `
+                    -ExpectedId $cleanupRecord.Id | Out-Null
+            }
+        }
+    } catch {
+        Write-LongRunLog -Component 'shell' -Event 'session-cleanup-failed' `
+            -Level 'warning' -Session $Session `
+            -Data @{ errorType = $_.Exception.GetType().FullName }
     }
     if ($ownsStateDir -and
         (Test-Path -LiteralPath $ownerTokenFile) -and
@@ -314,5 +334,5 @@ $bootstrapTail
         Remove-Item -LiteralPath $stateDir -Recurse -Force `
             -ErrorAction SilentlyContinue
     }
-    throw
+    throw $originalError
 }

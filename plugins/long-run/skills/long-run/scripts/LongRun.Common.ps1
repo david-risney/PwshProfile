@@ -269,7 +269,9 @@ function ConvertTo-LongRunPowerShellLiteral([string]$Value) {
 
 function Test-LongRunSessionName([string]$Session) {
     return $Session -match '^[A-Za-z0-9_.-]+$' -and
-        $Session -notin @('.', '..')
+        $Session -notin @('.', '..') -and
+        -not $Session.EndsWith('.') -and
+        $Session -notmatch '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)'
 }
 
 function Get-LongRunSessionStatePath([string]$Root, [string]$Session) {

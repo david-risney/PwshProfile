@@ -290,7 +290,7 @@ param(
         (Test-Path -LiteralPath (Join-Path $root 'killed')) | Should Be $false
     }
 
-    It 'kills a newly created session when identity verification fails' {
+    It 'preserves the original error when identity verification and cleanup fail' {
         $savedListExit = $env:TEST_PSMUX_LIST_EXIT
         try {
             $env:TEST_PSMUX_LIST_EXIT = '9'
@@ -299,11 +299,36 @@ param(
                 -RemoteMode Never -PsmuxPath $fakePsmux 2>$null
 
             $LASTEXITCODE | Should Not Be 0
-            Test-Path -LiteralPath (Join-Path $root 'killed') | Should Be $true
+            Test-Path -LiteralPath (Join-Path $root 'killed') | Should Be $false
             Test-Path -LiteralPath $stateDir | Should Be $false
         } finally {
             $env:TEST_PSMUX_LIST_EXIT = $savedListExit
         }
+    }
+
+    It 'starts cmd through the PowerShell bootstrap' {
+            $cmd = (Get-Command cmd.exe).Source
+            & $startShellScript `
+                -Session $session -WorkingDirectory $TestDrive -RemoteMode Never `
+                -PsmuxPath $fakePsmux -ShellPath $cmd -NoOpen 6>&1 | Out-Null
+
+            $bootstrap = Join-Path $stateDir 'bootstrap.ps1'
+            $bootstrapText = Get-Content -LiteralPath $bootstrap -Raw
+            $expectedCmdLiteral = "'" + ($cmd -replace "'", "''") + "'"
+            $bootstrapText | Should Match (
+                [regex]::Escape($expectedCmdLiteral + ' /K'))
+            $bootstrapText | Should Not Match 'RawUI\.WindowTitle'
+            $calls = Get-Content (Join-Path $root 'psmux-calls.jsonl') |
+                ForEach-Object { $_ | ConvertFrom-Json -NoEnumerate }
+            $newSession = @($calls | Where-Object { $_[0] -eq 'new-session' })[-1]
+            ($newSession -contains (Join-Path $PSHOME 'pwsh.exe')) | Should Be $true
+            ($newSession -contains '-File') | Should Be $true
+            ($newSession -contains $bootstrap) | Should Be $true
+            ($newSession -contains $cmd) | Should Be $false
+
+            Remove-Item (Join-Path $root 'active') -Force
+            (Wait-Condition { -not (Test-Path -LiteralPath $stateDir) } 20) |
+                Should Be $true
     }
 
     It 'keeps replacement shell state when a stale watcher exits' {
