@@ -8,6 +8,7 @@ const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const packageMetadata = require("../package.json");
 const {
   createGateway,
   isExpectedProxyDisconnect,
@@ -301,7 +302,7 @@ setTimeout(
     psmux: { file: process.execPath, args: [psmux, stateFile] },
     ttyd: options.ttyd || { file: process.execPath, args: [ttyd] },
     shell: process.execPath,
-    version: "2.4.38",
+    version: packageMetadata.version,
     defaultWorkingDirectory: directory,
     terminalStartupIdleSeconds: options.terminalStartupIdleSeconds || 10,
     terminalDisconnectIdleSeconds: options.terminalDisconnectIdleSeconds || 0.1,
@@ -484,7 +485,10 @@ test("serves a script inventory and session REST resources", async () => {
     const response = await authorizedRequest(current, "/tmux/");
     assert.equal(response.status, 200);
     assert.match(response.body, /psmux sessions/);
-    assert.match(response.body, /Long-run version 2\.4\.38/);
+    assert.match(
+      response.body,
+      new RegExp(`Long-run version ${packageMetadata.version.replaceAll(".", "\\.")}`),
+    );
     assert.doesNotMatch(response.body, /Opening a session starts/);
     assert.match(response.body, /<h2>Sessions<\/h2>/);
     assert.match(response.body, /<h2>Long-run utilities<\/h2>/);
