@@ -274,6 +274,17 @@ function Test-LongRunSessionName([string]$Session) {
         $Session -notmatch '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)'
 }
 
+function Test-LongRunPsmuxSessionExists(
+    [string]$PsmuxPath,
+    [string]$Session
+) {
+    & $PsmuxPath has-session -t $Session 2>$null
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -eq 0) { return $true }
+    if ($exitCode -eq 1) { return $false }
+    throw "psmux failed to inspect session '$Session' (exit code $exitCode)."
+}
+
 function Get-LongRunSessionStatePath([string]$Root, [string]$Session) {
     if (-not (Test-LongRunSessionName $Session)) {
         throw 'Session names may contain only letters, numbers, dot, underscore, and dash, and may not be "." or "..".'

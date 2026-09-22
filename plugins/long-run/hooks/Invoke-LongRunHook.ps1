@@ -68,7 +68,8 @@ function Test-ExactOutput([pscustomobject]$ToolArgs, [string]$Command) {
 }
 
 try {
-    $common = Join-Path $env:COPILOT_PLUGIN_ROOT 'skills\long-run\scripts\LongRun.Common.ps1'
+    $pluginRoot = Split-Path -Parent $PSScriptRoot
+    $common = Join-Path $pluginRoot 'skills\long-run\scripts\LongRun.Common.ps1'
     . $common
     $tempRoot = Join-Path $env:TEMP 'long-run-hook'
     if (Test-Path -LiteralPath $tempRoot) {
@@ -123,7 +124,7 @@ try {
         $command,
         [System.Text.UTF8Encoding]::new($false))
 
-    $runner = Join-Path $env:COPILOT_PLUGIN_ROOT 'skills\long-run\scripts\Start-LongRun.ps1'
+    $runner = Join-Path $pluginRoot 'skills\long-run\scripts\Start-LongRun.ps1'
     $cwd = if ($payload.cwd) { [string]$payload.cwd } else { (Get-Location).Path }
     $session = Get-LongRunCommandSessionName $command
     $remoteMode = if (Test-LongRunRemoteSession) { 'Always' } else { 'Never' }

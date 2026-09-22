@@ -994,31 +994,37 @@ function createGateway(config) {
     const basePath = `/tmux/session/${session}`;
     const logPath = path.join(config.stateDirectory, "terminals");
     fs.mkdirSync(logPath, { recursive: true });
-    const stdoutFd = fs.openSync(path.join(logPath, `${session}.out.log`), "a");
-    const stderrFd = fs.openSync(path.join(logPath, `${session}.err.log`), "a");
-    const child = spawnCommand(config.ttyd, [
-      "-W",
-      "-t",
-      "disableLeaveAlert=true",
-      "-t",
-      `fontFamily=${config.terminalFontFamily || terminalFontFamily}`,
-      "-i",
-      bindHost,
-      "-p",
-      String(port),
-      "-b",
-      basePath,
-      commandSpec(config.psmux).file,
-      ...(commandSpec(config.psmux).args || []),
-      "attach-session",
-      "-t",
-      session,
-    ], {
-      env: psmuxAttachEnvironment(config.environment || process.env),
-      stdio: ["ignore", stdoutFd, stderrFd],
-    });
-    fs.closeSync(stdoutFd);
-    fs.closeSync(stderrFd);
+    let stdoutFd;
+    let stderrFd;
+    let child;
+    try {
+      stdoutFd = fs.openSync(path.join(logPath, `${session}.out.log`), "a");
+      stderrFd = fs.openSync(path.join(logPath, `${session}.err.log`), "a");
+      child = spawnCommand(config.ttyd, [
+        "-W",
+        "-t",
+        "disableLeaveAlert=true",
+        "-t",
+        `fontFamily=${config.terminalFontFamily || terminalFontFamily}`,
+        "-i",
+        bindHost,
+        "-p",
+        String(port),
+        "-b",
+        basePath,
+        commandSpec(config.psmux).file,
+        ...(commandSpec(config.psmux).args || []),
+        "attach-session",
+        "-t",
+        session,
+      ], {
+        env: psmuxAttachEnvironment(config.environment || process.env),
+        stdio: ["ignore", stdoutFd, stderrFd],
+      });
+    } finally {
+      if (stdoutFd !== undefined) fs.closeSync(stdoutFd);
+      if (stderrFd !== undefined) fs.closeSync(stderrFd);
+    }
     logEvent("terminal-starting", {
       session,
       terminalPid: child.pid,
@@ -1394,7 +1400,7 @@ function createGateway(config) {
       req.longRunTerminalPort = terminal.port;
       terminalProxy(req, res, (error) => {
         if (error) {
-          sendText(res, 502, `The web terminal proxy failed: ${error.message}`);
+          sendText(res, 502, "The web terminal proxy failed.");
         }
       });
     } catch (error) {

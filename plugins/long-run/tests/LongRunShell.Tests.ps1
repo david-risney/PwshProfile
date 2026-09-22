@@ -49,6 +49,9 @@ switch ($args[0]) {
         exit 1
     }
     'has-session' {
+        if ($env:TEST_PSMUX_HAS_EXIT) {
+            exit [int]$env:TEST_PSMUX_HAS_EXIT
+        }
         if (Test-Path -LiteralPath $active) { exit 0 }
         exit 1
     }
@@ -288,6 +291,22 @@ param(
         $LASTEXITCODE | Should Not Be 0
         (Test-Path -LiteralPath (Join-Path $root 'active')) | Should Be $true
         (Test-Path -LiteralPath (Join-Path $root 'killed')) | Should Be $false
+    }
+
+    It 'does not treat a failed session probe as an absent session' {
+        $savedHasExit = $env:TEST_PSMUX_HAS_EXIT
+        try {
+            $env:TEST_PSMUX_HAS_EXIT = '9'
+            & pwsh -NoProfile -File $startShellScript `
+                -Session $session -WorkingDirectory $TestDrive `
+                -RemoteMode Never -PsmuxPath $fakePsmux 2>$null
+
+            $LASTEXITCODE | Should Not Be 0
+            Test-Path -LiteralPath (Join-Path $root 'active') | Should Be $false
+            Test-Path -LiteralPath $stateDir | Should Be $false
+        } finally {
+            $env:TEST_PSMUX_HAS_EXIT = $savedHasExit
+        }
     }
 
     It 'preserves the original error when identity verification and cleanup fail' {

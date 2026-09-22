@@ -126,7 +126,12 @@ function ConvertFrom-LongRunNativeJson([object[]]$Output, [string]$CommandName) 
 
 function Resolve-TerminalFontPath([string]$RequestedPath) {
     if ($RequestedPath) {
-        return (Resolve-Path -LiteralPath $RequestedPath -ErrorAction Stop).Path
+        $resolved = (Resolve-Path -LiteralPath $RequestedPath `
+                -ErrorAction Stop).Path
+        if ([System.IO.Path]::GetExtension($resolved) -ne '.ttf') {
+            throw 'TerminalFontPath must reference a TrueType (.ttf) font file.'
+        }
+        return $resolved
     }
     $fontNames = @(
         'CaskaydiaCoveNerdFontMono-Regular.ttf',
@@ -434,6 +439,8 @@ try {
     $gatewaySessionId = $null
     $tunnelPid = 0
     $tunnelId = $null
+    $tunnelName = $null
+    $tunnelCreated = $false
     try {
         Write-Verbose 'Starting the gateway in a long-run-util-gateway-{N} psmux session.'
         $gatewayService = Start-LongRunPsmuxService `
@@ -512,6 +519,9 @@ try {
         if ($LASTEXITCODE -ne 0) {
             throw 'devtunnel failed to create the mux gateway tunnel.'
         }
+        $tunnelCreated = $true
+        $metadata['tunnelId'] = $tunnelName
+        Write-GatewayMetadata $metadataFile $metadata
         $created = ConvertFrom-LongRunNativeJson $createOutput 'devtunnel create'
         if (-not $created.tunnel.tunnelId) {
             throw 'devtunnel failed to create the mux gateway tunnel.'
@@ -590,11 +600,16 @@ try {
                 -ExpectedId $gatewaySessionId | Out-Null
         }
         $cleanupComplete = $true
-        if ($tunnelId) {
-            $null = & $DevTunnelPath delete $tunnelId -f 2>$null
+        $tunnelCleanupTarget = if ($tunnelId) {
+            $tunnelId
+        } elseif ($tunnelCreated) {
+            $tunnelName
+        }
+        if ($tunnelCleanupTarget) {
+            $null = & $DevTunnelPath delete $tunnelCleanupTarget -f 2>$null
             if ($LASTEXITCODE -ne 0) {
                 $cleanupComplete = $false
-                Write-Warning "devtunnel failed to delete tunnel '$tunnelId'; gateway state was retained for retry."
+                Write-Warning "devtunnel failed to delete tunnel '$tunnelCleanupTarget'; gateway state was retained for retry."
             }
         }
         if ($cleanupComplete) {

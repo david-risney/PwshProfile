@@ -78,8 +78,7 @@ if (-not $Session) { $Session = Get-SafeSessionName $WorkingDirectory }
 $stateRoot = Join-Path $env:TEMP 'long-run-shell'
 $stateDir = Get-LongRunSessionStatePath $stateRoot $Session
 
-& $PsmuxPath has-session -t $Session 2>$null
-if ($LASTEXITCODE -eq 0) {
+if (Test-LongRunPsmuxSessionExists -PsmuxPath $PsmuxPath -Session $Session) {
     throw "A psmux session named '$Session' already exists."
 }
 
