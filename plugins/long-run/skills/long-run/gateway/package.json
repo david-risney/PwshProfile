@@ -1,6 +1,6 @@
 {
   "name": "long-run-mux-gateway",
-  "version": "2.4.48",
+  "version": "2.4.49",
   "private": true,
   "description": "On-demand ttyd reverse proxy for named psmux sessions.",
   "main": "server.js",

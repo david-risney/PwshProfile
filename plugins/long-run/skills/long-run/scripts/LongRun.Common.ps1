@@ -28,6 +28,38 @@ function Get-LongRunGatewayLogPath([string]$StateDirectory) {
     return Join-Path $directory "$name.gateway-$stateHash.jsonl"
 }
 
+function ConvertFrom-LongRunNativeJson(
+    [object[]]$Output,
+    [string]$CommandName
+) {
+    $lines = @($Output | ForEach-Object { [string]$_ })
+    $lastLine = $lines | Select-Object -Last 1
+    if ($lastLine) {
+        try {
+            return $lastLine | ConvertFrom-Json -ErrorAction Stop
+        } catch { }
+    }
+
+    $text = $lines -join [Environment]::NewLine
+    try {
+        return $text | ConvertFrom-Json -ErrorAction Stop
+    } catch { }
+
+    # Some native tools print upgrade notices before otherwise valid JSON.
+    $objectStart = $text.IndexOf('{')
+    $objectEnd = $text.LastIndexOf('}')
+    if ($objectStart -ge 0 -and $objectEnd -gt $objectStart) {
+        try {
+            return $text.Substring(
+                $objectStart,
+                $objectEnd - $objectStart + 1) |
+                ConvertFrom-Json -ErrorAction Stop
+        } catch { }
+    }
+
+    throw "$CommandName did not return a valid JSON object."
+}
+
 function Write-LongRunLog {
     param(
         [Parameter(Mandatory = $true)]

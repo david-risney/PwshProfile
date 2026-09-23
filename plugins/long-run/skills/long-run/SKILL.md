@@ -45,6 +45,16 @@ attached psmux command. A post-tool hook extracts `LONGRUN_REMOTE_URL` and
 supplies the exact session link as response context so it is reported to the
 user instead of remaining hidden in the tool output.
 
+`scripts\Get-LongRunStatusLine.ps1 -WorkingDirectory <path>` renders the newest
+active remote command for that working directory as an OSC-8 `long-run`
+hyperlink. Statusline aggregators can prepend that output to their existing
+content. The renderer reads the command's existing temporary `session.json`,
+requires the recorded owner process and start time to match, rejects unsafe
+URLs, and stops producing output when normal command cleanup removes the state.
+On Copilot CLI versions that support it, configure
+`statusLine.refreshInterval` to periodically rerun the aggregator while a tool
+is active; a value of `5` refreshes every five seconds.
+
 ## Hook exceptions
 
 The hook leaves the original tool call unchanged when:

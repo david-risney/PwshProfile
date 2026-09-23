@@ -76,7 +76,14 @@ $themePath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'status
 $ompOutput = (oh-my-posh print primary --config $themePath --pwd $cwd);
 $ompOutput = $ompOutput -join ' ';
 
-# Escape ANSI sequences for printing
-# $ompOutput = $ompOutput -replace '\x1b', [char]27;
+$longRunStatusScript = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) `
+    '..\plugins\long-run\skills\long-run\scripts\Get-LongRunStatusLine.ps1'
+$longRunStatus = if (Test-Path -LiteralPath $longRunStatusScript) {
+    & $longRunStatusScript -WorkingDirectory $cwd
+}
 
-[Console]::Write($ompOutput);
+if ($longRunStatus) {
+    [Console]::Write("$longRunStatus $ompOutput")
+} else {
+    [Console]::Write($ompOutput)
+}
