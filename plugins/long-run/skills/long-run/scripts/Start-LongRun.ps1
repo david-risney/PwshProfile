@@ -609,8 +609,6 @@ exit `$LASTEXITCODE
     $metadata = [ordered]@{
         session = $Session
         ownerPid = $PID
-        ownerStartedAtUnixMs = [DateTimeOffset]::new(
-            (Get-Process -Id $PID).StartTime).ToUnixTimeMilliseconds()
         workingDirectory = $WorkingDirectory
         startedAt = [DateTimeOffset]::UtcNow.ToString('o')
         commandCount = $commandFiles.Count

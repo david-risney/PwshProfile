@@ -108,6 +108,22 @@ function Remove-GatewayStateDirectory {
     }
 }
 
+function ConvertFrom-LongRunNativeJson([object[]]$Output, [string]$CommandName) {
+    $lines = @($Output | ForEach-Object { [string]$_ })
+    $lastLine = $lines | Select-Object -Last 1
+    if ($lastLine) {
+        try {
+            return $lastLine | ConvertFrom-Json -ErrorAction Stop
+        } catch { }
+    }
+    $text = $lines -join [Environment]::NewLine
+    try {
+        return $text | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        throw "$CommandName did not return a valid JSON object."
+    }
+}
+
 function Resolve-TerminalFontPath([string]$RequestedPath) {
     if ($RequestedPath) {
         $resolved = (Resolve-Path -LiteralPath $RequestedPath `

@@ -4,7 +4,6 @@ $startScript = Join-Path $scriptRoot 'Start-LongRun.ps1'
 $watchScript = Join-Path $scriptRoot 'Watch-LongRunSession.ps1'
 $hookScript = Join-Path $pluginRoot 'hooks\Invoke-LongRunHook.ps1'
 $publishUrlScript = Join-Path $pluginRoot 'hooks\Publish-LongRunUrl.ps1'
-$statusLineScript = Join-Path $scriptRoot 'Get-LongRunStatusLine.ps1'
 
 function New-FakePsmux([string]$Directory) {
     $scriptPath = Join-Path $Directory 'fake-psmux.ps1'
@@ -195,18 +194,6 @@ function Wait-Condition([scriptblock]$Condition, [int]$TimeoutSeconds = 10) {
 }
 
 Describe 'Long-run remote detection' {
-    It 'parses native JSON surrounded by informational output' {
-        . (Join-Path $scriptRoot 'LongRun.Common.ps1')
-        $result = ConvertFrom-LongRunNativeJson @(
-            'A newer version is available.',
-            '{',
-            '  "tunnel": { "tunnelId": "synthetic-tunnel" }',
-            '}'
-        ) 'synthetic command'
-
-        $result.tunnel.tunnelId | Should Be 'synthetic-tunnel'
-    }
-
     It 'uses Copilot workspace metadata without requiring Dragon environment variables' {
         . (Join-Path $scriptRoot 'LongRun.Common.ps1')
         $saved = @{
@@ -403,15 +390,7 @@ exit 23
         $session = 'remote-before-command'
         $commandFile = Join-Path $TestDrive 'remote-order.ps1'
         $gatewayScript = Join-Path $TestDrive 'fake-gateway.ps1'
-        $escapedStatusLineScript = $statusLineScript -replace "'", "''"
-        $escapedWorkingDirectory = ([string]$TestDrive) -replace "'", "''"
-        @"
-`$status = & '$escapedStatusLineScript' -WorkingDirectory '$escapedWorkingDirectory'
-Write-Output ('STATUS_HEX=' + [Convert]::ToHexString(
-    [Text.Encoding]::UTF8.GetBytes([string]`$status)))
-Write-Output 'COMMAND_STARTED'
-exit 0
-"@ | Set-Content -LiteralPath $commandFile
+        Set-Content -LiteralPath $commandFile -Value "Write-Output 'COMMAND_STARTED'; exit 0"
         @'
 [pscustomobject]@{
     Url = 'https://example.devtunnels.ms/tmux/?accessToken=capability'
@@ -437,15 +416,6 @@ exit 0
         $urlIndex | Should BeGreaterThan -1
         $commandIndex | Should BeGreaterThan $urlIndex
         ($lines -join "`n") | Should Match "Long-running command session: $session"
-        $statusHex = ($lines | Where-Object { $_ -match '^STATUS_HEX=' }) `
-            -replace '^STATUS_HEX=', ''
-        $statusText = [Text.Encoding]::UTF8.GetString(
-            [Convert]::FromHexString($statusHex))
-        $statusText | Should Be (
-            [char]27 + ']8;;' +
-            'https://example.devtunnels.ms/tmux/session/remote-before-command/' +
-            '?accessToken=capability' + [char]27 + '\' +
-            'long-run' + [char]27 + ']8;;' + [char]27 + '\')
     }
 
     It 'returns the psmux failure code when the child never starts' {
@@ -859,92 +829,6 @@ LONGRUN_TMUX_URL=https://example.devtunnels.ms/tmux/
         $result = Invoke-PublishUrlHook 'ordinary PowerShell output'
 
         @($result.PSObject.Properties).Count | Should Be 0
-    }
-}
-
-Describe 'Get-LongRunStatusLine' {
-    It 'renders the newest live session for the current working directory as an OSC-8 link' {
-        $stateRoot = Join-Path $TestDrive 'status'
-        $older = Join-Path $stateRoot 'older'
-        $newer = Join-Path $stateRoot 'newer'
-        New-Item -ItemType Directory -Path $older, $newer | Out-Null
-        $ownerStartedAtUnixMs = [DateTimeOffset]::new(
-            (Get-Process -Id $PID).StartTime).ToUnixTimeMilliseconds()
-        $olderMetadata = @{
-            ownerPid = [int]$PID
-            ownerStartedAtUnixMs = $ownerStartedAtUnixMs
-            workingDirectory = [string]$TestDrive
-            startedAt = [DateTimeOffset]::UtcNow.AddMinutes(-1).ToString('o')
-            remoteUrl = 'https://example.test/older?accessToken=synthetic-old'
-        }
-        [System.IO.File]::WriteAllText(
-            (Join-Path $older 'session.json'),
-            ($olderMetadata | ConvertTo-Json -Compress),
-            [System.Text.UTF8Encoding]::new($false))
-        $url = 'https://example.test/current?accessToken=synthetic-current'
-        $newerMetadata = @{
-            ownerPid = [int]$PID
-            ownerStartedAtUnixMs = $ownerStartedAtUnixMs
-            workingDirectory = [string]$TestDrive
-            startedAt = [DateTimeOffset]::UtcNow.ToString('o')
-            remoteUrl = $url
-        }
-        [System.IO.File]::WriteAllText(
-            (Join-Path $newer 'session.json'),
-            ($newerMetadata | ConvertTo-Json -Compress),
-            [System.Text.UTF8Encoding]::new($false))
-
-        $output = & $statusLineScript -WorkingDirectory $TestDrive `
-            -StateRoot $stateRoot
-        $escape = [char]27
-        $output | Should Be (
-            $escape + ']8;;' + $url + $escape + '\' +
-            'long-run' + $escape + ']8;;' + $escape + '\')
-    }
-
-    It 'ignores stale, mismatched, malformed, and unsafe session metadata' {
-        $stateRoot = Join-Path $TestDrive 'status-filtering'
-        New-Item -ItemType Directory -Path $stateRoot | Out-Null
-        $ownerStartedAtUnixMs = [DateTimeOffset]::new(
-            (Get-Process -Id $PID).StartTime).ToUnixTimeMilliseconds()
-        $cases = @(
-            @{
-                ownerPid = 2147483647
-                ownerStartedAtUnixMs = $ownerStartedAtUnixMs
-                workingDirectory = [string]$TestDrive
-                startedAt = [DateTimeOffset]::UtcNow.ToString('o')
-                remoteUrl = 'https://example.test/stale'
-            },
-            @{
-                ownerPid = [int]$PID
-                ownerStartedAtUnixMs = $ownerStartedAtUnixMs
-                workingDirectory = Join-Path $TestDrive 'other'
-                startedAt = [DateTimeOffset]::UtcNow.ToString('o')
-                remoteUrl = 'https://example.test/other'
-            },
-            @{
-                ownerPid = [int]$PID
-                ownerStartedAtUnixMs = $ownerStartedAtUnixMs
-                workingDirectory = [string]$TestDrive
-                startedAt = [DateTimeOffset]::UtcNow.ToString('o')
-                remoteUrl = "https://example.test/unsafe$([char]27)]8;;"
-            }
-        )
-        for ($i = 0; $i -lt $cases.Count; $i++) {
-            $directory = Join-Path $stateRoot "case-$i"
-            New-Item -ItemType Directory -Path $directory | Out-Null
-            [System.IO.File]::WriteAllText(
-                (Join-Path $directory 'session.json'),
-                ($cases[$i] | ConvertTo-Json -Compress),
-                [System.Text.UTF8Encoding]::new($false))
-        }
-        $malformed = Join-Path $stateRoot 'malformed'
-        New-Item -ItemType Directory -Path $malformed | Out-Null
-        Set-Content -LiteralPath (Join-Path $malformed 'session.json') -Value '{'
-
-        $output = & $statusLineScript -WorkingDirectory $TestDrive `
-            -StateRoot $stateRoot
-        $output | Should BeNullOrEmpty
     }
 }
 
