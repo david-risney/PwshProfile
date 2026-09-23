@@ -115,13 +115,22 @@ switch ($args[0]) {
     return $path
 }
 
-function Invoke-Hook([hashtable]$ToolArgs, [hashtable]$Environment = @{}) {
+function Invoke-Hook(
+    [object]$ToolArgs,
+    [hashtable]$Environment = @{},
+    [switch]$SerializeToolArgs
+) {
+    $payloadToolArgs = if ($SerializeToolArgs) {
+        $ToolArgs | ConvertTo-Json -Compress -Depth 10
+    } else {
+        $ToolArgs
+    }
     $payload = @{
         sessionId = 'test-session'
         timestamp = 0
         cwd = (Resolve-Path -LiteralPath $TestDrive).Path
         toolName = 'powershell'
-        toolArgs = $ToolArgs
+        toolArgs = $payloadToolArgs
     } | ConvertTo-Json -Compress -Depth 10
 
     $saved = @{}
@@ -678,6 +687,45 @@ Describe 'Invoke-LongRunHook' {
         $match.Success | Should Be $true
         [System.IO.File]::ReadAllText($match.Groups[1].Value) | Should Be "Write-Output 'quoted value'"
         Remove-Item -LiteralPath $match.Groups[1].Value -Force
+    }
+
+    It 'rewrites Dragon-style serialized tool arguments without losing fields' {
+        $result = Invoke-Hook @{
+            command = "Write-Output 'serialized value'"
+            description = 'Run a serialized command'
+            initial_wait = 45
+            mode = 'sync'
+            shellId = 'dragon-hook-probe'
+        } -SerializeToolArgs
+
+        $result.modifiedArgs.description | Should Be 'Run a serialized command'
+        $result.modifiedArgs.initial_wait | Should Be 45
+        $result.modifiedArgs.shellId | Should Be 'dragon-hook-probe'
+        $result.modifiedArgs.mode | Should Be 'sync'
+        $result.modifiedArgs.command | Should Match 'Start-LongRun\.ps1'
+        $match = [regex]::Match(
+            $result.modifiedArgs.command,
+            "-CommandFile '([^']+)'")
+        $match.Success | Should Be $true
+        [System.IO.File]::ReadAllText($match.Groups[1].Value) |
+            Should Be "Write-Output 'serialized value'"
+        Remove-Item -LiteralPath $match.Groups[1].Value -Force
+    }
+
+    It 'fails open for malformed serialized tool arguments' {
+        $logPath = Join-Path $TestDrive 'malformed-hook-events.jsonl'
+
+        $result = Invoke-Hook '{"command":' @{
+            LONG_RUN_LOG_PATH = $logPath
+        }
+
+        @($result.PSObject.Properties).Count | Should Be 0
+        $event = Get-Content -LiteralPath $logPath |
+            Select-Object -Last 1 |
+            ConvertFrom-Json
+        $event.component | Should Be 'hook'
+        $event.event | Should Be 'skipped'
+        $event.reason | Should Be 'malformed-serialized-tool-arguments'
     }
 
     It 'forces remote gateway mode for Dragon before the command starts' {

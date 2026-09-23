@@ -1,6 +1,6 @@
 {
   "name": "long-run",
-  "version": "2.4.46",
+  "version": "2.4.47",
   "description": "Route synchronous Copilot PowerShell calls transparently through attached psmux sessions, or start persistent named shells in the chat cwd. A shared authenticated dev tunnel provides an on-demand ttyd proxy and inventory for all named psmux sessions. Use when asked to run a long command, open a persistent shell, or provide remote terminal access.",
   "repository": "https://github.com/david-risney/PwshProfile"
 }

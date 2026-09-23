@@ -86,6 +86,16 @@ try {
     }
     $payload = $raw | ConvertFrom-Json
     $toolArgs = $payload.toolArgs
+    if ($toolArgs -is [string]) {
+        try {
+            $toolArgs = $toolArgs | ConvertFrom-Json -ErrorAction Stop
+        } catch {
+            Write-LongRunLog -Component 'hook' -Event 'skipped' `
+                -Data @{ reason = 'malformed-serialized-tool-arguments' }
+            Write-HookResult @{}
+            exit 0
+        }
+    }
     if (-not $toolArgs -or -not ($toolArgs.command -is [string])) {
         Write-LongRunLog -Component 'hook' -Event 'skipped' `
             -Data @{ reason = 'unsupported-tool-arguments' }
