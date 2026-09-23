@@ -41,8 +41,9 @@ shared mux gateway. The hook detects Dragon and remotely steerable Copilot
 sessions before rewriting the tool call, reserves the session name, and passes
 `-RemoteMode Always` to the wrapper. The wrapper ensures the gateway and prints
 `LONGRUN_REMOTE_URL` and `LONGRUN_TMUX_URL` before it starts the synchronous
-attached psmux command, so report the terminal URL to the user as soon as it
-appears.
+attached psmux command. A post-tool hook extracts `LONGRUN_REMOTE_URL` and
+supplies the exact session link as response context so it is reported to the
+user instead of remaining hidden in the tool output.
 
 ## Hook exceptions
 

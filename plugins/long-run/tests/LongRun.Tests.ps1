@@ -3,6 +3,7 @@ $scriptRoot = Join-Path $pluginRoot 'skills\long-run\scripts'
 $startScript = Join-Path $scriptRoot 'Start-LongRun.ps1'
 $watchScript = Join-Path $scriptRoot 'Watch-LongRunSession.ps1'
 $hookScript = Join-Path $pluginRoot 'hooks\Invoke-LongRunHook.ps1'
+$publishUrlScript = Join-Path $pluginRoot 'hooks\Publish-LongRunUrl.ps1'
 
 function New-FakePsmux([string]$Directory) {
     $scriptPath = Join-Path $Directory 'fake-psmux.ps1'
@@ -162,6 +163,25 @@ function Invoke-Hook(
             [Environment]::SetEnvironmentVariable($entry.Key, $entry.Value, 'Process')
         }
     }
+}
+
+function Invoke-PublishUrlHook([string]$ToolOutput) {
+    $payload = @{
+        sessionId = 'test-session'
+        timestamp = 0
+        cwd = (Resolve-Path -LiteralPath $TestDrive).Path
+        toolName = 'powershell'
+        toolArgs = '{}'
+        toolResult = @{
+            textResultForLlm = $ToolOutput
+            resultType = 'success'
+            sessionLog = $ToolOutput
+        }
+    } | ConvertTo-Json -Compress -Depth 10
+
+    $pwsh = (Get-Command pwsh -CommandType Application).Source
+    return ($payload | & $pwsh -NoProfile -File $publishUrlScript |
+        ConvertFrom-Json)
 }
 
 function Wait-Condition([scriptblock]$Condition, [int]$TimeoutSeconds = 10) {
@@ -788,6 +808,27 @@ Describe 'Invoke-LongRunHook' {
         } finally {
             Remove-Item -LiteralPath $staleFile -Force -ErrorAction SilentlyContinue
         }
+    }
+}
+
+Describe 'Publish-LongRunUrl' {
+    It 'provides the exact remote session URL as post-tool context' {
+        $url = 'https://example.devtunnels.ms/tmux/session/test-session/?accessToken=synthetic-capability'
+        $result = Invoke-PublishUrlHook @"
+Long-running command session: test-session
+LONGRUN_REMOTE_URL=$url
+LONGRUN_TMUX_URL=https://example.devtunnels.ms/tmux/
+"@
+
+        $result.additionalContext | Should Match ([regex]::Escape($url))
+        $result.additionalContext | Should Match 'next user-visible response'
+        $result.additionalContext | Should Match 'Do not substitute the inventory URL'
+    }
+
+    It 'does not add context when long-run did not publish a session URL' {
+        $result = Invoke-PublishUrlHook 'ordinary PowerShell output'
+
+        @($result.PSObject.Properties).Count | Should Be 0
     }
 }
 

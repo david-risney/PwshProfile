@@ -497,6 +497,23 @@ Do not use any other tools. After all four calls, answer only: done
                 $_.event -eq 'skipped' -and $_.reason -eq 'psmux-command'
             }).Count | Should BeGreaterThan 0
 
+            $env:DRAGON_REMOTE = '1'
+            $remotePrompt = @'
+Use the powershell tool exactly once to run:
+Start-Sleep -Milliseconds 200; Write-Output 'COPILOT_LONG_RUN_REMOTE_CONTEXT'
+Then summarize the result for the user.
+'@
+            $remoteOutput = @(
+                & copilot --plugin-dir $pluginRoot -C $workspace `
+                    --no-remote --allow-all-tools -s -p $remotePrompt 2>&1)
+            $LASTEXITCODE | Should Be 0
+            $remoteText = $remoteOutput -join "`n"
+            ($remoteText -match 'COPILOT_LONG_RUN_REMOTE_CONTEXT') |
+                Should Be $true
+            ($remoteText -match 'https://[^\s]+/tmux/session/[^\s]+') |
+                Should Be $true
+            $env:DRAGON_REMOTE = $null
+
             $withoutPlugin = @(& copilot plugin list 2>&1)
             $LASTEXITCODE | Should Be 0
             ($withoutPlugin -join "`n") | Should Not Match 'long-run'
