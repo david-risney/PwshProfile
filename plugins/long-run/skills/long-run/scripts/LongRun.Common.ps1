@@ -74,7 +74,7 @@ function Write-LongRunLog {
                 'gatewayPid', 'tunnelPid', 'viewerDelaySeconds', 'exitCode',
                 'timedOut', 'removed', 'stateRemoved', 'remainingCommandFiles',
                 'openedLocally', 'ownerPid', 'viewerEnabled', 'sessionRemoved',
-                'index'
+                'index', 'candidateCount', 'reusedTunnel', 'stage', 'attempt'
             ),
             [StringComparer]::OrdinalIgnoreCase)
         foreach ($item in $Data.GetEnumerator()) {
@@ -166,6 +166,18 @@ function Get-LongRunInteractiveEnvironment {
     return $environment
 }
 
+function Initialize-LongRunHiddenProcessStartInfo(
+    [System.Diagnostics.ProcessStartInfo]$StartInfo
+) {
+    $StartInfo.UseShellExecute = $false
+    $StartInfo.CreateNoWindow = $true
+}
+
+function New-LongRunHiddenProcessStartupInformation {
+    return New-CimInstance -ClassName Win32_ProcessStartup `
+        -Property @{ ShowWindow = [uint16]0 } -ClientOnly
+}
+
 function Invoke-LongRunProcessWithEnvironment {
     param(
         [Parameter(Mandatory = $true)]
@@ -178,7 +190,7 @@ function Invoke-LongRunProcessWithEnvironment {
     )
 
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $startInfo.UseShellExecute = $false
+    Initialize-LongRunHiddenProcessStartInfo $startInfo
     if ([System.IO.Path]::GetExtension($FilePath) -match '^(?i:\.cmd|\.bat)$') {
         $startInfo.FileName = $env:ComSpec
         [void]$startInfo.ArgumentList.Add('/d')
@@ -472,10 +484,18 @@ function Start-LongRunDetachedPowerShell {
         [System.Text.Encoding]::Unicode.GetBytes($Command))
     $commandLine = '"{0}" -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand {1}' -f (
         $hostPowerShell -replace '"', '""'), $encoded
-    $result = Invoke-CimMethod -ClassName Win32_Process -MethodName Create `
-        -Arguments @{ CommandLine = $commandLine }
-    if ($result.ReturnValue -ne 0) {
-        throw "Failed to start detached $Name (Win32 error $($result.ReturnValue))."
+    $startup = New-LongRunHiddenProcessStartupInformation
+    try {
+        $result = Invoke-CimMethod -ClassName Win32_Process -MethodName Create `
+            -Arguments @{
+                CommandLine = $commandLine
+                ProcessStartupInformation = $startup
+            }
+        if ($result.ReturnValue -ne 0) {
+            throw "Failed to start detached $Name (Win32 error $($result.ReturnValue))."
+        }
+    } finally {
+        $startup.Dispose()
     }
 }
 
@@ -512,7 +532,7 @@ function Start-LongRunDetachedService {
     -ArgumentList $(ConvertTo-LongRunPowerShellLiteral $argumentText) ``
     -RedirectStandardOutput $(ConvertTo-LongRunPowerShellLiteral $stdoutPath) ``
     -RedirectStandardError $(ConvertTo-LongRunPowerShellLiteral $stderrPath) ``
-    -PassThru -Wait
+    -WindowStyle Hidden -PassThru -Wait
 exit `$process.ExitCode
 "@
     [System.IO.File]::WriteAllText(
@@ -528,10 +548,18 @@ exit `$process.ExitCode
         $launcher,
         [System.Text.Encoding]::ASCII)
     $commandLine = 'cmd.exe /d /c ""{0}""' -f ($launcherPath -replace '"', '""')
-    $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create `
-        -Arguments @{ CommandLine = $commandLine }
-    if ($created.ReturnValue -ne 0) {
-        throw "Failed to start detached $Name runner (Win32 error $($created.ReturnValue))."
+    $startup = New-LongRunHiddenProcessStartupInformation
+    try {
+        $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create `
+            -Arguments @{
+                CommandLine = $commandLine
+                ProcessStartupInformation = $startup
+            }
+        if ($created.ReturnValue -ne 0) {
+            throw "Failed to start detached $Name runner (Win32 error $($created.ReturnValue))."
+        }
+    } finally {
+        $startup.Dispose()
     }
 
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
@@ -592,7 +620,7 @@ function Stop-LongRunPsmuxSession {
         return $false
     }
     $target = if ($match.Id) { $match.Id } else { $Session }
-    & $PsmuxPath kill-session -t $target 2>$null
+    & $PsmuxPath kill-session -t $target 2>$null | Out-Null
     return $LASTEXITCODE -eq 0
 }
 

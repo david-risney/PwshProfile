@@ -22,49 +22,125 @@ const logo = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <path d="M34 45h16" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
 </svg>`;
 const terminalFontFamily = `"Long Run Nerd Font", "CaskaydiaCove NFM", "CaskaydiaCove NF", "Cascadia Mono", Consolas, monospace`;
-const terminalLifecycleMarkup = `<style>
-#long-run-session-closed{box-sizing:border-box;display:grid;min-height:100vh;place-content:center;gap:1rem;padding:2rem;background:hsl(220 18% 10%);color:hsl(210 20% 92%);font:1rem/1.5 system-ui,sans-serif;text-align:center}
-#long-run-session-closed h1,#long-run-session-closed p{margin:0}
-#long-run-session-closed a{justify-self:center;padding:.55rem .9rem;border-radius:.4rem;background:hsl(211 75% 45%);color:white;text-decoration:none}
-#long-run-session-closed a:hover{background:hsl(211 75% 52%)}
+const terminalLifecycleMarkup = (initialSessionId) => {
+  const serializedSessionId = JSON.stringify(initialSessionId || null).replaceAll(
+    "<",
+    "\\u003c",
+  );
+  return `<style>
+#long-run-session-state{box-sizing:border-box;position:fixed;inset:0;z-index:2147483647;display:grid;place-content:center;gap:1rem;padding:2rem;background:hsl(220 18% 10% / 96%);color:hsl(210 20% 92%);font:1rem/1.5 system-ui,sans-serif;text-align:center}
+#long-run-session-state h1,#long-run-session-state p{margin:0}
+#long-run-session-state a{justify-self:center;padding:.55rem .9rem;border-radius:.4rem;background:hsl(211 75% 45%);color:white;text-decoration:none}
+#long-run-session-state a:hover{background:hsl(211 75% 52%)}
 </style>
 <script>
 (() => {
   const match = /^\\/tmux\\/session\\/([^/]+)\\//.exec(location.pathname);
   if (!match) return;
   const session = decodeURIComponent(match[1]);
-  let ended = false;
-  async function checkSession() {
-    if (ended) return;
-    try {
-      const response = await fetch(
-        "/tmux/api/sessions/" + encodeURIComponent(session),
-        { cache: "no-store", credentials: "same-origin" },
-      );
-      if (response.status !== 404) return;
-      ended = true;
-      clearInterval(timer);
-      document.title = session + " closed";
-      const main = document.createElement("main");
-      main.id = "long-run-session-closed";
-      main.setAttribute("aria-live", "polite");
-      const heading = document.createElement("h1");
-      heading.textContent = "Session closed";
-      const detail = document.createElement("p");
-      detail.textContent = "The psmux session '" + session + "' is no longer running.";
+  const sessionsUrl = "/tmux/api/sessions/" + encodeURIComponent(session);
+  const replacementGraceMs = 75000;
+  let sessionId = ${serializedSessionId};
+  let missingSince = null;
+  let checking = false;
+  let stopped = false;
+  let timer = null;
+  let status = null;
+  const stop = () => {
+    stopped = true;
+    if (timer) clearTimeout(timer);
+  };
+  const schedule = (delay) => {
+    if (!stopped) timer = setTimeout(checkSession, delay);
+  };
+  const showState = (title, detail, closed = false) => {
+    if (!status) {
+      status = document.createElement("main");
+      status.id = "long-run-session-state";
+      status.setAttribute("role", "status");
+      status.setAttribute("aria-live", "polite");
+      status.setAttribute("aria-atomic", "true");
+      document.body.append(status);
+    }
+    status.replaceChildren();
+    const heading = document.createElement("h1");
+    heading.textContent = title;
+    const message = document.createElement("p");
+    message.textContent = detail;
+    status.append(heading, message);
+    if (closed) {
       const link = document.createElement("a");
       link.href = "/tmux/";
       link.textContent = "Back to sessions";
-      main.append(heading, detail, link);
-      document.body.replaceChildren(main);
+      status.append(link);
+      heading.tabIndex = -1;
+      document.body.replaceChildren(status);
+      heading.focus();
+    }
+  };
+  const hideState = () => {
+    if (status) {
+      status.remove();
+      status = null;
+    }
+  };
+  const reloadForReplacement = () => {
+    stop();
+    document.title = session + " completed";
+    showState("Command completed", "Opening the retained command output\u2026");
+    location.reload();
+  };
+  const showClosed = () => {
+    document.title = session + " closed";
+    showState(
+      "Session closed",
+      "The psmux session '" + session + "' is no longer available.",
+      true,
+    );
+  };
+  async function checkSession() {
+    if (checking || stopped) return;
+    checking = true;
+    let nextDelay = missingSince === null ? 1000 : 250;
+    try {
+      const response = await fetch(sessionsUrl, {
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+      if (response.ok) {
+        const current = await response.json();
+        if (sessionId && current.id && current.id !== sessionId) {
+          reloadForReplacement();
+          return;
+        }
+        sessionId ||= current.id || null;
+        if (missingSince !== null) {
+          missingSince = null;
+          hideState();
+        }
+      } else if (response.status === 404) {
+        missingSince ??= Date.now();
+        if (Date.now() - missingSince >= replacementGraceMs) {
+          showClosed();
+          nextDelay = 2000;
+          return;
+        }
+        document.title = session + " completed";
+        showState("Command completed", "Preparing the retained command output\u2026");
+        nextDelay = 250;
+      }
     } catch (error) {
-      console.debug("Could not check whether the psmux session ended.", error);
+      console.debug("Could not check the psmux session lifecycle.", error);
+    } finally {
+      checking = false;
+      schedule(nextDelay);
     }
   }
-  const timer = setInterval(checkSession, 1000);
-  addEventListener("pagehide", () => clearInterval(timer), { once: true });
+  schedule(1000);
+  addEventListener("pagehide", stop, { once: true });
 })();
 </script>`;
+};
 const nestedPsmuxVariables = new Set([
   "ci",
   "clicolor",
@@ -342,6 +418,79 @@ function sortableHeader(label, key, direction = "none") {
   return `<th scope="col" aria-sort="${direction}"><button class="sort-link" type="button" data-sort="${key}" data-label="${label}" data-direction="${indicatorDirection}" aria-label="Sort by ${label} ${nextDirection}"><span class="sort-label">${label}</span><span class="sort-indicator" aria-hidden="true"><span class="sort-triangle sort-up"></span><span class="sort-triangle sort-down"></span></span></button></th>`;
 }
 
+function missingSessionPage(message) {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="/tmux/assets/logo.svg" type="image/svg+xml">
+  <title>Session unavailable | psmux sessions</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --background: hsl(220 18% 97%);
+      --foreground: hsl(220 28% 15%);
+      --surface: hsl(0 0% 100%);
+      --border: hsl(220 12% 82%);
+      --accent: hsl(215 75% 46%);
+      --muted: hsl(220 10% 42%);
+      font-family: system-ui, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --background: hsl(220 22% 11%);
+        --foreground: hsl(220 16% 90%);
+        --surface: hsl(220 20% 16%);
+        --border: hsl(220 13% 30%);
+        --accent: hsl(210 90% 67%);
+        --muted: hsl(220 11% 68%);
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      min-block-size: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 1rem;
+      color: var(--foreground);
+      background: var(--background);
+    }
+    main {
+      inline-size: min(34rem, 100%);
+      padding: 2rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: .5rem;
+    }
+    h1 { margin-block: 0 .5rem; }
+    p { margin-block: 0 1.5rem; color: var(--muted); line-height: 1.5; }
+    a {
+      display: inline-flex;
+      min-block-size: 2.5rem;
+      align-items: center;
+      padding: .5rem .75rem;
+      color: var(--foreground);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: .35rem;
+      text-decoration: none;
+    }
+    a:hover { border-color: var(--accent); }
+    a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Session unavailable</h1>
+    <p>${html(message)}</p>
+    <a href="/tmux/">Back to sessions</a>
+  </main>
+</body>
+</html>`;
+}
+
 function page(defaultWorkingDirectory, csrfToken, version) {
   return `<!doctype html>
 <html lang="en">
@@ -408,6 +557,7 @@ function page(defaultWorkingDirectory, csrfToken, version) {
       text-align: start;
       vertical-align: middle;
     }
+    th[aria-label="Actions"], td[data-label="Actions"] { text-align: end; }
     th { font-size: .875rem; }
     .sort-link {
       display: inline-flex;
@@ -504,6 +654,7 @@ function page(defaultWorkingDirectory, csrfToken, version) {
     }
     .primary { color: white; background: var(--accent); border-color: var(--accent); }
     .danger { color: white; background: var(--danger); border-color: var(--danger); }
+    button:disabled { cursor: wait; opacity: .65; }
     .muted { color: var(--muted); }
     .error { color: var(--danger); }
     .status { font-size: .875rem; font-weight: 650; }
@@ -526,6 +677,13 @@ function page(defaultWorkingDirectory, csrfToken, version) {
     }
     dialog::backdrop { background: hsl(220 20% 10% / .55); }
     dialog form { margin: 0; }
+    dialog h2 { margin-block-start: 0; }
+    .warning {
+      padding: .75rem 1rem;
+      background: var(--background);
+      border-inline-start: .25rem solid var(--danger);
+      border-radius: .25rem;
+    }
     #manage-session-details {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -595,19 +753,31 @@ function page(defaultWorkingDirectory, csrfToken, version) {
     <table hidden>
       <thead><tr>
         ${sortableHeader("Session", "name")}
-        ${sortableHeader("Started", "startedAt", "descending")}
+        ${sortableHeader("Activity", "startedAt", "descending")}
         ${sortableHeader("Path", "cwd")}
         ${sortableHeader("Command", "command")}
         <th scope="col" aria-label="Actions"></th>
       </tr></thead>
       <tbody id="session-rows"></tbody>
     </table>
+    <h2>Completed sessions</h2>
+    <p id="completed-sessions-empty" class="empty" hidden>No completed command output is retained.</p>
+    <table hidden>
+      <thead><tr>
+        ${sortableHeader("Session", "name")}
+        ${sortableHeader("Activity", "startedAt", "descending")}
+        ${sortableHeader("Path", "cwd")}
+        ${sortableHeader("Command", "command")}
+        <th scope="col" aria-label="Actions"></th>
+      </tr></thead>
+      <tbody id="completed-session-rows"></tbody>
+    </table>
     <h2>Long-run utilities</h2>
     <p id="utilities-empty" class="empty" hidden>No long-run utility sessions are running.</p>
     <table hidden>
       <thead><tr>
         ${sortableHeader("Session", "name")}
-        ${sortableHeader("Started", "startedAt", "descending")}
+        ${sortableHeader("Activity", "startedAt", "descending")}
         ${sortableHeader("Path", "cwd")}
         ${sortableHeader("Command", "command")}
         <th scope="col" aria-label="Actions"></th>
@@ -643,6 +813,19 @@ function page(defaultWorkingDirectory, csrfToken, version) {
       <button id="kill-session" class="danger" type="button">Kill psmux session</button>
     </div>
   </dialog>
+  <dialog id="kill-session-dialog" closedby="closerequest"
+      aria-labelledby="kill-session-title" aria-describedby="kill-session-warning">
+    <h2 id="kill-session-title">Kill psmux session?</h2>
+    <p id="kill-session-warning" class="warning">
+      This immediately stops <code id="kill-session-name"></code> and everything
+      running inside it. This action cannot be undone.
+    </p>
+    <p id="kill-session-error" class="error" role="status" aria-live="polite" hidden></p>
+    <div class="actions">
+      <button id="cancel-kill-session" type="button" autofocus>Cancel</button>
+      <button id="confirm-kill-session" class="danger" type="button">Kill session</button>
+    </div>
+  </dialog>
   <script src="/tmux/assets/app.js" defer></script>
 </body>
 </html>`;
@@ -657,7 +840,8 @@ function createGateway(config) {
   const terminals = new Map();
   const starting = new Map();
   const serverSockets = new Set();
-  const csrfToken = crypto.randomBytes(24).toString("base64url");
+  const csrfToken = config.csrfToken ||
+    crypto.randomBytes(24).toString("base64url");
   const terminalCapability = config.terminalCapability ||
     crypto.randomBytes(24).toString("base64url");
   const logPath = config.logPath || null;
@@ -819,7 +1003,7 @@ function createGateway(config) {
         error() {},
       },
       on: {
-        proxyRes: responseInterceptor(async (responseBuffer, proxyRes) => {
+        proxyRes: responseInterceptor(async (responseBuffer, proxyRes, req) => {
           if (!String(proxyRes.headers["content-type"] || "").includes("text/html")) {
             return responseBuffer;
           }
@@ -827,9 +1011,13 @@ function createGateway(config) {
             ? `<link rel="preload" href="/tmux/assets/terminal-font.ttf" as="font" type="font/ttf" crossorigin>
 <style>@font-face{font-family:"Long Run Nerd Font";src:url("/tmux/assets/terminal-font.ttf") format("truetype");font-display:block}</style>`
             : "";
-          return responseBuffer.toString("utf8").replace(
+          const terminalPage = responseBuffer.toString("utf8").replace(
+            /<link\b[^>]*\brel=["'][^"']*\bicon\b[^"']*["'][^>]*>/gi,
+            "",
+          );
+          return terminalPage.replace(
             "</head>",
-            `${fontMarkup}${terminalLifecycleMarkup}</head>`,
+            `<link rel="icon" href="/tmux/assets/logo.svg" type="image/svg+xml">${fontMarkup}${terminalLifecycleMarkup(req.longRunSessionId)}</head>`,
           );
         }),
         error(error, req, res) {
@@ -867,7 +1055,16 @@ function createGateway(config) {
       ({ stdout } = await runCommand(config.psmux, [
         "list-sessions",
         "-F",
-        "#{session_name}|#{session_created}|#{session_attached}|#{session_id}",
+        [
+          "#{session_name}",
+          "#{session_created}",
+          "#{session_attached}",
+          "#{session_id}",
+          "#{@long-run-state}",
+          "#{@long-run-completed-at}",
+          "#{@long-run-expires-at}",
+          "#{@long-run-exit-code}",
+        ].join("|"),
       ]));
     } catch (error) {
       if (error.code === 1) {
@@ -919,19 +1116,40 @@ function createGateway(config) {
       .split(/\r?\n/)
       .filter(Boolean)
       .map((line) => {
-        const [name, created, attached, id] = line.split("|");
+        const [
+          name,
+          created,
+          attached,
+          id,
+          state,
+          completedAt,
+          expiresAt,
+          retainedExitCode,
+        ] = line.split("|");
         const pane = panes.get(name) || {};
         const encoded = encodeURIComponent(name);
+        const completed = state === "completed";
         return {
           name,
           id: id || null,
-          startedAt: asDate(created)?.toISOString() || null,
+          startedAt: completed && completedAt
+            ? completedAt
+            : asDate(created)?.toISOString() || null,
           attachedClients: Number(attached) || 0,
           webTerminalActive: terminals.has(name),
           utility: name.startsWith("long-run-util-"),
           killable: name !== gatewaySession,
+          state: completed ? "completed" : "running",
+          completed,
+          completedAt: completedAt || null,
+          expiresAt: expiresAt || null,
+          exitCode: completed && retainedExitCode !== ""
+            ? Number(retainedExitCode)
+            : null,
           cwd: pane.cwd || null,
-          command: pane.command || null,
+          command: completed
+            ? "Completed command output"
+            : pane.command || null,
           panePid: pane.panePid ?? null,
           paneWidth: pane.paneWidth ?? null,
           paneHeight: pane.paneHeight ?? null,
@@ -984,8 +1202,9 @@ function createGateway(config) {
     return true;
   }
 
-  async function startTerminal(session) {
-    if (!(await hasSession(session))) {
+  async function startTerminal(session, knownSessionInfo = null) {
+    const sessionInfo = knownSessionInfo || await getSession(session);
+    if (!sessionInfo) {
       const error = new Error(`The psmux session '${session}' does not exist.`);
       error.statusCode = 404;
       throw error;
@@ -1015,8 +1234,9 @@ function createGateway(config) {
         commandSpec(config.psmux).file,
         ...(commandSpec(config.psmux).args || []),
         "attach-session",
+        ...(sessionInfo.completed ? ["-r"] : []),
         "-t",
-        session,
+        sessionInfo.id,
       ], {
         env: psmuxAttachEnvironment(config.environment || process.env),
         stdio: ["ignore", stdoutFd, stderrFd],
@@ -1034,6 +1254,7 @@ function createGateway(config) {
 
     const terminal = {
       session,
+      sessionId: sessionInfo.id,
       port,
       process: child,
       connections: new Set(),
@@ -1088,23 +1309,54 @@ function createGateway(config) {
   }
 
   async function ensureTerminal(session) {
-    if (starting.has(session)) {
-      return starting.get(session);
-    }
-    const existing = terminals.get(session);
-    if (existing) {
-      if (existing.stopping) {
-        await existing.exitPromise;
-      } else if (existing.process.exitCode === null) {
-        existing.lastUsedAt = new Date();
-        return existing;
+    while (true) {
+      const sessionInfo = await getSession(session);
+      if (!sessionInfo) {
+        const error = new Error(`The psmux session '${session}' does not exist.`);
+        error.statusCode = 404;
+        throw error;
       }
+      const pending = starting.get(session);
+      if (pending) {
+        if (pending.sessionId === sessionInfo.id) {
+          return pending.promise;
+        }
+        try {
+          await pending.promise;
+        } catch {
+          // The replacement session still needs its own terminal.
+        }
+        continue;
+      }
+      const existing = terminals.get(session);
+      if (existing) {
+        if (existing.stopping) {
+          await existing.exitPromise;
+          continue;
+        }
+        if (
+          existing.sessionId === sessionInfo.id
+          && existing.process.exitCode === null
+        ) {
+          existing.lastUsedAt = new Date();
+          return existing;
+        }
+        stopTerminal(session, existing);
+        await existing.exitPromise;
+        continue;
+      }
+      const entry = {
+        sessionId: sessionInfo.id,
+        promise: null,
+      };
+      entry.promise = startTerminal(session, sessionInfo).finally(() => {
+        if (starting.get(session) === entry) {
+          starting.delete(session);
+        }
+      });
+      starting.set(session, entry);
+      return entry.promise;
     }
-    if (!starting.has(session)) {
-      const promise = startTerminal(session).finally(() => starting.delete(session));
-      starting.set(session, promise);
-    }
-    return starting.get(session);
   }
 
   function requireCsrf(req) {
@@ -1398,6 +1650,7 @@ function createGateway(config) {
       const terminal = await ensureTerminal(route.session);
       terminal.lastUsedAt = new Date();
       req.longRunTerminalPort = terminal.port;
+      req.longRunSessionId = terminal.sessionId;
       terminalProxy(req, res, (error) => {
         if (error) {
           sendText(res, 502, "The web terminal proxy failed.");
@@ -1411,6 +1664,13 @@ function createGateway(config) {
         sendJson(res, error.statusCode || 500, {
           error: error.message || "Internal server error.",
         });
+      } else if (
+        error.statusCode === 404
+        && String(req.url || "").startsWith("/tmux/session/")
+      ) {
+        sendHtml(res, 404, missingSessionPage(
+          error.message || "The psmux session no longer exists.",
+        ));
       } else {
         sendText(res, error.statusCode || 500, error.message || "Internal server error.");
       }

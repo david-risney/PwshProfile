@@ -110,17 +110,290 @@ function Remove-GatewayStateDirectory {
 
 function ConvertFrom-LongRunNativeJson([object[]]$Output, [string]$CommandName) {
     $lines = @($Output | ForEach-Object { [string]$_ })
-    $lastLine = $lines | Select-Object -Last 1
-    if ($lastLine) {
-        try {
-            return $lastLine | ConvertFrom-Json -ErrorAction Stop
-        } catch { }
+    for ($start = 0; $start -lt $lines.Count; $start++) {
+        $firstLine = $lines[$start].TrimStart()
+        if ($firstLine.Length -eq 0) { continue }
+        $firstCharacter = $firstLine[0]
+        if ($firstCharacter -notin @('{', '[')) { continue }
+        for ($end = $lines.Count - 1; $end -ge $start; $end--) {
+            $lastLine = $lines[$end].TrimEnd()
+            if ($lastLine.Length -eq 0) { continue }
+            $lastCharacter = $lastLine[$lastLine.Length - 1]
+            if ($lastCharacter -notin @('}', ']')) { continue }
+            $text = $lines[$start..$end] -join [Environment]::NewLine
+            try {
+                return $text | ConvertFrom-Json -ErrorAction Stop
+            } catch { }
+        }
     }
-    $text = $lines -join [Environment]::NewLine
-    try {
-        return $text | ConvertFrom-Json -ErrorAction Stop
+    throw "$CommandName did not return a valid JSON object."
+}
+
+function Invoke-LongRunDevTunnelJson(
+    [string[]]$Arguments,
+    [string]$CommandName
+) {
+    $output = @(& $DevTunnelPath @Arguments 2>&1)
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        throw "$CommandName failed (exit $exitCode)."
+    }
+    return ConvertFrom-LongRunNativeJson $output $CommandName
+}
+
+function Get-LongRunTunnelLabels {
+    $userIdentity = try {
+        [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     } catch {
-        throw "$CommandName did not return a valid JSON object."
+        "$env:USERDOMAIN\$env:USERNAME"
+    }
+    $identityText = @(
+        [Environment]::MachineName
+        $userIdentity
+        $StateDirectory.ToLowerInvariant()
+    ) -join "`n"
+    $identityHash = [Convert]::ToHexString(
+        [Security.Cryptography.SHA256]::HashData(
+            [Text.Encoding]::UTF8.GetBytes($identityText))
+    ).Substring(0, 20).ToLowerInvariant()
+    return @(
+        'long-run'
+        'mux-gateway'
+        "identity-$identityHash"
+        $(if ($AllowAnonymous) { 'access-anonymous' } else { 'access-authenticated' })
+    )
+}
+
+function Add-LongRunRepeatedArguments(
+    [Collections.Generic.List[string]]$Arguments,
+    [string]$Option,
+    [string[]]$Values
+) {
+    foreach ($value in $Values) {
+        [void]$Arguments.Add($Option)
+        [void]$Arguments.Add($value)
+    }
+}
+
+function Remove-LongRunCloudTunnel(
+    [string]$TunnelId,
+    [string]$Event = 'tunnel-delete-failed'
+) {
+    if (-not $TunnelId) { return $true }
+    try {
+        $null = & $DevTunnelPath delete $TunnelId -f 2>$null
+        if ($LASTEXITCODE -eq 0) { return $true }
+        Write-LongRunLog -Component 'gateway-launcher' -Event $Event `
+            -Level 'warning' -Data @{
+                errorType = 'DevTunnelExitCode'
+                exitCode = $LASTEXITCODE
+            }
+    } catch {
+        Write-LongRunLog -Component 'gateway-launcher' -Event $Event `
+            -Level 'warning' -Data @{ errorType = $_.Exception.GetType().FullName }
+    }
+    return $false
+}
+
+function Get-LongRunTunnelPort([object]$Tunnel, [object]$Metadata) {
+    $ports = @($Tunnel.ports | Where-Object {
+            -not $_.protocol -or [string]$_.protocol -eq 'http'
+        })
+    if ($ports.Count -eq 0) { return 0 }
+    if ($Metadata -and $Metadata.port) {
+        $matchingPort = @($ports | Where-Object {
+                [int]$_.portNumber -eq [int]$Metadata.port
+            })
+        if ($matchingPort.Count -eq 1) {
+            return [int]$matchingPort[0].portNumber
+        }
+    }
+    if ($ports.Count -ne 1) {
+        throw 'The reusable dev tunnel has more than one HTTP port.'
+    }
+    return [int]$ports[0].portNumber
+}
+
+function Get-LongRunReusableTunnel(
+    [object]$Metadata,
+    [string[]]$Labels
+) {
+    $script:longRunReuseCandidateId = $null
+    Write-LongRunLog -Component 'gateway-launcher' `
+        -Event 'tunnel-discovery-started'
+    $candidateId = $null
+    $candidateCount = 0
+    $source = 'labels'
+    if ($Metadata -and $Metadata.tunnelId -and
+        [bool]$Metadata.allowAnonymous -eq [bool]$AllowAnonymous) {
+        $candidateId = [string]$Metadata.tunnelId
+        $candidateCount = 1
+        $source = 'metadata'
+    } elseif ($Metadata -and $Metadata.tunnelId) {
+        Write-LongRunLog -Component 'gateway-launcher' `
+            -Event 'tunnel-reuse-skipped' -Data @{ reason = 'access-mode-changed' }
+        Remove-LongRunCloudTunnel ([string]$Metadata.tunnelId) | Out-Null
+    }
+
+    if (-not $candidateId) {
+        $listArgs = [Collections.Generic.List[string]]::new()
+        [void]$listArgs.Add('list')
+        Add-LongRunRepeatedArguments $listArgs '--all-labels' $Labels
+        [void]$listArgs.Add('-j')
+        $listed = Invoke-LongRunDevTunnelJson $listArgs 'devtunnel list'
+        $candidates = @($listed.tunnels | Where-Object { $_.tunnelId } |
+            Sort-Object @{ Expression = {
+                        try { [DateTimeOffset]$_.tunnelExpiration } catch {
+                            [DateTimeOffset]::MinValue
+                        }
+                    }; Descending = $true },
+                @{ Expression = { [string]$_.tunnelId }; Descending = $false })
+        $candidateCount = $candidates.Count
+        if ($candidateCount -gt 0) {
+            $candidateId = [string]$candidates[0].tunnelId
+        }
+    }
+    Write-LongRunLog -Component 'gateway-launcher' `
+        -Event 'tunnel-discovery-completed' -Data @{
+            candidateCount = $candidateCount
+            reason = $source
+        }
+    if (-not $candidateId) { return $null }
+    $script:longRunReuseCandidateId = $candidateId
+
+    $shown = Invoke-LongRunDevTunnelJson @(
+        'show', $candidateId, '-j'
+    ) 'devtunnel show'
+    if (-not $shown.tunnel.tunnelId) {
+        throw 'devtunnel show did not return the selected tunnel.'
+    }
+    $updateArgs = [Collections.Generic.List[string]]::new()
+    $updateArgs.AddRange([string[]]@(
+        'update', $candidateId,
+        '-e', "${TunnelExpirationDays}d",
+        '-d', 'long-run psmux gateway'
+    ))
+    Add-LongRunRepeatedArguments $updateArgs '--add-labels' $Labels
+    [void]$updateArgs.Add('-j')
+    Invoke-LongRunDevTunnelJson $updateArgs 'devtunnel update' | Out-Null
+
+    $port = Get-LongRunTunnelPort $shown.tunnel $Metadata
+    if ($Port -gt 0 -and $port -gt 0 -and $port -ne $Port) {
+        throw "The reusable dev tunnel port does not match the requested port."
+    }
+    if ($port -eq 0) {
+        $port = if ($Port -gt 0) { $Port } else { Get-LongRunFreeTcpPort }
+        Invoke-LongRunDevTunnelJson @(
+            'port', 'create', $candidateId,
+            '-p', [string]$port,
+            '--protocol', 'http',
+            '--host-header', 'unchanged',
+            '--origin-header', 'unchanged',
+            '-j'
+        ) 'devtunnel port create' | Out-Null
+    } else {
+        Invoke-LongRunDevTunnelJson @(
+            'port', 'update', $candidateId,
+            '-p', [string]$port,
+            '--host-header', 'unchanged',
+            '--origin-header', 'unchanged',
+            '-j'
+        ) 'devtunnel port update' | Out-Null
+    }
+    Write-LongRunLog -Component 'gateway-launcher' `
+        -Event 'tunnel-reuse-succeeded' -Data @{
+            port = $port
+            candidateCount = $candidateCount
+        }
+    return [pscustomobject]@{
+        TunnelId = $candidateId
+        Port = $port
+        Reused = $true
+    }
+}
+
+function New-LongRunCloudTunnel([int]$Port, [string[]]$Labels) {
+    Write-LongRunLog -Component 'gateway-launcher' `
+        -Event 'tunnel-create-started' -Data @{ port = $Port }
+    $tunnelName = 'lr-mux-{0}' -f (
+        [guid]::NewGuid().ToString('N').Substring(0, 12))
+    $createArgs = [Collections.Generic.List[string]]::new()
+    $createArgs.AddRange([string[]]@(
+        'create', $tunnelName,
+        '-e', "${TunnelExpirationDays}d",
+        '-d', 'long-run psmux gateway'
+    ))
+    Add-LongRunRepeatedArguments $createArgs '-l' $Labels
+    [void]$createArgs.Add('-j')
+    if ($AllowAnonymous) { $createArgs += '--allow-anonymous' }
+    $created = Invoke-LongRunDevTunnelJson $createArgs 'devtunnel create'
+    if (-not $created.tunnel.tunnelId) {
+        throw 'devtunnel failed to create the mux gateway tunnel.'
+    }
+    $tunnelId = [string]$created.tunnel.tunnelId
+    try {
+        Invoke-LongRunDevTunnelJson @(
+            'port', 'create', $tunnelId,
+            '-p', [string]$Port,
+            '--protocol', 'http',
+            '--host-header', 'unchanged',
+            '--origin-header', 'unchanged',
+            '-j'
+        ) 'devtunnel port create' | Out-Null
+    } catch {
+        Remove-LongRunCloudTunnel $tunnelId | Out-Null
+        throw
+    }
+    Write-LongRunLog -Component 'gateway-launcher' `
+        -Event 'tunnel-create-succeeded' -Data @{ port = $Port }
+    return [pscustomobject]@{
+        TunnelId = $tunnelId
+        Port = $Port
+        Reused = $false
+    }
+}
+
+function Start-LongRunCloudTunnelHost([string]$TunnelId) {
+    $processId = Start-LongRunDetachedService `
+        -Name 'devtunnel' `
+        -FilePath $DevTunnelPath `
+        -Arguments @('host', $TunnelId) `
+        -StateDirectory $StateDirectory
+    try {
+        $baseUrl = Wait-LongRunTunnelUrl `
+            -ProcessId $processId `
+            -LogFiles @(
+                (Join-Path $StateDirectory 'devtunnel.out.log'),
+                (Join-Path $StateDirectory 'devtunnel.err.log'))
+        return [pscustomobject]@{
+            ProcessId = $processId
+            BaseUrl = $baseUrl
+        }
+    } catch {
+        $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
+        Stop-LongRunProcessTree `
+            -ProcessId $processId `
+            -ExpectedStartTimeUtcTicks $(if ($process) {
+                $process.StartTime.ToUniversalTime().Ticks
+            }) `
+            -ExpectedPath $(if ($process) { $process.Path }) | Out-Null
+        throw
+    }
+}
+
+function Resolve-LongRunTunnelPlan([object]$Metadata, [string[]]$Labels) {
+    try {
+        return Get-LongRunReusableTunnel $Metadata $Labels
+    } catch {
+        Write-LongRunLog -Component 'gateway-launcher' `
+            -Event 'tunnel-reuse-failed' -Level 'warning' -Data @{
+                errorType = $_.Exception.GetType().FullName
+                stage = 'discovery-or-configuration'
+            }
+        if ($script:longRunReuseCandidateId) {
+            Remove-LongRunCloudTunnel $script:longRunReuseCandidateId | Out-Null
+        }
+        return $null
     }
 }
 
@@ -185,32 +458,6 @@ function Remove-StaleGateway {
             -ProcessId ([int]$Metadata.gatewayPid) `
             -ExpectedStartTimeUtcTicks ([long]$Metadata.gatewayStartTimeUtcTicks) `
             -ExpectedPath ([string]$Metadata.gatewayRunnerPath) | Out-Null
-        if ($Metadata.tunnelId -and $Metadata.devTunnelPath) {
-            $storedDevTunnelPath = [string]$Metadata.devTunnelPath
-            $deleteCommand = if (Test-Path -LiteralPath $storedDevTunnelPath `
-                    -PathType Leaf) {
-                $storedDevTunnelPath
-            } else {
-                $DevTunnelPath
-            }
-            $deleteFailure = $null
-            try {
-                if (-not $deleteCommand) {
-                    throw 'No installed devtunnel executable is available.'
-                }
-                $null = & $deleteCommand delete ([string]$Metadata.tunnelId) `
-                    -f 2>$null
-                if ($LASTEXITCODE -ne 0) {
-                    $deleteFailure = "exit $LASTEXITCODE"
-                }
-            } catch {
-                $deleteFailure = $_.Exception.Message
-            }
-            if ($deleteFailure) {
-                throw "devtunnel failed to delete stale tunnel '$($Metadata.tunnelId)' " +
-                    "($deleteFailure). Gateway state was retained for retry."
-            }
-        }
     }
     Remove-GatewayStateDirectory
 }
@@ -368,6 +615,7 @@ try {
             GatewaySession = [string]$metadata.gatewaySession
             TunnelPid = [int]$metadata.tunnelPid
             TerminalCapability = [string]$metadata.terminalCapability
+            TunnelReused = -not [bool]$LocalOnly
             Reused = $true
         })
         return
@@ -381,6 +629,47 @@ try {
         -not (Test-Path -LiteralPath (Join-Path $StateDirectory 'gateway.json')) -and
         @(Get-ChildItem -LiteralPath $StateDirectory -Force).Count -gt 0) {
         throw "Refusing to use non-empty unowned gateway state directory '$StateDirectory'."
+    }
+    $tunnelLabels = if ($LocalOnly) { @() } else { Get-LongRunTunnelLabels }
+    $tunnelPlan = if ($LocalOnly) {
+        $null
+    } else {
+        Resolve-LongRunTunnelPlan $metadata $tunnelLabels
+    }
+    $preservedCapability = if ($metadata -and $metadata.terminalCapability -and
+        ($LocalOnly -or
+            ($tunnelPlan -and
+                [string]$tunnelPlan.TunnelId -eq [string]$metadata.tunnelId))) {
+        [string]$metadata.terminalCapability
+    }
+    $preservedCsrfToken = if ($preservedCapability -and $metadata.csrfToken) {
+        [string]$metadata.csrfToken
+    }
+    if ($LocalOnly -and $metadata -and $metadata.tunnelId) {
+        Stop-LongRunProcessTree `
+            -ProcessId ([int]$metadata.tunnelPid) `
+            -ExpectedStartTimeUtcTicks ([long]$metadata.tunnelStartTimeUtcTicks) `
+            -ExpectedPath ([string]$metadata.tunnelRunnerPath) | Out-Null
+        $transitionDevTunnelPath = if ($metadata.devTunnelPath -and
+            (Test-Path -LiteralPath ([string]$metadata.devTunnelPath) `
+                -PathType Leaf)) {
+            [string]$metadata.devTunnelPath
+        } else {
+            Resolve-LongRunCommandPath $DevTunnelPath @('devtunnel') `
+                'Install it with: winget install --id Microsoft.devtunnel'
+        }
+        $savedDevTunnelPath = $DevTunnelPath
+        try {
+            $DevTunnelPath = $transitionDevTunnelPath
+            if (-not (Remove-LongRunCloudTunnel (
+                        [string]$metadata.tunnelId) `
+                    'local-transition-tunnel-delete-failed')) {
+                throw "devtunnel failed to delete tunnel '$($metadata.tunnelId)'. " +
+                    'Gateway state was retained for retry.'
+            }
+        } finally {
+            $DevTunnelPath = $savedDevTunnelPath
+        }
     }
     Remove-StaleGateway $metadata
     New-Item -ItemType Directory -Force -Path $StateDirectory | Out-Null
@@ -408,8 +697,23 @@ try {
         throw 'npm failed to install the mux gateway dependencies.'
     }
 
-    $port = if ($Port -gt 0) { $Port } else { Get-LongRunFreeTcpPort }
-    $terminalCapability = New-LongRunCapability
+    $port = if ($tunnelPlan) {
+        [int]$tunnelPlan.Port
+    } elseif ($Port -gt 0) {
+        $Port
+    } else {
+        Get-LongRunFreeTcpPort
+    }
+    $terminalCapability = if ($preservedCapability) {
+        $preservedCapability
+    } else {
+        New-LongRunCapability
+    }
+    $csrfToken = if ($preservedCsrfToken) {
+        $preservedCsrfToken
+    } else {
+        New-LongRunCapability
+    }
     Write-Verbose "Selected loopback port $port."
     $configFile = Join-Path $StateDirectory 'config.json'
     $config = [ordered]@{
@@ -426,6 +730,7 @@ try {
         terminalFontFamily = $TerminalFontFamily
         terminalFontPath = $TerminalFontPath
         terminalCapability = $terminalCapability
+        csrfToken = $csrfToken
         logPath = Get-LongRunGatewayLogPath $StateDirectory
     }
     [System.IO.File]::WriteAllText(
@@ -439,7 +744,6 @@ try {
     $gatewaySessionId = $null
     $tunnelPid = 0
     $tunnelId = $null
-    $tunnelName = $null
     $tunnelCreated = $false
     try {
         Write-Verbose 'Starting the gateway in a long-run-util-gateway-{N} psmux session.'
@@ -465,6 +769,7 @@ try {
             allowAnonymous = [bool]$AllowAnonymous
             startedAt = [DateTimeOffset]::UtcNow.ToString('o')
             terminalCapability = $terminalCapability
+            csrfToken = $csrfToken
         }
         Write-GatewayMetadata $metadataFile $metadata
         Write-Verbose "Started gateway session '$gatewaySession' (runner PID $gatewayPid)."
@@ -500,50 +805,38 @@ try {
                 GatewaySession = $gatewaySession
                 TunnelPid = $null
                 TerminalCapability = $terminalCapability
+                TunnelReused = $false
                 Reused = $false
             })
             return
         }
 
-        $tunnelName = 'lr-mux-{0}' -f (
-            [guid]::NewGuid().ToString('N').Substring(0, 12))
-        Write-Verbose "Creating dev tunnel '$tunnelName' for port $port."
-        $createArgs = @(
-            'create', $tunnelName,
-            '-e', "${TunnelExpirationDays}d",
-            '-d', 'long-run psmux gateway',
-            '-j'
-        )
-        if ($AllowAnonymous) { $createArgs += '--allow-anonymous' }
-        $createOutput = @(& $DevTunnelPath @createArgs)
-        if ($LASTEXITCODE -ne 0) {
-            throw 'devtunnel failed to create the mux gateway tunnel.'
+        if (-not $tunnelPlan) {
+            $tunnelPlan = New-LongRunCloudTunnel $port $tunnelLabels
+            $tunnelCreated = $true
         }
-        $tunnelCreated = $true
-        $metadata['tunnelId'] = $tunnelName
-        Write-GatewayMetadata $metadataFile $metadata
-        $created = ConvertFrom-LongRunNativeJson $createOutput 'devtunnel create'
-        if (-not $created.tunnel.tunnelId) {
-            throw 'devtunnel failed to create the mux gateway tunnel.'
-        }
-        $tunnelId = [string]$created.tunnel.tunnelId
+        $tunnelId = [string]$tunnelPlan.TunnelId
         $metadata['tunnelId'] = $tunnelId
         Write-GatewayMetadata $metadataFile $metadata
-
-        $portOutput = @(
-            & $DevTunnelPath port create $tunnelId -p $port --protocol http `
-                --host-header unchanged --origin-header unchanged -j
-        )
-        if ($LASTEXITCODE -ne 0) {
-            throw 'devtunnel failed to register the mux gateway port.'
+        $tunnelHost = $null
+        try {
+            $tunnelHost = Start-LongRunCloudTunnelHost $tunnelId
+        } catch {
+            if (-not $tunnelPlan.Reused) { throw }
+            Write-LongRunLog -Component 'gateway-launcher' `
+                -Event 'tunnel-reuse-failed' -Level 'warning' -Data @{
+                    errorType = $_.Exception.GetType().FullName
+                    stage = 'host'
+                }
+            Remove-LongRunCloudTunnel $tunnelId | Out-Null
+            $tunnelPlan = New-LongRunCloudTunnel $port $tunnelLabels
+            $tunnelCreated = $true
+            $tunnelId = [string]$tunnelPlan.TunnelId
+            $metadata['tunnelId'] = $tunnelId
+            Write-GatewayMetadata $metadataFile $metadata
+            $tunnelHost = Start-LongRunCloudTunnelHost $tunnelId
         }
-        ConvertFrom-LongRunNativeJson $portOutput 'devtunnel port create' | Out-Null
-
-        $tunnelPid = Start-LongRunDetachedService `
-            -Name 'devtunnel' `
-            -FilePath $DevTunnelPath `
-            -Arguments @('host', $tunnelId) `
-            -StateDirectory $StateDirectory
+        $tunnelPid = [int]$tunnelHost.ProcessId
         Write-Verbose "Started dev tunnel host runner PID $tunnelPid."
         $tunnelProcess = Get-Process -Id $tunnelPid
         $tunnelStartTimeUtcTicks =
@@ -553,11 +846,7 @@ try {
         $metadata['tunnelRunnerPath'] = $tunnelProcess.Path
         Write-GatewayMetadata $metadataFile $metadata
 
-        $baseUrl = Wait-LongRunTunnelUrl `
-            -ProcessId $tunnelPid `
-            -LogFiles @(
-                (Join-Path $StateDirectory 'devtunnel.out.log'),
-                (Join-Path $StateDirectory 'devtunnel.err.log'))
+        $baseUrl = [string]$tunnelHost.BaseUrl
         Write-Verbose "Dev tunnel is available at '$baseUrl'."
         $metadata['url'] = $baseUrl
         Write-GatewayMetadata $metadataFile $metadata
@@ -578,6 +867,7 @@ try {
             GatewaySession = $gatewaySession
             TunnelPid = $tunnelPid
             TerminalCapability = $terminalCapability
+            TunnelReused = [bool]$tunnelPlan.Reused
             Reused = $false
         })
     } catch {
@@ -600,16 +890,10 @@ try {
                 -ExpectedId $gatewaySessionId | Out-Null
         }
         $cleanupComplete = $true
-        $tunnelCleanupTarget = if ($tunnelId) {
-            $tunnelId
-        } elseif ($tunnelCreated) {
-            $tunnelName
-        }
-        if ($tunnelCleanupTarget) {
-            $null = & $DevTunnelPath delete $tunnelCleanupTarget -f 2>$null
-            if ($LASTEXITCODE -ne 0) {
+        if ($tunnelCreated -and $tunnelId) {
+            if (-not (Remove-LongRunCloudTunnel $tunnelId)) {
                 $cleanupComplete = $false
-                Write-Warning "devtunnel failed to delete tunnel '$tunnelCleanupTarget'; gateway state was retained for retry."
+                Write-Warning 'devtunnel failed to delete the newly created tunnel; gateway state was retained for retry.'
             }
         }
         if ($cleanupComplete) {

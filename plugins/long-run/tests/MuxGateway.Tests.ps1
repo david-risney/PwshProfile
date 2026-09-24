@@ -126,22 +126,132 @@ public static class Program {
         $fakePsmux = Join-Path $psmuxProject 'bin\Release\net8.0\fake-psmux.exe'
         $devTunnelBody = @'
 $root = '__TEST_ROOT__'
+$statePath = Join-Path $root 'devtunnels.json'
+$commandArguments = $args
 [System.IO.File]::AppendAllText(
     (Join-Path $root 'devtunnel-calls.jsonl'),
     (($args | ConvertTo-Json -Compress) + [Environment]::NewLine))
+
+function Get-ArgumentValue([string]$Name) {
+    $index = [Array]::IndexOf($commandArguments, $Name)
+    if ($index -lt 0 -or $index + 1 -ge $commandArguments.Count) { return $null }
+    return $commandArguments[$index + 1]
+}
+
+function Get-ArgumentValues([string]$Name) {
+    $values = @()
+    for ($item = 0; $item -lt $commandArguments.Count - 1; $item++) {
+        if ($commandArguments[$item] -eq $Name) {
+            $values += $commandArguments[$item + 1]
+        }
+    }
+    return $values
+}
+
+function Read-State {
+    if (Test-Path -LiteralPath $statePath) {
+        return Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+    }
+    return [pscustomobject]@{ next = 1; tunnels = @() }
+}
+
+function Write-State([object]$State) {
+    $State | ConvertTo-Json -Depth 10 |
+        Set-Content -LiteralPath $statePath -Encoding utf8
+}
+
+function Write-Json([object]$Value) {
+    'Warning: informational output before JSON.'
+    $Value | ConvertTo-Json -Depth 10
+    'Notice: informational output after JSON.'
+}
+
+$state = Read-State
 switch ($args[0]) {
+    'list' {
+        if ($env:TEST_DEVTUNNEL_LIST_EXIT) {
+            exit [int]$env:TEST_DEVTUNNEL_LIST_EXIT
+        }
+        $requiredLabels = @(Get-ArgumentValues '--all-labels')
+        $tunnels = @($state.tunnels | Where-Object {
+                $candidateLabels = @($_.labels)
+                @($requiredLabels | Where-Object {
+                        $_ -notin $candidateLabels
+                    }).Count -eq 0
+            })
+        Write-Json ([pscustomobject]@{ tunnels = $tunnels })
+        exit 0
+    }
+    'show' {
+        if ($env:TEST_DEVTUNNEL_SHOW_EXIT) {
+            exit [int]$env:TEST_DEVTUNNEL_SHOW_EXIT
+        }
+        $tunnel = @($state.tunnels | Where-Object tunnelId -EQ $args[1])[0]
+        if (-not $tunnel) { exit 1 }
+        Write-Json ([pscustomobject]@{ tunnel = $tunnel })
+        exit 0
+    }
+    'update' {
+        if ($env:TEST_DEVTUNNEL_UPDATE_EXIT) {
+            exit [int]$env:TEST_DEVTUNNEL_UPDATE_EXIT
+        }
+        $tunnel = @($state.tunnels | Where-Object tunnelId -EQ $args[1])[0]
+        if (-not $tunnel) { exit 1 }
+        $labels = @(Get-ArgumentValues '--add-labels')
+        $tunnel.labels = @($tunnel.labels + $labels | Sort-Object -Unique)
+        $tunnel.tunnelExpiration = [DateTimeOffset]::UtcNow.AddDays(30).ToString('o')
+        Write-State $state
+        Write-Json ([pscustomobject]@{ tunnel = $tunnel })
+        exit 0
+    }
     'create' {
-        'Warning: informational output before JSON.'
-        '{"tunnel":{"tunnelId":"fake-mux.usw2"}}'
+        $id = "fake-mux-$($state.next).usw2"
+        $state.next = [int]$state.next + 1
+        $labels = @(Get-ArgumentValues '-l')
+        $tunnel = [pscustomobject]@{
+            tunnelId = $id
+            labels = $labels
+            tunnelExpiration = [DateTimeOffset]::UtcNow.AddDays(30).ToString('o')
+            ports = @()
+        }
+        $state.tunnels = @($state.tunnels) + $tunnel
+        Write-State $state
+        Write-Json ([pscustomobject]@{ tunnel = $tunnel })
         exit 0
     }
     'port' {
-        'Warning: informational output before JSON.'
-        '{"port":{"tunnelId":"fake-mux.usw2"}}'
+        $operation = $args[1]
+        $id = $args[2]
+        $tunnel = @($state.tunnels | Where-Object tunnelId -EQ $id)[0]
+        if (-not $tunnel) { exit 1 }
+        $portNumber = [int](Get-ArgumentValue '-p')
+        if ($operation -eq 'update' -and $env:TEST_DEVTUNNEL_PORT_UPDATE_EXIT) {
+            exit [int]$env:TEST_DEVTUNNEL_PORT_UPDATE_EXIT
+        }
+        $port = @($tunnel.ports | Where-Object {
+                [int]$_.portNumber -eq $portNumber
+            })[0]
+        if (-not $port) {
+            $port = [pscustomobject]@{
+                portNumber = $portNumber
+                protocol = 'http'
+                portUri = "https://$id-$portNumber.devtunnels.ms"
+                status = 'ready'
+            }
+            $tunnel.ports = @($tunnel.ports) + $port
+        }
+        Write-State $state
+        Write-Json ([pscustomobject]@{ port = $port })
         exit 0
     }
     'host' {
-        'Connect via browser: https://fake-mux.usw2.devtunnels.ms'
+        if ($env:TEST_DEVTUNNEL_HOST_EXIT) {
+            exit [int]$env:TEST_DEVTUNNEL_HOST_EXIT
+        }
+        $tunnel = @($state.tunnels | Where-Object tunnelId -EQ $args[1])[0]
+        if (-not $tunnel -or @($tunnel.ports).Count -eq 0) { exit 1 }
+        $portNumber = [int]@($tunnel.ports)[0].portNumber
+        "Connect via browser: https://$($tunnel.tunnelId)-$portNumber.devtunnels.ms"
         [Console]::Out.Flush()
         while ($true) { Start-Sleep -Seconds 60 }
     }
@@ -149,6 +259,8 @@ switch ($args[0]) {
         if ($env:TEST_DEVTUNNEL_DELETE_EXIT) {
             exit [int]$env:TEST_DEVTUNNEL_DELETE_EXIT
         }
+        $state.tunnels = @($state.tunnels | Where-Object tunnelId -NE $args[1])
+        Write-State $state
         exit 0
     }
 }
@@ -188,7 +300,7 @@ switch ($args[0]) {
             Where-Object { $_ -isnot [Management.Automation.VerboseRecord] }
         $first.Reused | Should Be $false
         $first.Url | Should Match (
-            '^https://fake-mux\.usw2\.devtunnels\.ms/tmux/\?accessToken=.+$')
+            '^https://fake-mux-1\.usw2-\d+\.devtunnels\.ms/tmux/\?accessToken=.+$')
         $first.GatewaySession | Should Match '^long-run-util-gateway-\d+$'
         $first.TerminalCapability | Should Not BeNullOrEmpty
         Test-Path -LiteralPath (
@@ -243,6 +355,7 @@ switch ($args[0]) {
         $arguments.AllowAnonymous = $true
         $third = & $startGateway @arguments
         $third.Reused | Should Be $false
+        $third.TunnelReused | Should Be $false
         $third.GatewayPid | Should Not Be $first.GatewayPid
         $third.GatewaySession | Should Match '^long-run-util-gateway-\d+$'
         $calls = Get-Content (Join-Path $root 'devtunnel-calls.jsonl') |
@@ -352,37 +465,154 @@ switch ($args[0]) {
         }
     }
 
-    It 'retains stale gateway state when replacement tunnel deletion fails' {
-            $arguments = @{
-                StateDirectory = $stateDirectory
-                PsmuxPath = $fakePsmux
-                TtydPath = $fakePsmux
-                DevTunnelPath = $fakeDevTunnel
-                NodePath = (Get-Command node).Source
-                NpmPath = (Get-Command npm.cmd).Source
-                TerminalFontPath = $terminalFont
-            }
-            $first = & $startGateway @arguments
-            $savedDeleteExit = $env:TEST_DEVTUNNEL_DELETE_EXIT
-            try {
-                $env:TEST_DEVTUNNEL_DELETE_EXIT = '9'
-                $arguments.TerminalStartupIdleSeconds = 121
-                $failure = $null
-                try {
-                    & $startGateway @arguments
-                } catch {
-                    $failure = $_
-                }
-                $failure | Should Not BeNullOrEmpty
-                $failure.Exception.Message | Should Match 'retained for retry'
-                $metadataPath = Join-Path $stateDirectory 'gateway.json'
-                Test-Path -LiteralPath $metadataPath | Should Be $true
-                (Get-Content $metadataPath -Raw | ConvertFrom-Json).tunnelId |
-                    Should Be $first.TunnelId
-            } finally {
-                $env:TEST_DEVTUNNEL_DELETE_EXIT = $savedDeleteExit
-            }
+    It 'reuses the durable tunnel across a gateway replacement' {
+        $arguments = @{
+            StateDirectory = $stateDirectory
+            PsmuxPath = $fakePsmux
+            TtydPath = $fakePsmux
+            DevTunnelPath = $fakeDevTunnel
+            NodePath = (Get-Command node).Source
+            NpmPath = (Get-Command npm.cmd).Source
+            TerminalFontPath = $terminalFont
         }
+        $first = & $startGateway @arguments
+        $firstConfig = Get-Content -LiteralPath (
+            Join-Path $stateDirectory 'config.json') -Raw |
+            ConvertFrom-Json
+        $firstConfig.csrfToken | Should Not BeNullOrEmpty
+
+        $arguments.TerminalStartupIdleSeconds = 121
+        $second = & $startGateway @arguments
+        $secondConfig = Get-Content -LiteralPath (
+            Join-Path $stateDirectory 'config.json') -Raw |
+            ConvertFrom-Json
+
+        $second.Reused | Should Be $false
+        $second.TunnelReused | Should Be $true
+        $second.TunnelId | Should Be $first.TunnelId
+        $second.Port | Should Be $first.Port
+        $second.BaseUrl | Should Be $first.BaseUrl
+        $second.TerminalCapability | Should Be $first.TerminalCapability
+        $secondConfig.csrfToken | Should Be $firstConfig.csrfToken
+        $second.GatewayPid | Should Not Be $first.GatewayPid
+        $calls = Get-Content (Join-Path $root 'devtunnel-calls.jsonl') |
+            ForEach-Object { $_ | ConvertFrom-Json -NoEnumerate }
+        @($calls | Where-Object { $_[0] -eq 'create' }).Count | Should Be 1
+        @($calls | Where-Object {
+                $_[0] -eq 'port' -and $_[1] -eq 'update'
+            }).Count | Should Be 1
+        @($calls | Where-Object { $_[0] -eq 'update' }).Count | Should Be 1
+    }
+
+    It 'deletes the durable tunnel when switching to local-only mode' {
+        $arguments = @{
+            StateDirectory = $stateDirectory
+            PsmuxPath = $fakePsmux
+            TtydPath = $fakePsmux
+            DevTunnelPath = $fakeDevTunnel
+            NodePath = (Get-Command node).Source
+            NpmPath = (Get-Command npm.cmd).Source
+            TerminalFontPath = $terminalFont
+        }
+        $remote = & $startGateway @arguments
+        $metadataPath = Join-Path $stateDirectory 'gateway.json'
+        $remoteMetadata = Get-Content -LiteralPath $metadataPath -Raw |
+            ConvertFrom-Json
+        $remoteMetadata.devTunnelPath = Join-Path $root 'missing-devtunnel.exe'
+        [IO.File]::WriteAllText(
+            $metadataPath,
+            ($remoteMetadata | ConvertTo-Json -Depth 8),
+            [Text.UTF8Encoding]::new($false))
+
+        $local = & $startGateway @arguments -LocalOnly -Port $remote.Port
+
+        $local.Reused | Should Be $false
+        $local.TunnelId | Should BeNullOrEmpty
+        $local.BaseUrl | Should Be "http://127.0.0.1:$($remote.Port)"
+        $metadata = Get-Content -LiteralPath $metadataPath -Raw |
+            ConvertFrom-Json
+        $metadata.localOnly | Should Be $true
+        $metadata.tunnelId | Should BeNullOrEmpty
+        $calls = Get-Content (Join-Path $root 'devtunnel-calls.jsonl') |
+            ForEach-Object { $_ | ConvertFrom-Json -NoEnumerate }
+        @($calls | Where-Object { $_[0] -eq 'delete' }).Count | Should Be 1
+    }
+
+    It 'discovers a durable tunnel by its stable labels' {
+        $arguments = @{
+            StateDirectory = $stateDirectory
+            PsmuxPath = $fakePsmux
+            TtydPath = $fakePsmux
+            DevTunnelPath = $fakeDevTunnel
+            NodePath = (Get-Command node).Source
+            NpmPath = (Get-Command npm.cmd).Source
+            TerminalFontPath = $terminalFont
+        }
+        $first = & $startGateway @arguments
+        $metadataPath = Join-Path $stateDirectory 'gateway.json'
+        $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
+        $metadata.PSObject.Properties.Remove('tunnelId')
+        $metadata.PSObject.Properties.Remove('url')
+        $metadata | ConvertTo-Json -Compress |
+            Set-Content -LiteralPath $metadataPath -Encoding utf8
+
+        $second = & $startGateway @arguments
+
+        $second.Reused | Should Be $false
+        $second.TunnelReused | Should Be $true
+        $second.TunnelId | Should Be $first.TunnelId
+        $second.Port | Should Be $first.Port
+        $second.BaseUrl | Should Be $first.BaseUrl
+        $calls = Get-Content (Join-Path $root 'devtunnel-calls.jsonl') |
+            ForEach-Object { $_ | ConvertFrom-Json -NoEnumerate }
+        @($calls | Where-Object { $_[0] -eq 'create' }).Count | Should Be 1
+        @($calls | Where-Object { $_[0] -eq 'list' }).Count | Should Be 2
+    }
+
+    It 'creates a replacement when tunnel reuse and deletion both fail' {
+        $arguments = @{
+            StateDirectory = $stateDirectory
+            PsmuxPath = $fakePsmux
+            TtydPath = $fakePsmux
+            DevTunnelPath = $fakeDevTunnel
+            NodePath = (Get-Command node).Source
+            NpmPath = (Get-Command npm.cmd).Source
+            TerminalFontPath = $terminalFont
+        }
+        $first = & $startGateway @arguments
+        $savedUpdateExit = $env:TEST_DEVTUNNEL_UPDATE_EXIT
+        $savedDeleteExit = $env:TEST_DEVTUNNEL_DELETE_EXIT
+        $savedLogPath = $env:LONG_RUN_LOG_PATH
+        $logPath = Join-Path $root 'gateway-events.jsonl'
+        try {
+            $env:TEST_DEVTUNNEL_UPDATE_EXIT = '8'
+            $env:TEST_DEVTUNNEL_DELETE_EXIT = '9'
+            $env:LONG_RUN_LOG_PATH = $logPath
+            $arguments.TerminalStartupIdleSeconds = 121
+
+            $second = & $startGateway @arguments
+
+            $second.Reused | Should Be $false
+            $second.TunnelReused | Should Be $false
+            $second.TunnelId | Should Not Be $first.TunnelId
+            $calls = Get-Content (Join-Path $root 'devtunnel-calls.jsonl') |
+                ForEach-Object { $_ | ConvertFrom-Json -NoEnumerate }
+            @($calls | Where-Object { $_[0] -eq 'create' }).Count | Should Be 2
+            @($calls | Where-Object { $_[0] -eq 'delete' }).Count | Should Be 1
+            $logText = Get-Content -LiteralPath $logPath -Raw
+            $events = $logText -split "`r?`n" | Where-Object { $_ } |
+                ForEach-Object { ($_ | ConvertFrom-Json).event }
+            ($events -contains 'tunnel-reuse-failed') | Should Be $true
+            ($events -contains 'tunnel-delete-failed') | Should Be $true
+            ($events -contains 'tunnel-create-succeeded') | Should Be $true
+            $logText | Should Not Match ([regex]::Escape($first.TunnelId))
+            $logText | Should Not Match ([regex]::Escape($second.TunnelId))
+        } finally {
+            $env:TEST_DEVTUNNEL_UPDATE_EXIT = $savedUpdateExit
+            $env:TEST_DEVTUNNEL_DELETE_EXIT = $savedDeleteExit
+            $env:LONG_RUN_LOG_PATH = $savedLogPath
+        }
+    }
 
     It 'refuses to delete a non-empty unowned state directory' {
             New-Item -ItemType Directory -Path $stateDirectory | Out-Null

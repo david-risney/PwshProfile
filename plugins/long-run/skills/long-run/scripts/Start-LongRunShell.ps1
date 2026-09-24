@@ -68,6 +68,7 @@ $remote = switch ($RemoteMode) {
     'Never' { $false }
     default { Test-LongRunRemoteSession }
 }
+$requestedRemote = $remote
 
 $WorkingDirectory = (Resolve-Path -LiteralPath $WorkingDirectory).Path
 $PsmuxPath = Resolve-LongRunCommandPath $PsmuxPath @('psmux', 'pmux') `
@@ -259,7 +260,7 @@ $bootstrapTail
     }
 
     $openedLocally = $false
-    if (-not $remote -and -not $NoOpen) {
+    if (-not $requestedRemote -and -not $NoOpen) {
         try {
             $terminalHost = Open-LongRunPsmuxClient `
                 -PsmuxPath $PsmuxPath -Session $Session `

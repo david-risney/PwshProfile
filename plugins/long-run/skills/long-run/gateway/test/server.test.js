@@ -162,6 +162,7 @@ async function fixture(options = {}) {
       { id: "$1", name: "older", created: 1700000000, attached: 0, cwd: "C:\\older", command: "pwsh", pid: 1001, width: 120, height: 30, historySize: 25, historyLimit: 2000, dead: 0, deadStatus: 0 },
       { id: "$2", name: "newer", created: 1800000000, attached: 1, cwd: "C:\\newer", command: "node", pid: 1002, width: 160, height: 40, historySize: 75, historyLimit: 2000, dead: 1, deadStatus: 7 },
       { id: "$3", name: "long-run-util-gateway-1", created: 1900000000, attached: 0, cwd: "C:\\gateway", command: "node", pid: 1003, width: 100, height: 25, historySize: 5, historyLimit: 2000, dead: 0, deadStatus: 0 },
+      { id: "$4", name: "retained", created: 2000000000, attached: 0, cwd: "C:\\retained", command: "pwsh", pid: 1004, width: 120, height: 30, historySize: 200, historyLimit: 50000, dead: 0, deadStatus: 0, state: "completed", completedAt: "2033-05-18T03:33:20.000Z", expiresAt: "2033-05-18T04:33:20.000Z", exitCode: 23 },
     ],
   }));
   const psmux = writeScript(directory, "fake-psmux.js", `
@@ -174,7 +175,16 @@ const targetIndex = args.indexOf("-t");
 const target = targetIndex >= 0 ? args[targetIndex + 1] : null;
 if (args[0] === "list-sessions") {
   for (const session of state.sessions) {
-    console.log([session.name, session.created, session.attached, session.id].join("|"));
+    console.log([
+      session.name,
+      session.created,
+      session.attached,
+      session.id,
+      session.state || "",
+      session.completedAt || "",
+      session.expiresAt || "",
+      session.exitCode ?? "",
+    ].join("|"));
   }
   process.exit(state.sessions.length ? 0 : 1);
 }
@@ -266,7 +276,7 @@ const server = http.createServer((req, res) => {
     return;
   }
   res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-  res.end("<!doctype html><html><head></head><body>fake ttyd " + basePath + " " + req.url + "</body></html>");
+  res.end("<!doctype html><html><head><link rel=\\"icon\\" href=\\"/favicon.ico\\"></head><body>fake ttyd " + basePath + " " + req.url + "</body></html>");
 });
 server.on("upgrade", (req, socket) => {
   if (once && acceptedConnection) {
@@ -491,6 +501,7 @@ test("serves a script inventory and session REST resources", async () => {
     );
     assert.doesNotMatch(response.body, /Opening a session starts/);
     assert.match(response.body, /<h2>Sessions<\/h2>/);
+    assert.match(response.body, /<h2>Completed sessions<\/h2>/);
     assert.match(response.body, /<h2>Long-run utilities<\/h2>/);
     assert.doesNotMatch(response.body, /long-run-util-gateway-1|C:\\gateway/);
     assert.match(response.body, /id="start-session"/);
@@ -505,7 +516,7 @@ test("serves a script inventory and session REST resources", async () => {
     assert.match(response.body, /<link rel="icon" href="\/tmux\/assets\/logo\.svg" type="image\/svg\+xml">/);
     for (const [label, key] of [
       ["Session", "name"],
-      ["Started", "startedAt"],
+      ["Activity", "startedAt"],
       ["Path", "cwd"],
       ["Command", "command"],
     ]) {
@@ -520,12 +531,21 @@ test("serves a script inventory and session REST resources", async () => {
     assert.match(response.body, /\.sort-up \{ border-block-end:/);
     assert.match(response.body, /\.sort-down \{ border-block-start:/);
     assert.match(response.body, /<th scope="col" aria-label="Actions"><\/th>/);
+    assert.match(response.body, /th\[aria-label="Actions"\], td\[data-label="Actions"\] \{ text-align: end; \}/);
     assert.match(response.body, /<form id="session-filter-form" class="filter" role="search">/);
     assert.match(response.body, /<label for="session-filter">Filter sessions<\/label>/);
     assert.match(response.body, /<input id="session-filter" name="filter" type="search" autocomplete="off" placeholder="Session, path, or command">/);
     assert.doesNotMatch(response.body, /data-sort="(?:attachedClients|webTerminalActive|actions)"/);
     assert.match(response.body, /id="manage-session-dialog" closedby="any" aria-labelledby="manage-session-title"/);
-    assert.doesNotMatch(response.body, /data-close-dialog|>Cancel<|>Close</);
+    assert.match(response.body, /dialog h2 \{ margin-block-start: 0; \}/);
+    assert.match(
+      response.body,
+      /id="kill-session-dialog" closedby="closerequest"\s+aria-labelledby="kill-session-title" aria-describedby="kill-session-warning"/,
+    );
+    assert.match(response.body, /This action cannot be undone\./);
+    assert.match(response.body, /id="cancel-kill-session" type="button" autofocus>Cancel</);
+    assert.match(response.body, /id="confirm-kill-session" class="danger" type="button">Kill session</);
+    assert.doesNotMatch(response.body, /data-close-dialog|>Close</);
     assert.match(response.body, /#manage-session-details \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/s);
     assert.match(response.body, /td \{[^}]*grid-template-columns: 5\.5rem minmax\(0, 1fr\)/s);
     assert.match(response.body, /td\[data-label="Actions"\] \{[^}]*position: static;[^}]*padding: 0;/s);
@@ -550,9 +570,17 @@ test("serves a script inventory and session REST resources", async () => {
     assert.match(app.body, /manage\.setAttribute\("aria-label", `Manage session \$\{session\.name\}`\)/);
     assert.match(app.body, /function copyableValue\(value, label\)/);
     assert.match(app.body, /navigator\.clipboard\.writeText\(value\)/);
+    assert.match(
+      app.body,
+      /label === "Working directory" \|\| label === "Command" \|\| label === "PID"/,
+    );
     assert.match(app.body, /const copyIconMarkup = `\s*<svg viewBox="0 0 24 24" aria-hidden="true">/);
     assert.match(app.body, /button\.innerHTML = copyIconMarkup;/);
     assert.match(app.body, /document\.addEventListener\("selectionchange"/);
+    assert.match(app.body, /killDialog\.showModal\(\)/);
+    assert.match(app.body, /cancelKill\.addEventListener\("click", \(\) => killDialog\.close\(\)\)/);
+    assert.match(app.body, /confirmKill\.addEventListener\("click", async \(\) =>/);
+    assert.doesNotMatch(app.body, /\b(?:confirm|prompt)\(/);
     assert.match(app.body, /cell\("Path", copyableValue\(session\.cwd, "working directory"\)\)/);
     assert.match(app.body, /cell\("Command", copyableValue\(session\.command, "command"\)\)/);
     assert.match(app.body, /killSession\.hidden = session\.killable === false/);
@@ -562,7 +590,12 @@ test("serves a script inventory and session REST resources", async () => {
     assert.match(app.body, /\.toLocaleLowerCase\(\)\.includes\(query\)/);
     assert.match(app.body, /filterInput\.addEventListener\("input", render\)/);
     assert.match(app.body, /Showing \$\{visibleSessions\.length\} of \$\{sessions\.length\} sessions\./);
-    assert.match(app.body, /\["Status", session\.webTerminalActive \? "Web terminal active" : "Starts on demand"\]/);
+    assert.match(app.body, /session\.completed\s+\? "Read-only output available"\s+: "Starts on demand"/);
+    assert.match(app.body, /visibleSessions\.filter\(\(session\) => !session\.utility && !session\.completed\)/);
+    assert.match(app.body, /"completed-session-rows"/);
+    assert.match(app.body, /visibleSessions\.filter\(\(session\) => !session\.utility && session\.completed\)/);
+    assert.match(app.body, /sessionTime\(session\.completedAt \|\| session\.startedAt\)/);
+    assert.match(app.body, /openTerminal\.textContent = session\.completed/);
     assert.match(app.body, /if \(!\("closedBy" in HTMLDialogElement\.prototype\)\)/);
     assert.match(app.body, /for \(const dialog of \[createDialog, manageDialog\]\)/);
     assert.match(app.body, /function nextSessionName\(\)/);
@@ -585,7 +618,7 @@ test("serves a script inventory and session REST resources", async () => {
     const apiResponse = await authorizedRequest(current, "/tmux/api/sessions");
     assert.equal(apiResponse.status, 200);
     const payload = JSON.parse(apiResponse.body);
-    assert.equal(payload.sessions.length, 3);
+    assert.equal(payload.sessions.length, 4);
     assert.deepEqual(
       payload.sessions.find((session) => session.name === "newer"),
       {
@@ -596,6 +629,11 @@ test("serves a script inventory and session REST resources", async () => {
         webTerminalActive: false,
         utility: false,
         killable: true,
+        state: "running",
+        completed: false,
+        completedAt: null,
+        expiresAt: null,
+        exitCode: null,
         cwd: "C:\\newer",
         command: "node",
         panePid: 1002,
@@ -619,6 +657,37 @@ test("serves a script inventory and session REST resources", async () => {
     assert.equal(
       payload.sessions.find((session) => session.name === "long-run-util-gateway-1").killable,
       false,
+    );
+    assert.deepEqual(
+      payload.sessions.find((session) => session.name === "retained"),
+      {
+        id: "$4",
+        name: "retained",
+        startedAt: "2033-05-18T03:33:20.000Z",
+        attachedClients: 0,
+        webTerminalActive: false,
+        utility: false,
+        killable: true,
+        state: "completed",
+        completed: true,
+        completedAt: "2033-05-18T03:33:20.000Z",
+        expiresAt: "2033-05-18T04:33:20.000Z",
+        exitCode: 23,
+        cwd: "C:\\retained",
+        command: "Completed command output",
+        panePid: 1004,
+        paneWidth: 120,
+        paneHeight: 30,
+        historySize: 200,
+        historyLimit: 50000,
+        paneDead: false,
+        paneExitStatus: null,
+        links: {
+          self: "/tmux/api/sessions/retained",
+          terminalApi: "/tmux/api/sessions/retained/terminal",
+          terminal: "/tmux/session/retained/",
+        },
+      },
     );
     const connectionListenerCount =
       current.gateway.server.listenerCount("connection");
@@ -662,11 +731,26 @@ test("recreates ttyd after disconnect and allows later session visits", async ()
 
     assert.equal(first.status, 200);
     assert.match(first.body, /fake ttyd \/tmux\/session\/newer/);
+    assert.equal((first.body.match(/rel="icon"/g) || []).length, 1);
+    assert.match(first.body, /<link rel="icon" href="\/tmux\/assets\/logo\.svg" type="image\/svg\+xml">/);
+    assert.doesNotMatch(first.body, /favicon\.ico/);
     assert.match(first.body, /font-family:"Long Run Nerd Font"/);
     assert.match(first.body, /href="\/tmux\/assets\/terminal-font\.ttf"/);
-    assert.match(first.body, /id = "long-run-session-closed"/);
+    assert.match(first.body, /id = "long-run-session-state"/);
     assert.match(first.body, /Back to sessions/);
     assert.match(first.body, /\/tmux\/api\/sessions\//);
+    assert.match(first.body, /let sessionId = "\$2"/);
+    assert.match(first.body, /const replacementGraceMs = 75000/);
+    assert.doesNotMatch(first.body, /const showClosed = \(\) => \{\s*stop\(\)/);
+    assert.match(first.body, /showClosed\(\);\s*nextDelay = 2000/);
+    assert.match(first.body, /current\.id !== sessionId/);
+    assert.match(first.body, /location\.reload\(\)/);
+    assert.match(first.body, /Preparing the retained command output/);
+    assert.match(first.body, /role", "status"/);
+    assert.match(first.body, /aria-live", "polite"/);
+    assert.match(first.body, /aria-atomic", "true"/);
+    assert.match(first.body, /document\.body\.replaceChildren\(status\)/);
+    assert.match(first.body, /heading\.focus\(\)/);
     assert.equal(current.gateway.terminals.size, 1);
     const proxyCloseListenerCount =
       current.gateway.server.listenerCount("close");
@@ -791,6 +875,109 @@ test("recreates ttyd after disconnect and allows later session visits", async ()
       current.gateway.server.listenerCount("close"),
       proxyCloseListenerCount,
     );
+  } finally {
+    await current.close();
+  }
+});
+
+test("replaces a stale ttyd when a same-name session gets a new identity", async () => {
+  const current = await fixture();
+  try {
+    const first = await authorizedRequest(current, "/tmux/session/newer/");
+    assert.equal(first.status, 200);
+    const originalTerminal = current.gateway.terminals.get("newer");
+    assert.equal(originalTerminal.sessionId, "$2");
+
+    const state = JSON.parse(fs.readFileSync(current.stateFile, "utf8"));
+    const index = state.sessions.findIndex((session) => session.name === "newer");
+    state.sessions[index] = {
+      ...state.sessions[index],
+      id: "$5",
+      created: 2100000000,
+      attached: 0,
+      command: "pwsh",
+      pid: 1005,
+      state: "completed",
+      completedAt: "2036-07-18T13:20:00.000Z",
+      expiresAt: "2036-07-18T14:20:00.000Z",
+      exitCode: 7,
+    };
+    fs.writeFileSync(current.stateFile, JSON.stringify(state));
+
+    const replacements = await Promise.all([
+      authorizedRequest(current, "/tmux/session/newer/"),
+      authorizedRequest(current, "/tmux/session/newer/"),
+    ]);
+    assert.deepEqual(
+      replacements.map((response) => response.status),
+      [200, 200],
+    );
+    assert.match(replacements[0].body, /let sessionId = "\$5"/);
+    const replacementTerminal = current.gateway.terminals.get("newer");
+    assert.equal(replacementTerminal.sessionId, "$5");
+    assert.notEqual(replacementTerminal.process.pid, originalTerminal.process.pid);
+    await originalTerminal.exitPromise;
+    assert.ok(
+      originalTerminal.process.exitCode !== null
+      || originalTerminal.process.signalCode !== null,
+    );
+
+    const ttydArgs = JSON.parse(fs.readFileSync(
+      path.join(current.directory, "ttyd-args.json"),
+      "utf8",
+    ));
+    const attachIndex = ttydArgs.indexOf("attach-session");
+    assert.deepEqual(
+      ttydArgs.slice(attachIndex, attachIndex + 4),
+      ["attach-session", "-r", "-t", "$5"],
+    );
+    const events = fs.readFileSync(
+      path.join(current.directory, "events.jsonl"),
+      "utf8",
+    ).trim().split(/\r?\n/).map((line) => JSON.parse(line));
+    assert.equal(
+      events.filter(
+        (event) => event.event === "terminal-starting",
+      ).length,
+      2,
+    );
+  } finally {
+    await current.close();
+  }
+});
+
+test("attaches retained completed sessions read-only", async () => {
+  const current = await fixture();
+  try {
+    const response = await authorizedRequest(current, "/tmux/session/retained/");
+    assert.equal(response.status, 200);
+    const ttydArgs = JSON.parse(fs.readFileSync(
+      path.join(current.directory, "ttyd-args.json"),
+      "utf8",
+    ));
+    const attachIndex = ttydArgs.indexOf("attach-session");
+    assert.deepEqual(
+      ttydArgs.slice(attachIndex, attachIndex + 4),
+      ["attach-session", "-r", "-t", "$4"],
+    );
+  } finally {
+    await current.close();
+  }
+});
+
+test("links missing sessions back to the inventory", async () => {
+  const current = await fixture();
+  try {
+    const response = await authorizedRequest(
+      current,
+      "/tmux/session/no-longer-running/",
+    );
+
+    assert.equal(response.status, 404);
+    assert.match(response.headers["content-type"], /^text\/html/);
+    assert.match(response.body, /Session unavailable/);
+    assert.match(response.body, /href="\/tmux\/"/);
+    assert.match(response.body, /Back to sessions/);
   } finally {
     await current.close();
   }

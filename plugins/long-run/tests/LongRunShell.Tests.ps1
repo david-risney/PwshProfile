@@ -238,20 +238,26 @@ param(
             Should Be $true
     }
 
-    It 'keeps an automatic remote shell when gateway startup fails' {
+    It 'keeps a failed automatic remote shell native-window-free' {
         $gatewayScript = Join-Path $root 'failing-gateway.ps1'
         Set-Content -LiteralPath $gatewayScript -Value "throw 'ttyd was not found'"
+        $terminalLog = Join-Path $root 'unexpected-terminal-open'
+        $fakeTerminal = New-CommandWrapper $root 'unexpected-terminal' (
+            "[IO.File]::WriteAllText('$($terminalLog.Replace("'", "''"))', 'opened')")
         $savedRemote = $env:DRAGON_REMOTE
         try {
             $env:DRAGON_REMOTE = '1'
             $output = & $startShellScript `
                 -Session $session -WorkingDirectory $TestDrive -RemoteMode Auto `
                 -PsmuxPath $fakePsmux -ShellPath (Get-Command pwsh).Source `
-                -GatewayScript $gatewayScript -NoOpen 6>&1 3>&1
+                -GatewayScript $gatewayScript `
+                -WindowsTerminalPath $fakeTerminal 6>&1 3>&1
 
             $LASTEXITCODE | Should Be 0
             ($output -join "`n") | Should Match 'continuing locally'
             ($output -join "`n") | Should Match 'LONGRUN_SHELL_REMOTE=false'
+            ($output -join "`n") | Should Match 'LONGRUN_SHELL_LOCAL_OPENED=false'
+            Test-Path -LiteralPath $terminalLog | Should Be $false
             Test-Path -LiteralPath (Join-Path $root 'active') | Should Be $true
         } finally {
             $env:DRAGON_REMOTE = $savedRemote

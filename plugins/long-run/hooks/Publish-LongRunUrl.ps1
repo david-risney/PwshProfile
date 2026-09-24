@@ -29,12 +29,22 @@ try {
     }
 
     $url = $match.Groups[1].Value
+    $sessionMatch = [regex]::Match(
+        $text,
+        '(?m)^Long-running command session:\s*(\S+)\s*$')
+    $label = if ($sessionMatch.Success) {
+        "Remote session: $($sessionMatch.Groups[1].Value)"
+    } else {
+        'Remote session'
+    }
+    $markdownLink = "[$label]($url)"
     Write-HookResult @{
         additionalContext = @"
-The PowerShell tool created this long-run remote session URL:
-$url
-Include this exact URL in the next user-visible response so the user can open
-the running session. Do not substitute the inventory URL.
+The PowerShell tool created this long-run remote session link:
+$markdownLink
+Include this exact Markdown link, rather than a bare URL, in the next user-visible response
+so the user can open the session. If other long-run session links were created
+during the same turn, include every supplied link. Do not substitute the inventory URL.
 "@
     }
 } catch {

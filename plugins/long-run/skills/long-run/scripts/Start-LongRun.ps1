@@ -38,6 +38,8 @@ param(
     [ValidateRange(1, 60)]
     [int]$CaptureSetupTimeoutSeconds = 10,
 
+    [switch]$OpenViewer,
+
     [switch]$NoViewer,
 
     [ValidateSet('Auto', 'Always', 'Never')]
@@ -57,11 +59,33 @@ param(
 
     [string]$GatewayStateDirectory,
 
+    [ValidateRange(0, 604800)]
+    [int]$CompletedSessionTtlSeconds = $(if ($env:LONG_RUN_COMPLETED_SESSION_TTL_SECONDS) {
+        [int]$env:LONG_RUN_COMPLETED_SESSION_TTL_SECONDS
+    } else {
+        3600
+    }),
+
+    [ValidateRange(1, 1000)]
+    [int]$CompletedSessionLimit = $(if ($env:LONG_RUN_COMPLETED_SESSION_LIMIT) {
+        [int]$env:LONG_RUN_COMPLETED_SESSION_LIMIT
+    } else {
+        100
+    }),
+
+    [ValidateRange(1, 10240)]
+    [int]$CompletedSessionStorageMB = $(if ($env:LONG_RUN_COMPLETED_SESSION_STORAGE_MB) {
+        [int]$env:LONG_RUN_COMPLETED_SESSION_STORAGE_MB
+    } else {
+        200
+    }),
+
     [string]$GatewayScript = (Join-Path $PSScriptRoot 'Start-LongRunMuxGateway.ps1')
 )
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'LongRun.Common.ps1')
+. (Join-Path $PSScriptRoot 'LongRun.Completed.ps1')
 $overall = $null
 
 function Resolve-Psmux {
@@ -87,7 +111,7 @@ function Invoke-PsmuxSetupCommand(
     [int]$TimeoutMilliseconds
 ) {
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $startInfo.UseShellExecute = $false
+    Initialize-LongRunHiddenProcessStartInfo $startInfo
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
     if ([System.IO.Path]::GetExtension($PsmuxPath) -match '^(?i:\.cmd|\.bat)$') {
@@ -162,7 +186,7 @@ function Invoke-AttachedPsmux(
 ) {
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $PsmuxPath
-    $startInfo.UseShellExecute = $false
+    Initialize-LongRunHiddenProcessStartInfo $startInfo
     $startInfo.RedirectStandardInput = $true
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
@@ -362,14 +386,17 @@ $PsmuxPath = if ($PsmuxPath) {
     Resolve-Psmux
 }
 $WorkingDirectory = (Resolve-Path -LiteralPath $WorkingDirectory).Path
+$completedArchiveRoot = Get-LongRunCompletedArchiveRoot
+$completedStorageLimitBytes = [long]$CompletedSessionStorageMB * 1MB
 $remote = switch ($RemoteMode) {
     'Always' { $true }
     'Never' { $false }
     default { Test-LongRunRemoteSession }
 }
+$viewerEnabled = $OpenViewer -and -not $NoViewer -and -not $remote
 $windowsTerminalSession = $null
 $windowsTerminalPath = $null
-if (-not $NoViewer -and -not $remote -and $env:WT_SESSION) {
+if ($viewerEnabled -and $env:WT_SESSION) {
     . (Join-Path $PSScriptRoot 'Terminal-Panes.ps1')
     $candidate = Resolve-WtExe
     if ($candidate -ne 'wt.exe' -or
@@ -421,6 +448,22 @@ try {
             [System.IO.File]::ReadAllText($commandFiles[0])
         }
         $Session = Get-LongRunCommandSessionName $preview
+    }
+    $hasSameNameArchive = @(Get-LongRunCompletedArchiveRecords `
+            $completedArchiveRoot | Where-Object Session -EQ $Session).Count -gt 0
+    if ($CompletedSessionTtlSeconds -gt 0 -or $hasSameNameArchive) {
+        try {
+            Invoke-LongRunCompletedCleanup `
+                -ArchiveRoot $completedArchiveRoot `
+                -PsmuxPath $PsmuxPath `
+                -SessionLimit $CompletedSessionLimit `
+                -StorageLimitBytes $completedStorageLimitBytes `
+                -RemoveSession $Session
+        } catch {
+            Write-LongRunLog -Component 'completed-session' `
+                -Event 'cleanup-failed' -Level 'warning' -Session $Session `
+                -Data @{ errorType = $_.Exception.GetType().FullName }
+        }
     }
     $stateDir = Get-LongRunSessionStatePath $stateRoot $Session
     if (Test-Path -LiteralPath $stateDir) {
@@ -670,7 +713,7 @@ exit `$LASTEXITCODE
             "-StateDirectory $(Quote-PowerShellLiteral $stateDir)"
             "-DelaySeconds $ViewerDelaySeconds"
         )
-        if ($NoViewer -or $remote) { $watcherCommand += '-NoViewer' }
+        if (-not $viewerEnabled) { $watcherCommand += '-NoViewer' }
         if ($windowsTerminalSession) {
             $watcherCommand +=
                 "-WindowsTerminalSession $(Quote-PowerShellLiteral $windowsTerminalSession)"
@@ -751,6 +794,7 @@ exit `$LASTEXITCODE
         }
         return $captureEnabled
     }
+    $attachedOutputFallback = Join-Path $stateDir 'attached-output.bin'
     $psmuxExitCode = Invoke-AttachedPsmux -Arguments @(
             'new-session', '-s', $Session, '--',
             $pwshPath, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $entryFile
@@ -759,7 +803,7 @@ exit `$LASTEXITCODE
         -TranscriptFiles $transcriptFiles `
         -TranscriptDoneFiles $transcriptDoneFiles `
         -TranscriptFailureFiles $transcriptFailureFiles `
-        -AttachedFallbackFile (Join-Path $stateDir 'attached-output.bin') `
+        -AttachedFallbackFile $attachedOutputFallback `
         -CaptureGateFile $captureGateFile `
         -SessionDiscoveryTimeoutSeconds $CaptureSetupTimeoutSeconds
 
@@ -778,6 +822,47 @@ exit `$LASTEXITCODE
             $code = 1
         }
         if ($overall -eq 0 -and $code -ne 0) { $overall = $code }
+    }
+    if ($CompletedSessionTtlSeconds -gt 0) {
+        $captureComplete = $transcriptFiles.Count -gt 0 -and
+            @($transcriptDoneFiles | Where-Object {
+                    -not (Test-Path -LiteralPath $_ -PathType Leaf)
+                }).Count -eq 0 -and
+            @($transcriptFailureFiles | Where-Object {
+                    Test-Path -LiteralPath $_ -PathType Leaf
+                }).Count -eq 0 -and
+            @($transcriptFiles | Where-Object {
+                    -not (Test-Path -LiteralPath $_ -PathType Leaf)
+                }).Count -eq 0
+        $completedSources = if ($captureComplete) {
+            @($transcriptFiles)
+        } elseif (Test-Path -LiteralPath $attachedOutputFallback -PathType Leaf) {
+            @($attachedOutputFallback)
+        } else {
+            @()
+        }
+        if ($completedSources.Count -gt 0) {
+            try {
+                [void](Publish-LongRunCompletedSession `
+                    -ArchiveRoot $completedArchiveRoot `
+                    -PsmuxPath $PsmuxPath `
+                    -PowerShellPath $pwshPath `
+                    -Session $Session `
+                    -WorkingDirectory $WorkingDirectory `
+                    -SourceFiles $completedSources `
+                    -ExitCode $overall `
+                    -TtlSeconds $CompletedSessionTtlSeconds `
+                    -SessionLimit $CompletedSessionLimit `
+                    -StorageLimitBytes $completedStorageLimitBytes `
+                    -CaptureComplete $captureComplete)
+            } catch {
+                Write-LongRunLog -Component 'command' `
+                    -Event 'completed-retention-failed' -Level 'warning' `
+                    -Session $Session -Data @{
+                        errorType = $_.Exception.GetType().FullName
+                    }
+            }
+        }
     }
     Write-LongRunLog -Component 'command' -Event 'completed' -Session $Session `
         -Data @{ exitCode = $overall }

@@ -12,6 +12,11 @@ const manageDetails = document.querySelector("#manage-session-details");
 const openTerminal = document.querySelector("#open-terminal");
 const stopTerminal = document.querySelector("#stop-terminal");
 const killSession = document.querySelector("#kill-session");
+const killDialog = document.querySelector("#kill-session-dialog");
+const killName = document.querySelector("#kill-session-name");
+const killError = document.querySelector("#kill-session-error");
+const cancelKill = document.querySelector("#cancel-kill-session");
+const confirmKill = document.querySelector("#confirm-kill-session");
 const refreshIntervalMilliseconds = 60_000;
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
@@ -33,7 +38,8 @@ const textCollator = new Intl.Collator(undefined, {
 const sortComparators = {
   name: (left, right) => textCollator.compare(left.name, right.name),
   startedAt: (left, right) =>
-    (Date.parse(left.startedAt) || 0) - (Date.parse(right.startedAt) || 0),
+    (Date.parse(left.completedAt || left.startedAt) || 0) -
+      (Date.parse(right.completedAt || right.startedAt) || 0),
   cwd: (left, right) => textCollator.compare(left.cwd || "", right.cwd || ""),
   command: (left, right) =>
     textCollator.compare(left.command || "", right.command || ""),
@@ -167,7 +173,11 @@ function showManage(session) {
       Number.isInteger(session.historyLimit)
     ? `${session.historySize} / ${session.historyLimit} lines`
     : "Unknown";
-  const paneState = session.paneDead === true
+  const paneState = session.completed
+    ? `Completed${Number.isInteger(session.exitCode)
+        ? ` (exit code ${session.exitCode})`
+        : ""}`
+    : session.paneDead === true
     ? `Exited${Number.isInteger(session.paneExitStatus)
         ? ` (code ${session.paneExitStatus})`
         : ""}`
@@ -181,8 +191,17 @@ function showManage(session) {
     ["Pane size", paneSize],
     ["Scrollback", scrollback],
     ["Pane state", paneState],
+    ...(session.completed
+      ? [["Retained until", session.expiresAt
+        ? dateFormatter.format(new Date(session.expiresAt))
+        : "Unknown"]]
+      : []),
     ["Attached clients", String(session.attachedClients)],
-    ["Status", session.webTerminalActive ? "Web terminal active" : "Starts on demand"],
+    ["Status", session.webTerminalActive
+      ? "Web terminal active"
+      : session.completed
+        ? "Read-only output available"
+        : "Starts on demand"],
   ]) {
     const detail = document.createElement("div");
     detail.className = "session-detail";
@@ -190,7 +209,7 @@ function showManage(session) {
     dt.textContent = label;
     const dd = document.createElement("dd");
     dd.append(
-      label === "Working directory" || label === "Command"
+      label === "Working directory" || label === "Command" || label === "PID"
         ? copyableValue(value === "Unknown" ? null : value, label.toLowerCase())
         : document.createTextNode(value),
     );
@@ -199,6 +218,9 @@ function showManage(session) {
   }
   stopTerminal.hidden = !session.webTerminalActive;
   killSession.hidden = session.killable === false;
+  openTerminal.textContent = session.completed
+    ? "View retained output"
+    : "Open terminal";
   manageDialog.showModal();
 }
 
@@ -209,6 +231,14 @@ function sessionRow(session) {
   const code = document.createElement("code");
   code.textContent = session.name;
   link.append(code);
+  if (session.completed) {
+    const retained = document.createElement("span");
+    retained.className = "muted";
+    retained.textContent = Number.isInteger(session.exitCode)
+      ? ` Completed (${session.exitCode})`
+      : " Completed";
+    link.append(retained);
+  }
 
   const manage = document.createElement("button");
   manage.type = "button";
@@ -220,7 +250,10 @@ function sessionRow(session) {
 
   row.append(
     cell("Session", link),
-    cell("Started", sessionTime(session.startedAt)),
+    cell(
+      session.completed ? "Completed" : "Started",
+      sessionTime(session.completedAt || session.startedAt),
+    ),
     cell("Path", copyableValue(session.cwd, "working directory")),
     cell("Command", copyableValue(session.command, "command")),
     cell("Actions", manage),
@@ -265,9 +298,16 @@ function render() {
   renderTable(
     "session-rows",
     "sessions-empty",
-    visibleSessions.filter((session) => !session.utility),
+    visibleSessions.filter((session) => !session.utility && !session.completed),
     "No user psmux sessions are running.",
     "No user sessions match the filter.",
+  );
+  renderTable(
+    "completed-session-rows",
+    "completed-sessions-empty",
+    visibleSessions.filter((session) => !session.utility && session.completed),
+    "No completed command output is retained.",
+    "No completed sessions match the filter.",
   );
   renderTable(
     "utility-rows",
@@ -433,20 +473,43 @@ openTerminal.addEventListener("click", async () => {
   }
 });
 
-killSession.addEventListener("click", async () => {
+killSession.addEventListener("click", () => {
   if (!selectedSession) return;
   if (!selectedSession.id) {
     setStatus("This session cannot be killed because psmux did not report its identity.", true);
     return;
   }
+  killName.textContent = selectedSession.name;
+  killError.textContent = "";
+  killError.hidden = true;
+  killDialog.showModal();
+});
+
+cancelKill.addEventListener("click", () => killDialog.close());
+
+confirmKill.addEventListener("click", async () => {
+  if (!selectedSession?.id) {
+    killDialog.close();
+    return;
+  }
+  const originalLabel = confirmKill.textContent;
+  confirmKill.disabled = true;
+  cancelKill.disabled = true;
+  confirmKill.textContent = "Killing...";
   try {
     const target = new URL(selectedSession.links.self, window.location.origin);
     target.searchParams.set("sessionId", selectedSession.id);
     await api(`${target.pathname}${target.search}`, { method: "DELETE" });
+    killDialog.close();
     manageDialog.close();
     await loadSessions();
   } catch (error) {
-    setStatus(error.message, true);
+    killError.textContent = error.message;
+    killError.hidden = false;
+  } finally {
+    confirmKill.disabled = false;
+    cancelKill.disabled = false;
+    confirmKill.textContent = originalLabel;
   }
 });
 

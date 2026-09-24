@@ -67,6 +67,66 @@ function Test-ExactOutput([pscustomobject]$ToolArgs, [string]$Command) {
     '
 }
 
+function Get-LongRunTerminalCommandType([string]$Command) {
+    $tokens = $null
+    $parseErrors = $null
+    $ast = [Management.Automation.Language.Parser]::ParseInput(
+        $Command,
+        [ref]$tokens,
+        [ref]$parseErrors)
+    if (@($parseErrors).Count -gt 0) {
+        return $null
+    }
+    $lastStatement = @($ast.EndBlock.Statements |
+        Select-Object -Last 1)[0]
+    if (-not $lastStatement) {
+        return 'PowerShell'
+    }
+    if ($lastStatement -is
+        [Management.Automation.Language.ExitStatementAst]) {
+        return 'ExplicitExit'
+    }
+    if ($lastStatement -isnot
+        [Management.Automation.Language.PipelineAst]) {
+        return $null
+    }
+    $terminalCommand = @($lastStatement.PipelineElements |
+        Where-Object {
+            $_ -is [Management.Automation.Language.CommandAst]
+        } |
+        Select-Object -Last 1)[0]
+    if (-not $terminalCommand) {
+        return 'PowerShell'
+    }
+
+    $commandName = $terminalCommand.GetCommandName()
+    if (-not $commandName -and
+        $terminalCommand.CommandElements.Count -gt 0) {
+        $commandText = $terminalCommand.CommandElements[0].Extent.Text.Trim()
+        if ($commandText -match '^\$env:([A-Za-z_][A-Za-z0-9_]*)$') {
+            $commandName = [Environment]::GetEnvironmentVariable($Matches[1])
+        } elseif ($commandText -match '^[''"](.+)[''"]$') {
+            $commandName = $Matches[1]
+        }
+    }
+    if (-not $commandName) {
+        return $null
+    }
+    $resolved = Get-Command $commandName -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    while ($resolved -and $resolved.CommandType -eq 'Alias' -and
+        $resolved.ResolvedCommand) {
+        $resolved = $resolved.ResolvedCommand
+    }
+    if (-not $resolved) {
+        return $null
+    }
+    if ($resolved.CommandType -in @('Application', 'ExternalScript')) {
+        return 'Native'
+    }
+    return 'PowerShell'
+}
+
 try {
     $pluginRoot = Split-Path -Parent $PSScriptRoot
     $common = Join-Path $pluginRoot 'skills\long-run\scripts\LongRun.Common.ps1'
@@ -104,6 +164,7 @@ try {
     }
 
     $command = [string]$toolArgs.command
+    $terminalCommandType = Get-LongRunTerminalCommandType $command
     $isBackground = ($toolArgs.mode -eq 'async') -or ($toolArgs.detach -eq $true)
     $skipReason = if ($env:PSMUX_SESSION) {
         'nested-psmux'
@@ -115,6 +176,8 @@ try {
         'exact-output'
     } elseif (Test-ExplicitOptOut $command) {
         'explicit-opt-out'
+    } elseif (-not $terminalCommandType) {
+        'unsupported-exit-propagation'
     } elseif (-not (Test-PsmuxAvailable)) {
         'psmux-unavailable'
     } else {
@@ -129,9 +192,24 @@ try {
 
     New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
     $commandFile = Join-Path $tempRoot ("command-{0}.ps1" -f [guid]::NewGuid().ToString('N'))
+    $successVariable = '__longRunCommandSucceeded_' +
+        [guid]::NewGuid().ToString('N')
+    $commandWithExitPropagation = @(
+        $command
+        "`$$successVariable = `$?"
+        '$__longRunNativeExitCode = $LASTEXITCODE'
+        $(if ($terminalCommandType -eq 'Native') {
+            "if (-not `$$successVariable -and " +
+                "`$__longRunNativeExitCode -is [int] -and " +
+                "`$__longRunNativeExitCode -ne 0) { " +
+                'exit $__longRunNativeExitCode }'
+        })
+        "if (-not `$$successVariable) { exit 1 }"
+        'exit 0'
+    ) -join [Environment]::NewLine
     [System.IO.File]::WriteAllText(
         $commandFile,
-        $command,
+        $commandWithExitPropagation,
         [System.Text.UTF8Encoding]::new($false))
 
     $runner = Join-Path $pluginRoot 'skills\long-run\scripts\Start-LongRun.ps1'
@@ -144,7 +222,7 @@ try {
     }
     $wrapped = "try { & $(& $quote $runner) -CommandFile $(& $quote $commandFile) -RemoveCommandFile " +
         "-WorkingDirectory $(& $quote $cwd) -Session $(& $quote $session) " +
-        "-RemoteMode $remoteMode } finally { Remove-Item -LiteralPath " +
+        "-RemoteMode $remoteMode -NoViewer } finally { Remove-Item -LiteralPath " +
         "$(& $quote $commandFile) -Force -ErrorAction SilentlyContinue }; exit `$LASTEXITCODE"
 
     $modified = [ordered]@{}

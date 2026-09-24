@@ -16,8 +16,8 @@ Eligible synchronous commands are rewritten to:
 5. Return the real child exit code to the PowerShell tool.
 6. Forward terminal input and attempt to forward `Ctrl+C` through the attached
    psmux client.
-7. Remove the psmux session, wrapper scripts, environment snapshot, result file,
-   and hook-created command file afterward.
+7. Remove the original psmux session, wrapper scripts, environment snapshot,
+   result file, and hook-created command file afterward.
 
 Command-only sessions disable their psmux status line so terminal chrome is not
 included in Copilot's captured tool output. Persistent interactive shells keep
@@ -32,18 +32,57 @@ full-screen viewport redraws. The transcript remains a terminal stream with
 merged stdout/stderr and ANSI control sequences, so exact-output commands must
 remain excluded.
 
-psmux supports multiple simultaneous clients. After
-`LONG_RUN_VIEWER_DELAY_SECONDS` seconds (10 by default), a watcher checks whether
-the session is still running and, on a local Copilot session, opens another
-read/write client in the current Windows Terminal window or a new PowerShell
-window. Remote sessions instead publish the command's named session through the
-shared mux gateway. The hook detects Dragon and remotely steerable Copilot
-sessions before rewriting the tool call, reserves the session name, and passes
-`-RemoteMode Always` to the wrapper. The wrapper ensures the gateway and prints
+psmux supports multiple simultaneous clients. Hook-driven commands never open a
+native terminal window. Direct `Start-LongRun.ps1` callers can explicitly pass
+`-OpenViewer` to open a delayed local read/write client; otherwise its watcher
+performs cleanup without opening a viewer. Remote sessions publish the command's
+named session through the shared mux gateway. The hook detects Dragon and
+remotely steerable Copilot sessions before rewriting the tool call, reserves
+the session name, and passes `-RemoteMode Always` to the wrapper. The wrapper
+ensures the gateway and prints
 `LONGRUN_REMOTE_URL` and `LONGRUN_TMUX_URL` before it starts the synchronous
 attached psmux command. A post-tool hook extracts `LONGRUN_REMOTE_URL` and
-supplies the exact session link as response context so it is reported to the
-user instead of remaining hidden in the tool output.
+supplies a named Markdown session link as response context so it is reported
+without exposing the full URL in the visible response. When a turn creates
+multiple long-run sessions, each link is preserved with its session name.
+
+## Completed command output
+
+After the synchronous command exits, long-run retains its raw terminal
+transcript and creates a lightweight, detached psmux session with the same
+session name. A short-lived `pwsh -NoLogo -NoProfile -NonInteractive` process
+streams the transcript into the pane and exits; psmux `remain-on-exit` keeps
+the dead pane and scrollback attachable without a shell process remaining.
+Copilot still receives the original command's exit code and does not return
+until capture and viewer publication finish. The existing local
+`psmux attach-session -t <name>` command and remote session URL can therefore be
+used again to inspect completed output. Remote completed sessions attach
+read-only, and the inventory marks them completed with their exit code and
+expiry time.
+
+Completed transcripts are stored under
+`%LOCALAPPDATA%\long-run\completed\<archive-id>`. They can contain command
+output and therefore potentially sensitive data; access remains limited by
+local filesystem permissions and the gateway's existing capability. Runtime
+scripts, environment snapshots, result files, and hook command files are still
+deleted immediately.
+
+Retention defaults to one hour, at most 100 completed sessions, and 200 MiB.
+One detached singleton expiry watcher removes the retained dead pane and its
+archive at expiry, including when the session was killed first. New commands
+also remove expired or missing viewers and evict the oldest unattached completed
+sessions to enforce count and storage limits. Reusing a session name removes
+its prior completed viewer before starting the new command. Configure the
+defaults with:
+
+```text
+LONG_RUN_COMPLETED_SESSION_TTL_SECONDS
+LONG_RUN_COMPLETED_SESSION_LIMIT
+LONG_RUN_COMPLETED_SESSION_STORAGE_MB
+```
+
+Set `LONG_RUN_COMPLETED_SESSION_TTL_SECONDS=0` to disable completed-session
+retention.
 
 ## Hook exceptions
 
@@ -101,9 +140,10 @@ pwsh -NoProfile -File tests\Invoke-LongRunIntegrationTests.ps1
 ```
 
 The default `Core` group exercises real psmux command execution, cwd and
-environment preservation, exit-code and state cleanup, secondary-client input,
-owner-death cleanup, concurrent sessions, and complete 5,000-line transcript
-capture. Additional opt-in groups are:
+environment preservation, exit-code and state cleanup, completed-session
+replacement and expiry, secondary-client input, owner-death cleanup, concurrent
+sessions, and complete 5,000-line transcript capture. Additional opt-in groups
+are:
 
 ```powershell
 # Local gateway -> WebSocket -> ttyd -> psmux -> command stdin
@@ -149,7 +189,10 @@ client; an attaching client intentionally remains connected until detached.
   state directories. It must not delete unrelated sessions or caller files.
 
 Use `-ViewerDelaySeconds` to change the delay or `-NoViewer` to suppress the
-second local client. The call is synchronous and exits with the command's code.
+second local client when `-OpenViewer` is present. Noninteractive psmux,
+PowerShell, gateway, watcher, retained-output, and remote-shell bootstrap
+processes are created without a visible native console window. The call is
+synchronous and exits with the command's code.
 
 ## Persistent interactive shell
 
@@ -194,8 +237,10 @@ The script:
   `PSMUX_PICKER_SCRIPT` so user psmux themes and actions still load;
 - starts `pwsh` by default, falling back to Windows PowerShell and then `cmd`
   only when necessary;
-- opens a new Windows Terminal tab immediately in local mode, falling back to
-  a new PowerShell window when Windows Terminal is unavailable;
+- opens a new Windows Terminal tab immediately only for a locally requested
+  shell, falling back to a new PowerShell window when Windows Terminal is
+  unavailable; remote requests stay native-window-free even if gateway startup
+  fails;
 - prints `LONGRUN_SHELL_LOCAL_ATTACH` with the exact local attach command;
 - prints `LONGRUN_SHELL_REMOTE_URL` and `LONGRUN_TMUX_URL` when remote access is
   enabled;
@@ -227,10 +272,12 @@ Remote mode ensures one machine-wide long-run gateway:
   `https://<tunnel>.devtunnels.ms/tmux/session/<session>/`.
 
 The inventory is a plain JavaScript client over resource-oriented JSON APIs.
-It lists every named psmux session, including its creation time, path, current
-command, attached client count, utility status, web-terminal state, pane PID and
-dimensions, scrollback usage and limit, and pane dead/exit status. A filter field
-matches case-insensitive substrings in the session name, path, or command.
+It lists active sessions, retained completed command output, and utility
+sessions in separate tables. Each entry includes its creation or completion
+time, path, current command, attached client count, utility status,
+web-terminal state, pane PID and dimensions, scrollback usage and limit, and
+pane dead/exit status. A filter field matches case-insensitive substrings in
+the session name, path, or command.
 Creation times render as semantic `<time>` elements with relative visible text
 and an exact timestamp. Sort buttons in each data column select that column or
 toggle its direction. The **Start session** dialog creates a named
@@ -295,8 +342,15 @@ application-state directory.
 
 The dev tunnel requires authenticated access by default and is shared by every
 long-run session. Do not use `-AllowAnonymous` unless the user explicitly
-requests anonymously reachable shells and understands the risk. To stop the
-gateway, all temporary ttyd processes, and the dev tunnel:
+requests anonymously reachable shells and understands the risk. The launcher
+labels and rediscovers its tunnel, renews its expiration, and keeps the same
+port and terminal capability across ordinary gateway replacements. If
+discovery, validation, renewal, port repair, or hosting fails, it deletes the
+candidate best-effort and creates a fresh tunnel instead of blocking startup.
+Redacted lifecycle diagnostics are written to
+`%LOCALAPPDATA%\long-run\logs\events.jsonl` by default.
+
+To stop the gateway, all temporary ttyd processes, and delete the dev tunnel:
 
 ```powershell
 & <skill>\scripts\Stop-LongRunMuxGateway.ps1
