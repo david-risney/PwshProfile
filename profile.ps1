@@ -50,11 +50,17 @@ IncrementProgress "Starting";
 
 Write-Verbose ("Update is " + $Update);
 
+if ($Update -eq "On") {
+  $wingetNonInteractive = @(
+    '--accept-source-agreements', '--accept-package-agreements',
+    '--disable-interactivity', '--silent', '--authentication-mode', 'silent');
+}
+
 # gsudo lets you easily run commands as administrator from PowerShell
 # https://github.com/gerardog/gsudo
 if ($Update -eq "On") {
   Write-Verbose "Updating gsudo";
-  winget install gerardog.gsudo;
+  winget install gerardog.gsudo @wingetNonInteractive;
   if (!(Get-Command gsudo -ErrorAction Ignore)) {
     $env:PATH += ";C:\Program Files\gsudo\Current\";
   }
@@ -63,17 +69,17 @@ if ($Update -eq "On") {
 
 if ($Update -eq "On") {
   Write-Verbose "Updating TerminalPreview";
-  winget install Microsoft.WindowsTerminal.Preview;
+  winget install Microsoft.WindowsTerminal.Preview @wingetNonInteractive;
 }
 
 if ($Update -eq "On") {
   Write-Verbose "Updating SysInteranls";
-  winget install Microsoft.Sysinternals;
+  winget install Microsoft.Sysinternals @wingetNonInteractive;
 }
 
 if ($Update -eq "On") {
   Write-Verbose "Updating GH CLI";
-  winget install GitHub.cli --accept-source-agreements --accept-package-agreements --disable-interactivity
+  winget install GitHub.cli @wingetNonInteractive
 
   if (Get-Command gh -ErrorAction Ignore) {
     # Never run 'gh auth login' from the profile: it blocks startup waiting on an
@@ -82,7 +88,19 @@ if ($Update -eq "On") {
     gh auth status 2>&1 | Out-Null;
     if ($LASTEXITCODE -eq 0) {
       if (!(gh extension list 2>$null | Select-String -SimpleMatch -Quiet "copilot")) {
-        gh extension install github/gh-copilot;
+        $previousGhPromptDisabled = $env:GH_PROMPT_DISABLED;
+        $previousGitTerminalPrompt = $env:GIT_TERMINAL_PROMPT;
+        $previousGcmInteractive = $env:GCM_INTERACTIVE;
+        try {
+          $env:GH_PROMPT_DISABLED = '1';
+          $env:GIT_TERMINAL_PROMPT = '0';
+          $env:GCM_INTERACTIVE = 'never';
+          gh extension install github/gh-copilot;
+        } finally {
+          [Environment]::SetEnvironmentVariable('GH_PROMPT_DISABLED', $previousGhPromptDisabled, 'Process');
+          [Environment]::SetEnvironmentVariable('GIT_TERMINAL_PROMPT', $previousGitTerminalPrompt, 'Process');
+          [Environment]::SetEnvironmentVariable('GCM_INTERACTIVE', $previousGcmInteractive, 'Process');
+        }
       }
     } else {
       Write-Warning "gh is not authenticated, so skipping the gh-copilot extension. Run 'gh auth login' manually, then rerun with -Update On.";
@@ -136,7 +154,16 @@ if ($Update -eq "On") {
 
   Push-Location ~\PwshProfile;
   # Use ff-only to hopefully avoid cases where merge is required
-  git pull --ff-only
+  $previousGitTerminalPrompt = $env:GIT_TERMINAL_PROMPT;
+  $previousGcmInteractive = $env:GCM_INTERACTIVE;
+  try {
+    $env:GIT_TERMINAL_PROMPT = '0';
+    $env:GCM_INTERACTIVE = 'never';
+    git pull --ff-only
+  } finally {
+    [Environment]::SetEnvironmentVariable('GIT_TERMINAL_PROMPT', $previousGitTerminalPrompt, 'Process');
+    [Environment]::SetEnvironmentVariable('GCM_INTERACTIVE', $previousGcmInteractive, 'Process');
+  }
 
   $userProfilePath = (Join-Path $PSScriptRoot "profile.ps1").ToLower();
 
@@ -154,7 +181,7 @@ if ($Update -eq "On") {
 if ($Update -eq "On") {
   IncrementProgress "Update PowerShellGet";
   Write-Verbose "Update PowerShellGet";
-  Install-Module -Name PowerShellGet -Force -Repository PSGallery -AllowPrerelease -Scope CurrentUser -SkipPublisherCheck;
+  Install-Module -Name PowerShellGet -Force -Repository PSGallery -AllowPrerelease -Scope CurrentUser -SkipPublisherCheck -AcceptLicense -Confirm:$false;
   Import-Module PowerShellGet;
 }
 #endregion
@@ -165,7 +192,7 @@ if ($Update -eq "On") {
 IncrementProgress "PSReadLine";
 if ($Update -eq "On") {
   Write-Verbose "Update PSReadLine";
-  gsudo { Install-Module PSReadLine -AllowPrerelease -Force -SkipPublisherCheck; };
+  gsudo { Install-Module PSReadLine -AllowPrerelease -Force -SkipPublisherCheck -AcceptLicense -Confirm:$false; };
 } else {
   Import-Module PSReadLine; # https://github.com/PowerShell/PSReadLine
 }
@@ -182,7 +209,7 @@ Set-PSReadLineKeyHandler Tab MenuComplete;
 IncrementProgress "Terminal-Icons";
 if ($Update -eq "On") {
   Write-Verbose "Update Terminal-Icons";
-  Install-Module -Name Terminal-Icons -Repository PSGallery -Force -SkipPublisherCheck;
+  Install-Module -Name Terminal-Icons -Repository PSGallery -Force -SkipPublisherCheck -AcceptLicense -Confirm:$false;
 }
 # Terminal-Icons only affects Get-ChildItem/dir output formatting, and cd-extras
 # only augments cd + Tab, so neither is needed to draw the first prompt. Importing
@@ -196,7 +223,7 @@ if ($Update -eq "On") {
 IncrementProgress "cd-extras";
 if ($Update -eq "On") {
   Write-Verbose "Update cd-extras";
-  Install-Module cd-extras -SkipPublisherCheck;
+  Install-Module cd-extras -Force -SkipPublisherCheck -AcceptLicense -Confirm:$false;
 }
 
 # Import Terminal-Icons and cd-extras on the first idle after the prompt is drawn
@@ -236,7 +263,7 @@ $deferredModuleInit = {
 IncrementProgress "BurntToast";
 if ($Update -eq "On") {
   Write-Verbose "Updating BurntToast";
-  Install-Module -Name BurntToast -SkipPublisherCheck;
+  Install-Module -Name BurntToast -Force -SkipPublisherCheck -AcceptLicense -Confirm:$false;
 }
 # BurntToast is only used on demand (the long-running-command completion toast in
 # the prompt wrapper below). Importing it eagerly costs ~100ms+ on every shell for
@@ -255,7 +282,7 @@ function New-BurntToastNotification {
 IncrementProgress "Zellij";
 if ($Update -eq "On") {
   Write-Verbose "Updating Zellij";
-  winget install zellij.zellij;
+  winget install zellij.zellij @wingetNonInteractive;
 }
 $env:ZELLIJ_CONFIG_DIR = (Join-Path $PSScriptRoot "zellij");
 #endregion
@@ -267,7 +294,7 @@ $env:ZELLIJ_CONFIG_DIR = (Join-Path $PSScriptRoot "zellij");
 IncrementProgress "psmux";
 if ($Update -eq "On") {
   Write-Verbose "Updating psmux";
-  winget install marlocarlo.psmux;
+  winget install marlocarlo.psmux @wingetNonInteractive;
 }
 $env:PSMUX_CONFIG_FILE = (Join-Path $PSScriptRoot "psmux\psmux.conf");
 # The Prefix+w quick-actions picker (display-popup) launches this script.
@@ -279,7 +306,7 @@ $env:PSMUX_PICKER_SCRIPT = (Join-Path $PSScriptRoot "psmux\psmux-picker.ps1");
 IncrementProgress "oh-my-posh";
 if ($Update -eq "On") {
   Write-Verbose "Updating OhMyPosh";
-  winget install JanDeDobbeleer.OhMyPosh -s winget
+  winget install JanDeDobbeleer.OhMyPosh -s winget @wingetNonInteractive
 }
 $ohmyposhConfigPath = (Join-Path $PSScriptRoot "oh-my-posh.json");
 # `oh-my-posh init pwsh` shells out on every startup (~50ms just to spawn the exe)
@@ -324,7 +351,7 @@ if (!$ohmyposhInitialized) {
 # This is used by oh-my-posh and by Terminal-Icons
 if ($Update -eq "On") {
   Write-Verbose "Updating font"; # This maybe doesn't work when first installing gsudo.
-  gsudo { oh-my-posh font install CascadiaCode; };
+  gsudo { oh-my-posh font install CascadiaCode --headless; };
 }
 #endregion
 
@@ -606,7 +633,7 @@ if (Get-Command Start-ThreadJob -ErrorAction Ignore) {
 IncrementProgress "z";
 if ($Update -eq "On") {
   Write-Verbose "Updating z";
-  install-module z -AllowClobber -SkipPublisherCheck;
+  Install-Module z -AllowClobber -Force -SkipPublisherCheck -AcceptLicense -Confirm:$false;
 }
 Import-Module z;
 #endregion
@@ -617,19 +644,19 @@ Import-Module z;
 IncrementProgress "bat";
 if (($Update -eq "On")) { # -or !(Get-Command bat -ErrorAction Ignore)) {
   Write-Verbose "Updating bat";
-  winget install sharkdp.bat;
+  winget install sharkdp.bat @wingetNonInteractive;
   # bat relies on less for paging
   Write-Verbose "Updating less";
-  winget install jftuga.less;
+  winget install jftuga.less @wingetNonInteractive;
 
   # Install ov https://github.com/noborus/ov?tab=readme-ov-file#winget(windows)
-  winget install -e --id noborus.ov
+  winget install -e --id noborus.ov @wingetNonInteractive
 
   # Install delta https://github.com/dandavison/delta?tab=readme-ov-file
-  winget install dandavison.delta
+  winget install dandavison.delta @wingetNonInteractive
 
   Write-Verbose "Updating glow";
-  winget install charmbracelet.glow;
+  winget install charmbracelet.glow @wingetNonInteractive;
 }
 # Use bat --list-themes to see all themes
 # And then set the theme you want using:
@@ -728,7 +755,7 @@ if ($Update -eq "Async") {
 if ($Update -eq "On") {
   IncrementProgress "Update GitHub Copilot";
   Write-Verbose "Updating GitHub Copilot";
-  winget install GitHub.Copilot;
+  winget install GitHub.Copilot @wingetNonInteractive;
 }
 $copilotSettingsAdditionsPath = (Join-Path $PSScriptRoot "copilot" "settings-additions.json");
 $copilotSettingsAdditions = Get-Content $copilotSettingsAdditionsPath -Raw;
@@ -774,28 +801,28 @@ if ($Update -eq "On") {
   IncrementProgress "Update various apps";
 
   Write-Verbose "Update ripgrep";
-  winget install BurntSushi.ripgrep.MSVC;
+  winget install BurntSushi.ripgrep.MSVC @wingetNonInteractive;
   Write-Verbose "Install fd";
-  winget install sharkdp.fd;
+  winget install sharkdp.fd @wingetNonInteractive;
   Write-Verbose "Install PSGitHubSearch";
-  Install-Module -Name PSGitHubSearch -SkipPublisherCheck;
+  Install-Module -Name PSGitHubSearch -Force -SkipPublisherCheck -AcceptLicense -Confirm:$false;
   Write-Verbose "Update powershell";
-  winget install --id Microsoft.Powershell --source winget;
+  winget install --id Microsoft.Powershell --source winget @wingetNonInteractive;
   Write-Verbose "Update git";
-  winget install git --source winget;
+  winget install git --source winget @wingetNonInteractive;
   Write-Verbose "Update remote desktop";
-  winget install --id Microsoft.RemoteDesktopClient;
+  winget install --id Microsoft.RemoteDesktopClient @wingetNonInteractive;
   # The following installs could take a while and they aren't
   # requirements for anything else in this script
   # So run them in a different command prompt
   Write-Verbose "Update powertoys";
-  winget install Microsoft.PowerToys;
+  winget install Microsoft.PowerToys @wingetNonInteractive;
   Write-Verbose "Update vscode";
-  winget install Microsoft.VisualStudioCode;
+  winget install Microsoft.VisualStudioCode @wingetNonInteractive;
   Write-Verbose "Update vs";
-  winget install Microsoft.VisualStudio.2022.Enterprise;
+  winget install Microsoft.VisualStudio.2022.Enterprise @wingetNonInteractive;
 
-  winget update --all;
+  winget update --all @wingetNonInteractive;
 }
 #endregion
 
