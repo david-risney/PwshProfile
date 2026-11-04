@@ -1,6 +1,6 @@
 ---
 name: code-tour
-description: "Generate a 'code tour': a declarative JSON walkthrough of source code (sections, line ranges, prose) that renders to a self-contained HTML viewer with jump-to-editor links, Markdown, or ANSI CLI text (HTML by default). Use when asked to 'create a code tour', 'make a code walkthrough', 'guided tour of this file', 'explain this code with jump links', 'walk me through this script', or 'document how this file works visually'."
+description: "Generate a 'code tour': a declarative JSON walkthrough of source code (sections, line ranges, prose) that renders to a self-contained HTML viewer with jump-to-editor links, Markdown, or ANSI CLI text. Use when asked to 'create a code tour', 'make a code walkthrough', 'tour this PR', 'walk through this diff', 'explain changes in this commit', 'guided tour of this file', 'explain this code with jump links', or 'document how this file works visually'."
 ---
 
 # Code Tour
@@ -58,11 +58,12 @@ needs only you (the AI); every other step runs through this script, so Python
 must be available before you render.
 
 - **Invocation differs by platform.** On Windows use the launcher `py -3`; on
-  macOS/Linux use `python3`. (Plain `python` may be Python 2 or missing — on
-  this machine `python` is Python 2.7, so always use `py -3` here.)
+  macOS/Linux use `python3`. Plain `python` may be Python 2 or missing, so
+  verify the selected interpreter before rendering.
 - **Check it first.** Run `py -3 --version` (Windows) or `python3 --version`
   (elsewhere) and confirm it reports `Python 3.8+`.
-- **If Python is missing, install it — prefer winget on Windows:**
+- **If Python is missing, report the prerequisite and ask before installing
+  anything.** With explicit confirmation, prefer winget on Windows:
 
   ```powershell
   # Windows (preferred): installs the latest Python 3 + the `py` launcher
@@ -175,6 +176,11 @@ must be available before you render.
      should be grouped together. Groups render as the top table of contents and
      as a banner before each group's first section; ungrouped sections fall
      under an "Other" heading. Keep `sections` flat — a group only references ids.
+     In HTML, the contents area places groups (or ungrouped sections) beside a
+     collapsible file tree. Hovering or focusing a group highlights the files it
+     touches; hovering or focusing a file highlights its groups. Activating a
+     file button pins that relationship. Prefer groups that map cleanly onto a
+     small set of files so this overview stays useful.
    - Keep prose tight and concrete; explain intent and tradeoffs, not the
      obvious syntax. Follow the **Writing style** section below.
 
@@ -182,11 +188,11 @@ must be available before you render.
    template, hand-write Markdown/CLI output, or manually copy files. A bundled
    script (`scripts/build_tour.py`, pure standard-library Python 3) performs
    every deterministic step: it validates the JSON, fills the HTML template
-   (escaping any literal `</script>`), or renders Markdown / ANSI CLI text, and
-   writes the output file. When the tour has Mermaid `diagrams`, the script also
-   embeds the bundled local Mermaid runtime (`mermaid.min.js`) inline into the
-   HTML so it renders offline as a single self-contained file (no sidecar
-   assets). Your only authored artifact is the JSON tour.
+   (safely embedding the JSON as script-data), or renders Markdown / ANSI CLI
+   text, and writes the output file. When the tour has Mermaid `diagrams`,
+   the script also embeds the bundled local Mermaid runtime (`mermaid.min.js`)
+   inline into the HTML so it renders offline as a single self-contained file
+   (no sidecar assets). Your only authored artifact is the JSON tour.
 
    Write the JSON tour to a file (e.g. `<basename>.tour.json`), then run:
 
@@ -283,4 +289,6 @@ does and why; let the facts carry it.
   symbols, or file paths; embed executable content beyond the template's own
   fixed renderer.
 - **MUST CONFIRM**: Before overwriting an existing output file, and before
-  generating a large multi-file tour when the requested scope is ambiguous.
+  generating a large multi-file tour when the requested scope is ambiguous,
+  and before installing Python with `winget`, `brew`, `apt`, or any other
+  system package manager.

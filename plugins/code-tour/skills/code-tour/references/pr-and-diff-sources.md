@@ -100,10 +100,31 @@ the `path=` value. Note the golden rule still holds: read content at the PR head
 
 ### GitHub
 
-Fetch content with the CLI (`gh api repos/{owner}/{repo}/contents/{path}?ref={sha}`
-— base64-decode `.content`) or raw
-(`https://raw.githubusercontent.com/{owner}/{repo}/{sha}/{path}`). Web link
-template (GitHub supports `#L{a}-L{b}` ranges directly):
+Authenticate with `GITHUB_TOKEN` or `gh auth login`. Resolve the PR metadata
+and changed-file list first:
+
+```sh
+gh api repos/{owner}/{repo}/pulls/{prNumber}
+gh api --paginate repos/{owner}/{repo}/pulls/{prNumber}/files
+```
+
+Treat every changed path as untrusted data. Never concatenate a PR path into a
+shell command string. Prefer a GitHub API tool that accepts owner, repository,
+path, and ref as separate structured parameters. If invoking `gh`, pass an argv
+array with shell execution disabled and percent-encode every path segment
+(`urllib.parse.quote(segment, safe="")`) before constructing the endpoint.
+Validate owner/repo and the 40-character head SHA separately. This prevents
+shell metacharacters in a malicious filename from executing and prevents `?`
+or `#` from changing the requested revision.
+
+Use `.head.sha` from the first response as the pinned revision. Fetch each
+changed file's full content from the encoded
+`repos/{owner}/{repo}/contents/{encodedPath}` endpoint with `ref={sha}` as a
+separate parameter, then base64-decode `.content`. A raw URL is also valid when
+the owner, repo, SHA, and each path segment are encoded independently:
+`https://raw.githubusercontent.com/{owner}/{repo}/{sha}/{encodedPath}`.
+
+Web link template (GitHub supports `#L{a}-L{b}` ranges directly):
 
 ```
 https://github.com/{owner}/{repo}/blob/{sha}{path}#L{line}-L{lineEnd}
