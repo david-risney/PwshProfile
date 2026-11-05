@@ -59,11 +59,14 @@ the behavior by choosing which fields to fill:
 4. an **editor link** — `vscode`/`vscode-insiders` from the local `path`.
 
 `{lineEnd}` defaults to `{line}` for single-line badges, so hosts that require a
-range (e.g. ADO) still produce a valid link. `{path}` is substituted **raw** (no
-encoding) so it works in a URL path segment (GitHub blob) or a query value (ADO
-`?path=`); pre-encode `webPath` yourself only if your host needs it. Both
-renderers — the HTML template and `scripts/build_tour.py` (Markdown/CLI) — apply
-the same order.
+range (e.g. ADO) still produce a valid link. `{path}` is percent-encoded per
+`/`-separated segment before substitution (unreserved characters and `/` pass
+through unchanged; everything else — spaces, `#`, `?`, `%`, non-ASCII — is
+escaped), so it works in a URL path segment (GitHub blob) or a query value
+(ADO `?path=`) even when `webPath` contains characters a raw URL couldn't; do
+not pre-encode `webPath` yourself. Both renderers — the HTML template and
+`scripts/build_tour.py` (Markdown/CLI) — apply the same order and the same
+encoding.
 
 **Local (default):**
 
@@ -75,9 +78,9 @@ the same order.
 **Whole tour at one PR (recommended for PRs):**
 
 ```json
-"webUrlTemplate": "https://dev.azure.com/microsoft/Edge/_git/chromium.src/pullrequest/<prId>?path={path}&version=GB<targetBranch>&line={line}&lineEnd={lineEnd}&lineStartColumn=1&lineEndColumn=1&type=2&lineStyle=plain&_a=files&iteration=<n>&base=0",
+"webUrlTemplate": "https://dev.azure.com/<org>/<project>/_git/<repo>/pullrequest/<prId>?path={path}&version=GB<targetBranch>&line={line}&lineEnd={lineEnd}&lineStartColumn=1&lineEndColumn=1&type=2&lineStyle=plain&_a=files&iteration=<n>&base=0",
 "files": {
-  "data.cc": { "webPath": "/chrome/browser/external_protocol/edge_auto_launch_protocols_data.cc" }
+  "example.cc": { "webPath": "/src/example.cc" }
 }
 ```
 
@@ -135,7 +138,7 @@ the numbers in the TOC and the headings always match.
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
-| `id` | string | no | Stable anchor id for the group heading (kebab-case). Must be unique when present. |
+| `id` | string | no | Stable anchor id for the group heading (kebab-case). Must be unique when present, and must not collide with a section `id` — groups and sections share one HTML id namespace. |
 | `title` | string | yes | The group's display name. `name` is accepted as an alias. |
 | `description` | string (markdown inline) | no | A short one-line summary shown under the group name. |
 | `sections` | string[] | yes | Ordered list of section `id`s in this group. Every id must exist in `sections`, and no section may appear in more than one group. |
@@ -170,7 +173,7 @@ HTML. Each renderer presents diagrams differently:
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `type` | string | Semantic kind: `"info"` (default), `"good"`, `"warn"`, or `"danger"`. A renderer maps each kind to its own presentation (HTML color, Markdown prefix, ANSI color). |
+| `type` | string | Semantic kind: `"info"` (default), `"good"`, `"warn"`, `"bad"` (warn alias), `"danger"`, `"tip"`, or `"note"`. Renderers use matching glyphs and presentation: info/note blue, good green, warn/bad/tip yellow, and danger red. |
 | `text` | string (markdown) | Callout body. |
 
 ## Anchor
@@ -229,7 +232,9 @@ small, portable Markdown subset that any renderer can map to its target
 
 - `` `code` `` → inline code
 - `**bold**` → bold
-- `[label](url)` → link (http/https/vscode schemes only)
+- `[label](url)` → link (`http(s):`, `vscode(-insiders):`, `mailto:`, or a bare
+  `#` fragment only — every other scheme, e.g. `javascript:`/`data:`/`file:`,
+  is rejected the same way in the HTML, Markdown, and CLI renderers)
 - Blank line → new paragraph
 - Lines starting with `- ` → bullet list
 - **`[[12]]`** or **`[[12-20]]`** → a line reference for the section's `file`
