@@ -272,6 +272,25 @@ if ($Update -eq "On") {
 $env:PSMUX_CONFIG_FILE = (Join-Path $PSScriptRoot "psmux\psmux.conf");
 # The Prefix+w quick-actions picker (display-popup) launches this script.
 $env:PSMUX_PICKER_SCRIPT = (Join-Path $PSScriptRoot "psmux\psmux-picker.ps1");
+if ($env:PSMUX_SESSION) {
+  $psmuxCommand = Get-Command psmux, pmux -CommandType Application -ErrorAction SilentlyContinue |
+    Select-Object -First 1;
+  if ($psmuxCommand) {
+    $psmuxConfigured = $true;
+    foreach ($entry in @{
+      PSMUX_CONFIG_FILE = $env:PSMUX_CONFIG_FILE;
+      PSMUX_PICKER_SCRIPT = $env:PSMUX_PICKER_SCRIPT;
+    }.GetEnumerator()) {
+      & $psmuxCommand.Source set-environment $entry.Key $entry.Value | Out-Null;
+      if ($LASTEXITCODE -ne 0) { $psmuxConfigured = $false; }
+    }
+    & $psmuxCommand.Source source-file $env:PSMUX_CONFIG_FILE | Out-Null;
+    if ($LASTEXITCODE -ne 0) { $psmuxConfigured = $false; }
+    if (!$psmuxConfigured) {
+      Write-Warning "psmux could not load '$env:PSMUX_CONFIG_FILE'.";
+    }
+  }
+}
 #endregion
 
 #region ohmyposh
