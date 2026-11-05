@@ -1,0 +1,82 @@
+<#
+.SYNOPSIS
+    Stop and remove the shared long-run psmux web gateway.
+#>
+[CmdletBinding()]
+param(
+    [string]$StateDirectory = $(if ($env:LOCALAPPDATA) {
+        Join-Path $env:LOCALAPPDATA 'long-run\mux-gateway'
+    } else {
+        Join-Path $env:TEMP 'long-run-mux-gateway'
+    })
+)
+
+$ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'LongRun.Common.ps1')
+$StateDirectory = ConvertTo-LongRunCanonicalPath $StateDirectory
+
+$mutex = [Threading.Mutex]::new(
+    $false,
+    (Get-LongRunGatewayMutexName $StateDirectory))
+$locked = $false
+try {
+    Write-LongRunLog -Component 'gateway-launcher' -Event 'stop-requested'
+    try {
+        $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(45))
+    } catch [System.Threading.AbandonedMutexException] {
+        $locked = $true
+        Write-Verbose 'Recovered an abandoned gateway lock.'
+    }
+    if (-not $locked) {
+        throw 'Timed out waiting for mux gateway startup to finish.'
+    }
+
+    $metadataFile = Join-Path $StateDirectory 'gateway.json'
+    if (-not (Test-Path -LiteralPath $metadataFile)) {
+        Write-LongRunLog -Component 'gateway-launcher' -Event 'already-stopped'
+        Write-Host 'The long-run mux gateway is not running.'
+        return
+    }
+
+    $metadata = Get-Content -LiteralPath $metadataFile -Raw | ConvertFrom-Json
+    Write-Verbose "Stopping gateway state in '$StateDirectory'."
+    Stop-LongRunProcessTree `
+        -ProcessId ([int]$metadata.tunnelPid) `
+        -ExpectedStartTimeUtcTicks ([long]$metadata.tunnelStartTimeUtcTicks) `
+        -ExpectedPath ([string]$metadata.tunnelRunnerPath) | Out-Null
+    if ($metadata.gatewaySession -and $metadata.psmuxPath) {
+        Write-Verbose "Stopping psmux session '$($metadata.gatewaySession)'."
+        try {
+            Stop-LongRunPsmuxSession `
+                -PsmuxPath ([string]$metadata.psmuxPath) `
+                -Session ([string]$metadata.gatewaySession) `
+                -ExpectedCreated ([long]$metadata.gatewaySessionCreated) `
+                -ExpectedId ([string]$metadata.gatewaySessionId) | Out-Null
+        } catch {
+            Write-Verbose "Could not stop the psmux session directly: $($_.Exception.Message)"
+        }
+    }
+    Stop-LongRunProcessTree `
+        -ProcessId ([int]$metadata.gatewayPid) `
+        -ExpectedStartTimeUtcTicks ([long]$metadata.gatewayStartTimeUtcTicks) `
+        -ExpectedPath ([string]$metadata.gatewayRunnerPath) | Out-Null
+    if ($metadata.tunnelId -and $metadata.devTunnelPath) {
+        $null = & ([string]$metadata.devTunnelPath) delete `
+            ([string]$metadata.tunnelId) -f 2>$null
+        $deleteExitCode = $LASTEXITCODE
+        if ($deleteExitCode -ne 0) {
+            throw "devtunnel failed to delete tunnel '$($metadata.tunnelId)' " +
+                "(exit $deleteExitCode). Gateway state was retained for retry."
+        }
+    }
+    Remove-Item -LiteralPath $StateDirectory -Recurse -Force
+    Write-LongRunLog -Component 'gateway-launcher' -Event 'stopped'
+    Write-Host 'The long-run mux gateway and dev tunnel were removed.'
+} catch {
+    Write-LongRunLog -Component 'gateway-launcher' -Event 'stop-failed' `
+        -Level 'error' -Data @{ errorType = $_.Exception.GetType().FullName }
+    throw
+} finally {
+    if ($locked) { $mutex.ReleaseMutex() }
+    $mutex.Dispose()
+}
