@@ -42,7 +42,7 @@
     {
       "name": "upstream-reviewer-selection",
       "description": "Find and sequence reviewers for Chromium Gerrit changes using the changed files, current OWNERS coverage, relevant review history, availability, workload, and recent review activity. Review the main thrust first, then recalculate tertiary ownership after the primary review stabilizes the patch.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "source": "./plugins/upstream-reviewer-selection"
     }
   ]

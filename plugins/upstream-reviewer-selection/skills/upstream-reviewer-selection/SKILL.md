@@ -76,7 +76,11 @@ For serious candidates:
    from the `_account_id` field on a change's owner, reviewer, or approval
    record. An exact preferred email from those records can also identify the
    account; do not rely on a display-name match alone.
-2. Fetch the account's `status` directly from Chromium Gerrit:
+2. Preserve the account's `display_name` from the detailed owner, reviewer, or
+   approval record. Chromium contributors sometimes add short availability
+   signals there, such as `OOO`, `(slow)`, `(catching up)`, or a dated warning.
+   `display_name` is distinct from the stable `name` field.
+3. Fetch the account's `status` directly from Chromium Gerrit:
 
    ```text
    GET https://chromium-review.googlesource.com/accounts/<account-id>/status
@@ -97,26 +101,36 @@ For serious candidates:
    GET https://chromium-review.googlesource.com/accounts/?q=email:<encoded-email>&o=DETAILS
    ```
 
-3. Treat `status` as the contributor's free-form availability notice. Chromium
-   contributors commonly use it for OOO dates, vacation or leave, sabbaticals,
-   reduced review capacity, or requests not to send reviews. Parse the actual
-   text and dates against the current date; Gerrit does not expose a separate
-   structured OOO boolean.
-4. If `status` is empty, say that no Gerrit availability status was published.
-   Do not claim this proves the person is available. If the account lookup is
-   ambiguous or inaccessible, report that the status could not be checked.
-5. Check recent Gerrit activity as corroboration, not as a replacement for the
-   account status and not as a reason to override a current OOO notice.
-6. Compare open review queues when available, but treat queue size only as a
+4. Treat `status` as the contributor's primary free-form availability notice.
+   Chromium contributors commonly use it for OOO dates, vacation or leave,
+   sabbaticals,
+   reduced review capacity, expected response time, queue guidance, time zone,
+   or requests to ping or choose somebody else. Gerrit does not expose a
+   separate structured OOO boolean.
+5. Inspect `status` and `display_name` together:
+   - Parse explicit availability text and dates against the current date.
+   - Treat an applicable OOO or reduced-capacity message in either field as a
+     real availability signal.
+   - Prefer the more restrictive current signal if the fields differ, and
+     report both texts rather than silently reconciling them.
+   - Do not interpret unrelated employer, team, location, joke, profile link,
+     or other biographical text as an availability restriction.
+6. If `status` is empty and `display_name` has no availability signal, say that
+   no Gerrit availability notice was published. Do not claim this proves the
+   person is available. If the account lookup is ambiguous or inaccessible,
+   report that availability could not be checked.
+7. Check recent Gerrit activity as corroboration, not as a replacement for the
+   account fields and not as a reason to override a current OOO notice.
+8. Compare open review queues when available, but treat queue size only as a
    workload signal.
-7. Verify recent positive review activity over a bounded window. Count actual
+9. Verify recent positive review activity over a bounded window. Count actual
    Code-Review votes on distinct CLs, not appearances in reviewer or CC lists.
-8. Consider how relevant those recent reviews are to the main thrust.
+10. Consider how relevant those recent reviews are to the main thrust.
 
 Availability is time-sensitive. State when it was checked. A small queue does
 not prove that someone is an active or willing reviewer. Never report “not OOO”
 solely because a web search, queue query, or recent CL did not mention an
-absence; read the Gerrit account `status`.
+absence; read both the Gerrit account `status` and `display_name`.
 
 ### 4. Defer tertiary reviewer selection
 
@@ -153,7 +167,8 @@ Coverage
 
 Checks
 - Chromium policy checked; changed files and OWNERS refreshed at <time>;
-  Gerrit account status checked at <time> with result and evidence quality;
+  Gerrit account status and display name checked at <time> with result and
+  evidence quality;
   advisory only; no Gerrit mutation performed.
 ```
 
@@ -171,7 +186,9 @@ Label tertiary recommendations as provisional until the main review is stable.
 - Treating an empty, inaccessible, stale, or ambiguous account status as proof
   that the candidate is not OOO.
 - Searching the web for OOO information instead of resolving the Gerrit account
-  and reading its `status` field.
+  and reading its `status` and `display_name` fields.
+- Ignoring availability text in `display_name`, or treating unrelated profile
+  text in either free-form field as an availability restriction.
 - Counting reviewer-list membership instead of positive review votes.
 - Ignoring split, inherited, or `per-file` ownership.
 - Selecting broad owners when a more specific owner is available.
