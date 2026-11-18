@@ -1,0 +1,6 @@
+{
+  "name": "upstream-reviewer-selection",
+  "version": "1.0.3",
+  "description": "Find and sequence reviewers for Chromium Gerrit changes using the changed files, current OWNERS coverage, relevant review history, availability, workload, and recent review activity.",
+  "repository": "https://github.com/david-risney/PwshProfile"
+}
