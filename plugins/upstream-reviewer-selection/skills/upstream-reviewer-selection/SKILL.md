@@ -36,15 +36,57 @@ Apply these policy requirements:
 
 ### 1. Understand the change
 
-1. Read the CL description and current changed-file list.
-2. Identify the **main thrust**: the core behavior, design, API, or
+1. Fetch one authoritative snapshot of the current CL:
+
+   ```text
+   GET https://chromium-review.googlesource.com/changes/<change>/detail
+       ?o=CURRENT_REVISION
+       &o=CURRENT_COMMIT
+       &o=CURRENT_FILES
+       &o=DETAILED_LABELS
+       &o=DETAILED_ACCOUNTS
+       &o=REVIEWER_UPDATES
+       &o=MESSAGES
+       &o=SUBMIT_REQUIREMENTS
+   ```
+
+   Parse Gerrit's anti-XSSI prefix. Record the numeric change, current revision
+   SHA and patchset number so evidence from different patchsets is not mixed.
+   Read the description from the current commit message and the changed paths
+   from `revisions[current_revision].files`; ignore Gerrit magic files such as
+   `/COMMIT_MSG` when computing ownership.
+2. Read `submit_requirements` and `labels` instead of hard-coding how many
+   approvals remain. They reflect the current author, repository policy, and
+   votes already present on this patchset.
+3. Identify the **main thrust**: the core behavior, design, API, or
    implementation decision that gives the CL its purpose.
-3. Separate **tertiary changes** that support or follow from the main thrust,
+4. Separate **tertiary changes** that support or follow from the main thrust,
    such as dependent call-site changes, tests, metrics, build updates, cleanup,
    documentation, and ancillary platform integration.
-4. Group the files by subsystem and ownership boundary.
-5. Resolve the nearest applicable `OWNERS` rules, including inherited,
-   `per-file`, `file://`, and `set noparent` behavior.
+5. Group the files by subsystem and ownership boundary.
+6. Resolve ownership with Chromium's tooling rather than manually approximating
+   `OWNERS` semantics:
+   - From a checkout containing the current CL patchset, run
+     `git cl owners --minimal --batch`. Use `git cl owners --show-all` when
+     investigating the candidates for a particular file.
+   - Without a checkout, read coverage for the current patchset:
+
+     ```text
+     GET https://chromium-review.googlesource.com/changes/<change>/code_owners.status
+     ```
+
+   - To obtain ranked owner candidates for each changed path:
+
+     ```text
+     GET https://chromium-review.googlesource.com/changes/<change>/revisions/current/code_owners/<encoded-path>
+         ?o=DETAILS&n=<limit>
+     ```
+
+     Percent-encode the path, send one request per file, and group files that
+     return the same owners. Preserve the returned `code_owner_configs` and
+     scoring evidence. The plugin already handles inherited, `per-file`,
+     `file://`, `set noparent`, service-user, change-owner, and
+     `LAST_RESORT_SUGGESTION` behavior.
 
 ### 2. Select the main-thrust reviewer first
 
@@ -56,6 +98,28 @@ Build candidates from:
 - recent landed changes touching the same files or subsystem;
 - `git blame` and history when they reveal current subject-matter expertise;
 - domain experts identified by prior reviewers.
+
+For prior-review evidence:
+
+1. Search exact changed paths first, then broaden to the nearest relevant
+   directory only when exact-file history is insufficient:
+
+   ```text
+   GET https://chromium-review.googlesource.com/changes/
+       ?q=project:chromium/src status:merged path:<path> after:<date>
+       &o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=MESSAGES
+   ```
+
+   URL-encode the complete `q` value.
+2. In each result, use positive values in `labels.Code-Review.all` and the
+   corresponding review messages to identify who actually reviewed the change.
+   Do not count the owner, uploader, reviewer list, CC list, or an automated
+   account without a substantive review.
+3. State the search path and time window. Follow `_more_changes` pagination or
+   disclose that the evidence is truncated.
+4. For local authorship evidence, use `git log --follow -- <path>` and targeted
+   `git blame` ranges. Treat authorship as expertise evidence, not review or
+   ownership evidence.
 
 Distinguish:
 
@@ -103,10 +167,9 @@ For serious candidates:
 
 4. Treat `status` as the contributor's primary free-form availability notice.
    Chromium contributors commonly use it for OOO dates, vacation or leave,
-   sabbaticals,
-   reduced review capacity, expected response time, queue guidance, time zone,
-   or requests to ping or choose somebody else. Gerrit does not expose a
-   separate structured OOO boolean.
+   sabbaticals, reduced review capacity, expected response time, queue guidance,
+   time zone, or requests to ping or choose somebody else. Gerrit does not
+   expose a separate structured OOO boolean.
 5. Inspect `status` and `display_name` together:
    - Parse explicit availability text and dates against the current date.
    - Treat an applicable OOO or reduced-capacity message in either field as a
@@ -121,11 +184,34 @@ For serious candidates:
    report that availability could not be checked.
 7. Check recent Gerrit activity as corroboration, not as a replacement for the
    account fields and not as a reason to override a current OOO notice.
-8. Compare open review queues when available, but treat queue size only as a
-   workload signal.
-9. Verify recent positive review activity over a bounded window. Count actual
-   Code-Review votes on distinct CLs, not appearances in reviewer or CC lists.
-10. Consider how relevant those recent reviews are to the main thrust.
+8. Send the following searches as URL-encoded `q` values to
+   `GET https://chromium-review.googlesource.com/changes/`.
+   Measure positive review activity with:
+
+   ```text
+   label:Code-Review>=1,user=<account-id> after:<date>
+   ```
+
+   Count distinct returned CLs, paginate when `_more_changes` is present, and
+   state the window. Use path or directory restrictions when measuring
+   subsystem-specific activity.
+9. Measure workload with both:
+
+   ```text
+   reviewer:<account-id> status:open
+   attention:<account-id> status:open
+   ```
+
+   The reviewer query is the assigned open queue; the attention query is the
+   subset currently waiting on that person. Report them separately and do not
+   treat either count as proof that the person will accept another review.
+10. For a reviewer already on the CL, determine response time from
+    `reviewer_updates` and `messages`: find when that account was added, then
+    find its first subsequent message or vote. Count working days from those
+    timestamps. Do not use the CL's general `updated` time. After two working
+    days without a response, recommend adding a backup without removing the
+    original reviewer.
+11. Consider how relevant the activity is to the main thrust.
 
 Availability is time-sensitive. State when it was checked. A small queue does
 not prove that someone is an active or willing reviewer. Never report “not OOO”
@@ -140,10 +226,15 @@ code, which can change the required owners.
 
 After the main-thrust review stabilizes the design and implementation:
 
-1. Refresh the changed-file list.
-2. Recompute `OWNERS` coverage from the current patchset.
-3. Reclassify the remaining main and tertiary changes.
-4. Request only the additional reviews still required.
+1. Repeat the change-detail request and confirm whether `current_revision`
+   changed.
+2. Replace the saved changed-file list with `CURRENT_FILES` from the new
+   revision.
+3. Rerun `git cl owners` or the change code-owner status and per-path
+   suggestion endpoints against the current patchset.
+4. Reclassify the remaining main and tertiary changes.
+5. Re-read `submit_requirements` and request only the additional reviews still
+   required.
 
 Repeat this check after any material patchset change.
 
