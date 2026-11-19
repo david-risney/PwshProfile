@@ -286,6 +286,9 @@ time, path, current command, attached client count, utility status,
 web-terminal state, pane PID and dimensions, scrollback usage and limit, and
 pane dead/exit status. A filter field matches case-insensitive substrings in
 the session name, path, or command.
+Long commands are visually elided in the inventory table so they do not distort
+the other columns. Hovering the command shows its complete text, and the Manage
+dialog keeps the full multiline command visible and copyable.
 Creation times render as semantic `<time>` elements with relative visible text
 and an exact timestamp. Sort buttons in each data column select that column or
 toggle its direction. The **Start session** dialog creates a named
