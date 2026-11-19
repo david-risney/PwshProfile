@@ -68,8 +68,10 @@ persistent interactive shells are unchanged.
 
 Completed transcripts are stored under
 `%LOCALAPPDATA%\long-run\completed\<archive-id>`. They can contain command
-output and therefore potentially sensitive data; access remains limited by
-local filesystem permissions and the gateway's existing capability. Runtime
+text and output and therefore potentially sensitive data; access remains
+limited by local filesystem permissions and the gateway's existing capability.
+The inventory and properties dialog continue to show the original command after
+completion. Runtime
 scripts, environment snapshots, result files, and hook command files are still
 deleted immediately.
 

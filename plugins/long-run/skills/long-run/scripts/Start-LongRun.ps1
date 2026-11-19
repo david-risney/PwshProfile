@@ -344,6 +344,7 @@ New-Item -ItemType Directory -Force -Path $stateRoot | Out-Null
 
 $ownsCommandFiles = $false
 $commandFiles = @()
+$originalCommands = @()
 $stateDir = $null
 $ownsStateDir = $false
 $resultFiles = @()
@@ -373,6 +374,9 @@ try {
             $commandFiles += $path
         }
     }
+    $originalCommands = @($commandFiles | ForEach-Object {
+            [System.IO.File]::ReadAllText($_)
+        })
 
     if (-not $Session) {
         $preview = if ($Command) {
@@ -781,6 +785,7 @@ exit `$LASTEXITCODE
                 -Session $Session `
                 -WorkingDirectory $WorkingDirectory `
                 -SourceFiles $completedSources `
+                -Commands $originalCommands `
                 -ExitCode $overall `
                 -TtlSeconds $CompletedSessionTtlSeconds `
                 -SessionLimit $CompletedSessionLimit `

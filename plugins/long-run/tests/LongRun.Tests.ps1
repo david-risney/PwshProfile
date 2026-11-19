@@ -1063,6 +1063,7 @@ Describe 'Completed-session archive cleanup' {
         $retained = Publish-LongRunCompletedSession -ArchiveRoot $archiveRoot `
             -PsmuxPath 'unused' -Session 'archive-only' `
             -WorkingDirectory $TestDrive -SourceFiles @($source) `
+            -Commands @("Write-Output 'saved command'") `
             -ExitCode 23 -TtlSeconds 3600 -SessionLimit 100 `
             -StorageLimitBytes 200MB -CaptureComplete $true
 
@@ -1072,6 +1073,8 @@ Describe 'Completed-session archive cleanup' {
         $records[0].Manifest.psmuxId | Should BeNullOrEmpty
         $records[0].Manifest.workingDirectory | Should Be ([string]$TestDrive)
         $records[0].Manifest.exitCode | Should Be 23
+        @($records[0].Manifest.commands).Count | Should Be 1
+        $records[0].Manifest.commands[0] | Should Be "Write-Output 'saved command'"
         [IO.File]::ReadAllText((Join-Path $records[0].Directory 'transcript.log')) |
             Should Be "saved output`n"
         Assert-MockCalled Start-LongRunDetachedPowerShell -Times 1 -Exactly

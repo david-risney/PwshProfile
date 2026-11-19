@@ -1091,6 +1091,16 @@ function createGateway(config) {
     });
   }
 
+  function completedCommand(manifest) {
+    if (!Array.isArray(manifest.commands)) return "Completed command output";
+    const commands = manifest.commands.filter((command) => typeof command === "string");
+    if (commands.length === 0) return "Completed command output";
+    if (commands.length === 1) return commands[0];
+    return commands
+      .map((command, index) => `Pane ${index + 1}:\n${command}`)
+      .join("\n\n");
+  }
+
   async function completedSessionAction(action, sessionInfo, expectedPsmuxId = null) {
     const args = [
       "-Action", action,
@@ -1242,7 +1252,7 @@ function createGateway(config) {
         expiresAt: archive.expiresAt,
         exitCode: archive.exitCode,
         cwd: archive.workingDirectory || live?.cwd || null,
-        command: "Completed command output",
+        command: completedCommand(archive),
         links: {
           self: `/tmux/api/sessions/${encoded}`,
           terminalApi: `/tmux/api/sessions/${encoded}/terminal`,

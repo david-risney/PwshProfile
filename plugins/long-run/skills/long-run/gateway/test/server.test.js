@@ -400,10 +400,11 @@ setTimeout(
 
 function archiveCompletedOutput(current, overrides = {}) {
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     archiveId: crypto.randomUUID().replaceAll("-", ""),
     session: "archived",
     workingDirectory: current.directory,
+    commands: ["Write-Output 'archived command'"],
     completedAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + 3600000).toISOString(),
     exitCode: 23,
@@ -433,9 +434,24 @@ test("lists archives without creating viewers, including when psmux has no sessi
     assert.equal(sessions[0].id, `archive-${manifest.archiveId}`);
     assert.equal(sessions[0].completed, true);
     assert.equal(sessions[0].exitCode, 23);
+    assert.equal(sessions[0].command, "Write-Output 'archived command'");
     assert.equal(sessions[0].psmuxId, null);
     assert.equal(current.gateway.terminals.size, 0);
     assert.equal(fs.existsSync(path.join(current.directory, "archive-actions.log")), false);
+  } finally {
+    await current.close();
+  }
+});
+
+test("labels legacy completed archives without command metadata", async () => {
+  const current = await fixture();
+  try {
+    archiveCompletedOutput(current, { commands: undefined });
+    fs.writeFileSync(current.stateFile, JSON.stringify({ sessions: [] }));
+    const response = await authorizedRequest(current, "/tmux/api/sessions", { timeoutMs: 10000 });
+    assert.equal(response.status, 200);
+    const [session] = JSON.parse(response.body).sessions;
+    assert.equal(session.command, "Completed command output");
   } finally {
     await current.close();
   }
