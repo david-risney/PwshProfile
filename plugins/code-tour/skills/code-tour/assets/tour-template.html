@@ -42,6 +42,7 @@
 </script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <!-- Inline SVG favicon (dashed line curving to a red X) as a data URI: keeps
      self-contained -- no network fetch, works over file://. -->
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%20fill='none'%3E%3Cpath%20d='M32%208%20L32%2042%20A10%2010%200%201%200%2042%2032%20L22%2032'%20stroke='%23e23b34'%20stroke-width='3'%20stroke-linecap='round'%20stroke-linejoin='round'%20stroke-dasharray='4%205'/%3E%3Cg%20stroke='%23e23b34'%20stroke-width='4.5'%20stroke-linecap='round'%3E%3Cline%20x1='18'%20y1='26'%20x2='8'%20y2='38'/%3E%3Cline%20x1='8'%20y1='26'%20x2='18'%20y2='38'/%3E%3C/g%3E%3C/svg%3E">
@@ -87,6 +88,10 @@
       --sig-fg: #7a5b00; --error-bg: #f7efee; --error-fg: #8b1f17;
     }
   }
+  :root { color-scheme: dark; }
+  html[data-theme="auto"] { color-scheme: light dark; }
+  html[data-theme="light"] { color-scheme: light; }
+  html[data-theme="dark"] { color-scheme: dark; }
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: var(--fg);
@@ -97,6 +102,8 @@
     position: sticky; top: 0; z-index: 10; background: var(--panel);
     border-bottom: 1px solid var(--border); padding: 16px 24px;
   }
+  html { scroll-padding-top: 104px; }
+  :target { scroll-margin-top: 104px; }
   header h1 { margin: 0 0 4px; font-size: 18px; }
   header p { margin: 0; color: var(--muted); font-size: 13px; }
   .current-group {
@@ -130,8 +137,25 @@
     background: var(--info-bg); border: 1px solid var(--accent);
     border-radius: 6px;
   }
-  .callout { padding: 12px 16px; margin: 18px 0; font-size: 14px; }
-  .callout.warn, .callout.danger { border-color: var(--warn); background: var(--warn-bg); }
+  .callout {
+    position: relative; padding: 12px 16px 12px 44px; margin: 18px 0;
+    font-size: 14px;
+  }
+  .callout::before {
+    content: "\2139\FE0F"; position: absolute; left: 16px; top: 12px;
+    font-size: 15px; line-height: 1.5; user-select: none;
+  }
+  .callout.good::before { content: "\2705"; }
+  .callout.warn::before, .callout.bad::before { content: "\26A0\FE0F"; }
+  .callout.danger::before { content: "\26D4"; }
+  .callout.tip::before { content: "\1F4A1"; }
+  .callout.note::before { content: "\1F4DD"; }
+  .callout > :first-child { margin-top: 0; }
+  .callout > :last-child { margin-bottom: 0; }
+  .callout.warn, .callout.danger, .callout.bad {
+    border-color: var(--warn); background: var(--warn-bg);
+  }
+  .callout.tip { border-color: var(--warn); background: var(--warn-bg); }
   .callout.good { border-color: var(--green); background: var(--good-bg); }
   .callout code { color: var(--orange); }
   .see-also { padding: 10px 16px; margin: 18px 0; font-size: 13px; }
@@ -177,9 +201,57 @@
   }
   ul { margin: 6px 0 6px; padding-left: 22px; }
   li { margin: 3px 0; }
-  .toc { columns: 2; column-gap: 32px; font-size: 14px; }
+  .toc { font-size: 14px; }
   .toc a { color: var(--accent); text-decoration: none; }
   .toc a:hover { text-decoration: underline; }
+  .contents-grid {
+    display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    gap: 28px; align-items: start;
+  }
+  @media (max-width: 760px) {
+    .contents-grid { grid-template-columns: minmax(0, 1fr); }
+  }
+  .contents-col-head {
+    font-size: 11px; font-weight: 700; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--muted); margin: 0 0 10px;
+  }
+  .file-tree {
+    font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+    font-size: 12.5px; line-height: 1.7;
+    border: 1px solid var(--border); border-radius: 6px;
+    background: var(--pre-bg); padding: 10px 12px;
+    max-height: 420px; overflow: auto;
+  }
+  .file-tree ul { list-style: none; margin: 0; padding-left: 14px; }
+  .file-tree > ul { padding-left: 0; }
+  .file-tree summary {
+    list-style: none; cursor: pointer;
+  }
+  .file-tree summary::-webkit-details-marker { display: none; }
+  .file-tree summary::before {
+    content: "\25BE\00a0"; color: var(--muted);
+  }
+  .file-tree details:not([open]) > summary::before { content: "\25B8\00a0"; }
+  .file-tree summary:focus-visible { outline: 1px solid var(--accent); }
+  .ft-dir > details > summary > .ft-label { color: var(--muted); }
+  .ft-label {
+    display: inline-block; padding: 0 4px; border-radius: 4px;
+    border: 1px solid transparent;
+  }
+  button.ft-label {
+    appearance: none; font: inherit; line-height: inherit; text-align: left;
+    color: var(--accent); background: transparent; cursor: pointer;
+  }
+  button.ft-label:hover { text-decoration: underline; }
+  button.ft-label:focus-visible { outline: 1px solid var(--accent); }
+  .ft-count { color: var(--muted); font-size: 11px; margin-left: 6px; }
+  .ft-label.hl, .group-toc.hl > .group-toc-name, .toc a.hl {
+    background: var(--info-bg); border-color: var(--accent); color: var(--accent);
+  }
+  .group-toc.hl { border-left-color: var(--accent2); }
+  .ft-label.pinned, .group-toc.pinned > .group-toc-name, .toc a.pinned {
+    background: var(--good-bg); border-color: var(--green);
+  }
   .group-toc {
     border-left: 3px solid var(--accent); padding: 6px 0 6px 14px; margin: 14px 0;
   }
@@ -312,6 +384,9 @@ function loadTour() {
 //   4. a vscode editor link          (default, from the local path)
 // Templates use {path}, {line} and {lineEnd} placeholders; {lineEnd} defaults
 // to {line} for single-line badges so hosts that require a range still work.
+// {path} is percent-encoded per "/"-separated segment (see
+// encodePathSegments) before it fills webUrlTemplate/webUrlBase, so a webPath
+// containing spaces or reserved characters can't corrupt the resulting URL.
 
 function fileEntry(tour, file) {
   if (tour.files && Object.prototype.hasOwnProperty.call(tour.files, file)) {
@@ -340,30 +415,40 @@ function fillTemplate(tmpl, vars) {
   return out;
 }
 
-function fileAbsPath(tour, file) {
-  return entryLocalPath(fileEntry(tour, file), file);
+// Percent-encode a URL path per "/"-separated segment, preserving the "/"
+// separators themselves. Applied to a webPath before it fills {path} in
+// webUrlTemplate or is appended to webUrlBase, so a path containing spaces,
+// "#", "?", "%", or non-ASCII text can never be mistaken for path/query/
+// fragment syntax by the URL it is substituted into. Mirrors
+// _encode_path_segments in build_tour.py -- test_code_tour.py asserts parity.
+function encodePathSegments(path) {
+  return String(path).split("/").map(encodeURIComponent).join("/");
 }
 
 function lineHref(tour, file, start, end) {
   var entry = fileEntry(tour, file);
   var lineEnd = (end && end !== start) ? end : start;
+  var href;
   // 1. Per-file web URL template (any https link, e.g. a single PR file).
   if (entry && typeof entry === "object" && entry.url) {
-    return fillTemplate(entry.url, { line: start, lineEnd: lineEnd });
-  }
+    href = fillTemplate(entry.url, { line: start, lineEnd: lineEnd });
   // 2. Global web URL template shared by every file (one commit / PR base).
-  if (tour.webUrlTemplate) {
-    return fillTemplate(tour.webUrlTemplate,
-      { path: entryWebPath(entry, file), line: start, lineEnd: lineEnd });
-  }
+  } else if (tour.webUrlTemplate) {
+    href = fillTemplate(tour.webUrlTemplate,
+      { path: encodePathSegments(entryWebPath(entry, file)), line: start, lineEnd: lineEnd });
   // 3. Legacy GitHub-style base; fragment syntax varies by host.
-  if (tour.webUrlBase) {
-    return tour.webUrlBase + encodeURIComponent(entryWebPath(entry, file)) + "#L" + start;
-  }
+  } else if (tour.webUrlBase) {
+    href = tour.webUrlBase + encodePathSegments(entryWebPath(entry, file)) + "#L" + start;
   // 4. Local editor link.
-  var scheme = tour.editor === "vscode-insiders"
-    ? "vscode-insiders://file/" : "vscode://file/";
-  return scheme + entryLocalPath(entry, file) + ":" + start;
+  } else {
+    var scheme = tour.editor === "vscode-insiders"
+      ? "vscode-insiders://file/" : "vscode://file/";
+    href = scheme + entryLocalPath(entry, file) + ":" + start;
+  }
+  // entry.url / webUrlTemplate / webUrlBase are tour-authored data, so the
+  // result goes through the same URL policy as every other tour-supplied link
+  // before it is ever assigned to an element's href (see safeUrl below).
+  return safeUrl(href);
 }
 
 function lineBadge(tour, file, start, end, label) {
@@ -378,43 +463,94 @@ function lineBadge(tour, file, start, end, label) {
 }
 
 // --- Minimal, injection-safe markdown ---------------------------------------
-// HTML is escaped FIRST, so embedded text can never inject markup. Then a small
-// set of conveniences is layered on:
+// HTML is escaped FIRST, so embedded text can never inject markup -- this
+// includes quotes, so a URL captured out of that escaped text further below
+// can never break out of the double-quoted href attribute it is spliced into.
+// Then a small set of conveniences is layered on:
 //   `code`            inline code
 //   **bold**          strong
-//   [text](url)       link (http/https/vscode schemes only)
+//   [text](url)       link (see the URL policy below)
 //   [[12]] [[12-20]]  line badge for the section's file
 //   [[file:12-20]]    line badge for an explicit file
 // Blank lines split paragraphs; lines starting with "- " become a list.
 
 function escapeHtml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  s = String(s);
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
+// --- Shared URL safety policy ------------------------------------------------
+// Every URL a tour can supply -- a line badge (lineHref), an inline
+// [text](url), a "see also" link, or the top-level `source` link -- resolves
+// through this single allowlist before it is ever assigned to an element's
+// href, regardless of which field authored it. Keep this in sync with the
+// identical _SAFE_URL_RE in build_tour.py (test_code_tour.py asserts parity).
+// Anything not on the allowlist -- notably javascript:, data:, and file: --
+// is neutralized to "#" so it can never execute script or read local files.
+var SAFE_URL_RE = /^(https?:|vscode(-insiders)?:|mailto:|#)/i;
 function safeUrl(url) {
-  return /^(https?:|vscode(-insiders)?:|#|mailto:)/i.test(url) ? url : "#";
+  return SAFE_URL_RE.test(String(url)) ? String(url) : "#";
+}
+
+// Strict integer parse for a [[...]] range component. Unlike bare parseInt --
+// which happily reads a leading numeric prefix and ignores the rest ("5abc"
+// -> 5, "5.5" -> 5) -- this rejects anything but a plain run of digits, so a
+// clearly-malformed token is left as literal text instead of silently
+// rendering a badge for a truncated guess. Mirrors _INT_RE in build_tour.py's
+// _parse_ref_range exactly (test_code_tour.py asserts parity).
+var INT_RE = /^[0-9]+$/;
+function parseStrictInt(s) {
+  return INT_RE.test(s) ? parseInt(s, 10) : NaN;
+}
+
+// `code` and **bold**, applied both to whole text and to a link's label.
+function renderEmphasis(html) {
+  return html.replace(/`([^`]+)`/g, "<code>$1</code>")
+             .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
 }
 
 function renderInline(tour, file, text) {
   var html = escapeHtml(text);
-  // [[file:start-end]] or [[start-end]] line badges (operate before other
-  // inline rules; tokens contain only safe characters).
+  // [text](url) is substituted FIRST and parked behind a placeholder that
+  // contains no markdown-significant character, so no later rule can rewrite
+  // what is inside a link. Running the [[...]] badge rule first instead let a
+  // badge inside a link label render as an <a>, which the link rule then
+  // wrapped in a second <a> -- nested anchors, which is invalid HTML and
+  // which browsers split or drop unpredictably. A badge inside a link label
+  // is therefore left as literal text; badges belong outside links.
+  // The URL may contain one level of balanced parentheses (e.g. a
+  // Wikipedia-style "foo_(bar)" path segment) without prematurely ending the
+  // match at the first ")" -- mirrors _LINK_RE in build_tour.py exactly
+  // (test_code_tour.py asserts parity).
+  var links = [];
+  html = html.replace(/\[([^\]]+)\]\(((?:[^()]|\([^()]*\))*)\)/g, function (_m, label, url) {
+    links.push('<a href="' + safeUrl(url) + '">' + renderEmphasis(label) + "</a>");
+    return "\u0000" + (links.length - 1) + "\u0000";
+  });
+  // [[file:start-end]] or [[start-end]] line badges.
   html = html.replace(/\[\[([^\]]+)\]\]/g, function (_m, body) {
     var f = file, range = body;
     var colon = body.indexOf(":");
     if (colon !== -1) { f = body.slice(0, colon); range = body.slice(colon + 1); }
     var parts = range.split("-");
-    var start = parseInt(parts[0], 10);
-    var end = parts[1] ? parseInt(parts[1], 10) : null;
+    var start = parseStrictInt(parts[0]);
     if (isNaN(start)) { return _m; }
+    // A hyphenated end that doesn't parse (e.g. "[[5-abc]]") makes the whole
+    // token malformed -- leave it as literal text rather than silently
+    // rendering a single-line badge for a range the author probably intended.
+    var end = null;
+    if (parts[1]) {
+      end = parseStrictInt(parts[1]);
+      if (isNaN(end)) { return _m; }
+    }
     return lineBadge(tour, f, start, end).outerHTML;
   });
-  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
-  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function (_m, label, url) {
-    return '<a href="' + safeUrl(url) + '">' + label + "</a>";
+  html = renderEmphasis(html);
+  return html.replace(/\u0000(\d+)\u0000/g, function (_m, index) {
+    var link = links[Number(index)];
+    return link === undefined ? _m : link;
   });
-  return html;
 }
 
 // Render a markdown block (paragraphs + "- " bullet lists) into a container.
@@ -460,8 +596,11 @@ function renderCallouts(tour, file, callouts, container) {
 // external link *targets* only — nothing the viewer needs to render is remote,
 // so the output stays self-contained/offline.
 
+// Mirrors the identical _HOST_RE in build_tour.py's _see_also_host
+// (test_code_tour.py asserts parity).
+var HOST_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/([^/]+)/;
 function seeAlsoHost(url) {
-  var m = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/([^/]+)/.exec(String(url));
+  var m = HOST_RE.exec(String(url));
   var host = m ? m[1] : String(url);
   return host.replace(/^www\./, "");
 }
@@ -504,7 +643,7 @@ function renderSeeAlso(seeAlso, container) {
       var label = (typeof ln === "object" && ln.label) ? ln.label : seeAlsoHost(url);
       if (i > 0) row.appendChild(document.createTextNode(" \u00b7 "));
       var a = document.createElement("a");
-      a.href = url;
+      a.href = safeUrl(url);
       a.textContent = label;
       a.target = "_blank";
       a.rel = "noopener noreferrer";
@@ -573,7 +712,7 @@ function render(tour) {
   if (src) {
     if (tour.subtitle) { sub.appendChild(document.createTextNode(" \u00b7 ")); }
     var srcAnchor = document.createElement("a");
-    srcAnchor.href = src.url;
+    srcAnchor.href = safeUrl(src.url);
     srcAnchor.textContent = src.label;
     srcAnchor.target = "_blank";
     srcAnchor.rel = "noopener";
@@ -609,24 +748,60 @@ function render(tour) {
   }
 
   // Table of contents + sections, honoring optional groups.
+  // Group banners and section headings share one HTML id namespace. Author
+  // data can collide there -- a copy/pasted group block, or a section id that
+  // happens to match a generated "group-N" -- and two elements with the same
+  // id silently break both TOC anchors and the sticky-header group tracking,
+  // which each reach only the first match. De-dup by suffixing so every
+  // anchor still resolves to its own element (build_tour.py additionally
+  // rejects outright duplicates at authoring time).
+  var usedDomIds = Object.create(null);
+  function uniqueDomId(id) {
+    var base = String(id), candidate = base, n = 2;
+    while (usedDomIds[candidate]) { candidate = base + "-" + (n++); }
+    usedDomIds[candidate] = true;
+    return candidate;
+  }
+
+  // Sections claim their ids first, so a group never steals one; `sid` is the
+  // (possibly suffixed) DOM id while sectionsById stays keyed by the authored
+  // id that tour.groups[].sections references.
   var sectionsById = {};
-  sections.forEach(function (s, i) { sectionsById[s.id || ("section-" + i)] = s; });
+  var sectionEntries = [];
+  sections.forEach(function (s, i) {
+    var sid = uniqueDomId(s.id || ("section-" + i));
+    var item = { section: s, sid: sid };
+    sectionEntries.push(item);
+    sectionsById[s.id || sid] = item;
+  });
+  var sectionsByDomId = {};
+  sectionEntries.forEach(function (item) {
+    sectionsByDomId[item.sid] = item.section;
+  });
 
   // Rendered order: grouped sections first (in group + listed order), then any
   // ungrouped sections in their original order. Each entry carries its display
   // number and whether it starts a new group.
   var groups = tour.groups || [];
+  var groupDomIds = groups.map(function (g, gi) {
+    return uniqueDomId(g.id || ("group-" + gi));
+  });
   var ordered = [];
   var used = {};
   groups.forEach(function (g) {
     (g.sections || []).forEach(function (sid) {
-      var s = sectionsById[sid];
-      if (s && !used[sid]) { used[sid] = true; ordered.push({ section: s, group: g }); }
+      var item = sectionsById[sid];
+      if (item && !used[item.sid]) {
+        used[item.sid] = true;
+        ordered.push({ section: item.section, sid: item.sid, group: g });
+      }
     });
   });
-  sections.forEach(function (s, i) {
-    var sid = s.id || ("section-" + i);
-    if (!used[sid]) { used[sid] = true; ordered.push({ section: s, group: null }); }
+  sectionEntries.forEach(function (item) {
+    if (!used[item.sid]) {
+      used[item.sid] = true;
+      ordered.push({ section: item.section, sid: item.sid, group: null });
+    }
   });
   var prevGroup;
   ordered.forEach(function (entry, idx) {
@@ -635,15 +810,163 @@ function render(tour) {
     prevGroup = entry.group;
   });
   var numberById = {};
-  ordered.forEach(function (entry, i) {
-    numberById[entry.section.id || ("section-" + i)] = entry.number;
+  ordered.forEach(function (entry) {
+    numberById[entry.sid] = entry.number;
   });
+
+  // A section title is inline markdown (`code`, **bold**, [[12]] line badges)
+  // and the section heading renders it as such. Render it here too and take
+  // the plain text, so the TOC never shows literal backticks or [[12]] tokens
+  // the heading styles -- without nesting a badge's <a> inside the TOC link,
+  // which would be invalid HTML.
+  function inlineText(file, text) {
+    var probe = document.createElement("span");
+    probe.innerHTML = renderInline(tour, file, text || "");
+    return probe.textContent || "";
+  }
 
   function tocLink(s, sid) {
     var a = document.createElement("a");
     a.href = "#" + sid;
-    a.textContent = (numberById[sid] != null ? numberById[sid] : "") + ". " + (s.title || "");
+    a.textContent = (numberById[sid] != null ? numberById[sid] : "") + ". "
+      + inlineText(s.file, s.title);
     return a;
+  }
+
+  function sectionFiles(s) {
+    var out = [];
+    function add(file) {
+      if (file && out.indexOf(file) === -1) { out.push(file); }
+    }
+    add(s.file);
+    (s.callouts || []).forEach(function (callout) { add(callout.file); });
+    (s.diagrams || []).forEach(function (diagram) {
+      if (diagram && typeof diagram === "object") { add(diagram.file); }
+    });
+    (s.anchors || []).forEach(function (anchor) { add(anchor.file); });
+    return out;
+  }
+
+  function buildBuckets() {
+    var buckets = [];
+    if (groups.length) {
+      groups.forEach(function (g, gi) {
+        var ids = [];
+        (g.sections || []).forEach(function (authoredId) {
+          var item = sectionsById[authoredId];
+          if (item) { ids.push(item.sid); }
+        });
+        buckets.push({
+          key: "g" + gi,
+          kind: "group",
+          group: g,
+          anchor: groupDomIds[gi],
+          sectionIds: ids
+        });
+      });
+      var orphanIds = ordered.filter(function (entry) { return !entry.group; })
+        .map(function (entry) { return entry.sid; });
+      if (orphanIds.length) {
+        buckets.push({
+          key: "orphans",
+          kind: "orphans",
+          group: null,
+          anchor: null,
+          sectionIds: orphanIds
+        });
+      }
+    } else {
+      ordered.forEach(function (entry, i) {
+        buckets.push({
+          key: "s" + i,
+          kind: "section",
+          section: entry.section,
+          anchor: entry.sid,
+          sectionIds: [entry.sid]
+        });
+      });
+    }
+    buckets.forEach(function (bucket) {
+      var files = [];
+      bucket.sectionIds.forEach(function (sid) {
+        var section = sectionsByDomId[sid];
+        if (!section) { return; }
+        sectionFiles(section).forEach(function (file) {
+          if (files.indexOf(file) === -1) { files.push(file); }
+        });
+      });
+      bucket.files = files;
+    });
+    return buckets;
+  }
+
+  function buildFileTree(files) {
+    var root = { children: {}, order: [] };
+    files.forEach(function (file) {
+      var parts = String(file).split(/[\\/]+/).filter(Boolean);
+      if (!parts.length) { return; }
+      var node = root;
+      parts.forEach(function (part, i) {
+        if (!node.children[part]) {
+          node.children[part] = { name: part, children: {}, order: [] };
+          node.order.push(part);
+        }
+        node = node.children[part];
+        if (i === parts.length - 1) { node.file = file; }
+      });
+    });
+    return root;
+  }
+
+  function createFileButton(file, label, fileToEl) {
+    var button = document.createElement("button");
+    button.type = "button";
+    button.className = "ft-label";
+    button.textContent = label;
+    button.setAttribute("data-file", file);
+    button.setAttribute("aria-pressed", "false");
+    button.setAttribute("title", "Highlight tour groups that reference " + file);
+    (fileToEl[file] = fileToEl[file] || []).push(button);
+    return button;
+  }
+
+  function renderTreeNode(node, ul, fileToEl) {
+    node.order.forEach(function (name) {
+      var child = node.children[name];
+      var label = name;
+      var cur = child;
+      while (!cur.file && cur.order.length === 1) {
+        var only = cur.children[cur.order[0]];
+        label += "/" + only.name;
+        cur = only;
+      }
+      var li = document.createElement("li");
+      if (cur.order.length) {
+        li.className = "ft-dir";
+        var details = document.createElement("details");
+        details.open = true;
+        var summary = document.createElement("summary");
+        var directoryLabel = document.createElement("span");
+        directoryLabel.className = "ft-label";
+        directoryLabel.textContent = label;
+        summary.appendChild(directoryLabel);
+        details.appendChild(summary);
+        var sub = document.createElement("ul");
+        if (cur.file) {
+          var self = document.createElement("li");
+          self.className = "ft-file";
+          self.appendChild(createFileButton(cur.file, label, fileToEl));
+          sub.appendChild(self);
+        }
+        renderTreeNode(cur, sub, fileToEl);
+        details.appendChild(sub);
+        li.appendChild(details);
+      } else if (cur.file) {
+        li.className = "ft-file";
+        li.appendChild(createFileButton(cur.file, label, fileToEl));
+      }
+      ul.appendChild(li);
+    });
   }
 
   if (ordered.length) {
@@ -651,63 +974,212 @@ function render(tour) {
     tocH.textContent = "Contents";
     content.appendChild(tocH);
 
+    var buckets = buildBuckets();
+    var grid = document.createElement("div");
+    grid.className = "contents-grid";
+    var leftCol = document.createElement("div");
+    var rightCol = document.createElement("div");
+    grid.appendChild(leftCol);
+    grid.appendChild(rightCol);
+    content.appendChild(grid);
+
+    var leftHead = document.createElement("p");
+    leftHead.className = "contents-col-head";
+    leftHead.textContent = groups.length ? "Groups" : "Sections";
+    leftCol.appendChild(leftHead);
+
+    var bucketEls = {};
+    var fileToEl = {};
+
     if (groups.length) {
-      // Grouped table of contents: each group is a named, described bucket.
-      groups.forEach(function (g, gi) {
+      buckets.forEach(function (bucket) {
         var box = document.createElement("div");
         box.className = "group-toc";
-        var name = document.createElement("a");
-        name.className = "group-toc-name";
-        name.href = "#" + (g.id || ("group-" + gi));
-        name.textContent = "Group " + (gi + 1) + " \u00b7 "
-          + stripLeadingOrdinal(groupName(g));
-        box.appendChild(name);
-        if (g.description) {
-          var desc = document.createElement("p");
-          desc.className = "group-toc-desc";
-          desc.innerHTML = renderInline(tour, null, g.description);
-          box.appendChild(desc);
+        box.setAttribute("data-bucket", bucket.key);
+        bucketEls[bucket.key] = box;
+        if (bucket.kind === "group") {
+          var gi = groups.indexOf(bucket.group);
+          var name = document.createElement("a");
+          name.className = "group-toc-name";
+          name.href = "#" + bucket.anchor;
+          name.textContent = "Group " + (gi + 1) + " \u00b7 "
+            + stripLeadingOrdinal(groupName(bucket.group));
+          box.appendChild(name);
+          if (bucket.group.description) {
+            var desc = document.createElement("p");
+            desc.className = "group-toc-desc";
+            desc.innerHTML = renderInline(tour, null, bucket.group.description);
+            box.appendChild(desc);
+          }
+        } else {
+          var other = document.createElement("span");
+          other.className = "group-toc-name";
+          other.textContent = "Other";
+          box.appendChild(other);
         }
         var toc = document.createElement("div");
         toc.className = "toc";
-        (g.sections || []).forEach(function (sid) {
-          var s = sectionsById[sid];
-          if (!s) { return; }
-          toc.appendChild(tocLink(s, sid));
+        bucket.sectionIds.forEach(function (sid) {
+          var section = sectionsByDomId[sid];
+          if (!section) { return; }
+          toc.appendChild(tocLink(section, sid));
           toc.appendChild(document.createElement("br"));
         });
         box.appendChild(toc);
-        content.appendChild(box);
+        leftCol.appendChild(box);
       });
-      // Any sections not placed in a group.
-      var orphans = ordered.filter(function (e) { return !e.group; });
-      if (orphans.length) {
-        var box2 = document.createElement("div");
-        box2.className = "group-toc";
-        var nm = document.createElement("span");
-        nm.className = "group-toc-name";
-        nm.textContent = "Other";
-        box2.appendChild(nm);
-        var toc2 = document.createElement("div");
-        toc2.className = "toc";
-        orphans.forEach(function (e, i) {
-          var sid = e.section.id || ("section-" + i);
-          toc2.appendChild(tocLink(e.section, sid));
-          toc2.appendChild(document.createElement("br"));
-        });
-        box2.appendChild(toc2);
-        content.appendChild(box2);
-      }
     } else {
-      // Flat table of contents.
-      var toc = document.createElement("div");
-      toc.className = "toc";
-      ordered.forEach(function (entry, i) {
-        var sid = entry.section.id || ("section-" + i);
-        toc.appendChild(tocLink(entry.section, sid));
-        toc.appendChild(document.createElement("br"));
+      var flat = document.createElement("div");
+      flat.className = "toc";
+      buckets.forEach(function (bucket) {
+        var link = tocLink(bucket.section, bucket.anchor);
+        link.setAttribute("data-bucket", bucket.key);
+        bucketEls[bucket.key] = link;
+        flat.appendChild(link);
+        flat.appendChild(document.createElement("br"));
       });
-      content.appendChild(toc);
+      leftCol.appendChild(flat);
+    }
+
+    var allFiles = [];
+    buckets.forEach(function (bucket) {
+      bucket.files.forEach(function (file) {
+        if (allFiles.indexOf(file) === -1) { allFiles.push(file); }
+      });
+    });
+    allFiles.sort();
+
+    if (allFiles.length) {
+      var rightHead = document.createElement("p");
+      rightHead.className = "contents-col-head";
+      rightHead.textContent = "Files";
+      rightCol.appendChild(rightHead);
+      var treeBox = document.createElement("div");
+      treeBox.className = "file-tree";
+      var rootUl = document.createElement("ul");
+      renderTreeNode(buildFileTree(allFiles), rootUl, fileToEl);
+      treeBox.appendChild(rootUl);
+      rightCol.appendChild(treeBox);
+
+      var filesByBucket = {};
+      var bucketsByFile = {};
+      buckets.forEach(function (bucket) {
+        filesByBucket[bucket.key] = bucket.files;
+        bucket.files.forEach(function (file) {
+          (bucketsByFile[file] = bucketsByFile[file] || []).push(bucket.key);
+        });
+      });
+
+      Object.keys(fileToEl).forEach(function (file) {
+        var count = (bucketsByFile[file] || []).length;
+        if (count > 1) {
+          fileToEl[file].forEach(function (el) {
+            var badge = document.createElement("span");
+            badge.className = "ft-count";
+            badge.textContent = "\u00d7" + count;
+            badge.setAttribute(
+              "aria-label",
+              "Referenced by " + count + (groups.length ? " groups" : " sections")
+            );
+            el.appendChild(badge);
+          });
+        }
+      });
+
+      var pinnedFile = null;
+
+      function clearClass(className) {
+        Array.prototype.forEach.call(
+          treeBox.querySelectorAll("." + className),
+          function (el) { el.classList.remove(className); }
+        );
+        Object.keys(bucketEls).forEach(function (key) {
+          bucketEls[key].classList.remove(className);
+        });
+      }
+
+      function markFiles(files, className) {
+        (files || []).forEach(function (file) {
+          (fileToEl[file] || []).forEach(function (el) {
+            el.classList.add(className);
+          });
+        });
+      }
+
+      function markBuckets(keys, className) {
+        (keys || []).forEach(function (key) {
+          if (bucketEls[key]) { bucketEls[key].classList.add(className); }
+        });
+      }
+
+      function showBucket(key) {
+        if (pinnedFile) { return; }
+        clearClass("hl");
+        markFiles(filesByBucket[key], "hl");
+      }
+
+      function hideBucket(el, relatedTarget) {
+        if (pinnedFile || (relatedTarget && el.contains(relatedTarget))) { return; }
+        clearClass("hl");
+      }
+
+      Object.keys(bucketEls).forEach(function (key) {
+        var el = bucketEls[key];
+        el.addEventListener("mouseenter", function () { showBucket(key); });
+        el.addEventListener("mouseleave", function (event) {
+          hideBucket(el, event.relatedTarget);
+        });
+        el.addEventListener("focusin", function () { showBucket(key); });
+        el.addEventListener("focusout", function (event) {
+          hideBucket(el, event.relatedTarget);
+        });
+      });
+
+      function setPinnedFile(file) {
+        pinnedFile = file;
+        clearClass("hl");
+        clearClass("pinned");
+        Object.keys(fileToEl).forEach(function (candidate) {
+          (fileToEl[candidate] || []).forEach(function (el) {
+            var pinned = candidate === pinnedFile;
+            el.setAttribute("aria-pressed", pinned ? "true" : "false");
+            if (pinned) { el.classList.add("pinned"); }
+          });
+        });
+        if (pinnedFile) {
+          markBuckets(bucketsByFile[pinnedFile], "pinned");
+        }
+      }
+
+      Object.keys(fileToEl).forEach(function (file) {
+        fileToEl[file].forEach(function (el) {
+          el.addEventListener("mouseenter", function () {
+            if (pinnedFile) { return; }
+            clearClass("hl");
+            el.classList.add("hl");
+            markBuckets(bucketsByFile[file], "hl");
+          });
+          el.addEventListener("mouseleave", function () {
+            if (!pinnedFile) { clearClass("hl"); }
+          });
+          el.addEventListener("focusin", function () {
+            if (pinnedFile) { return; }
+            clearClass("hl");
+            el.classList.add("hl");
+            markBuckets(bucketsByFile[file], "hl");
+          });
+          el.addEventListener("focusout", function () {
+            if (!pinnedFile) { clearClass("hl"); }
+          });
+          el.addEventListener("click", function () {
+            setPinnedFile(pinnedFile === file ? null : file);
+          });
+        });
+      });
+
+      document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape" && pinnedFile) { setPinnedFile(null); }
+      });
     }
   }
 
@@ -725,7 +1197,7 @@ function render(tour) {
       var gtitle = stripLeadingOrdinal(groupName(entry.group));
       var banner = document.createElement("div");
       banner.className = "group-header";
-      banner.id = entry.group.id || ("group-" + gi);
+      banner.id = groupDomIds[gi];
       var eyebrow = document.createElement("span");
       eyebrow.className = "group-eyebrow";
       eyebrow.textContent = "Group " + gnum;
@@ -747,7 +1219,7 @@ function render(tour) {
 
     var h = document.createElement("h2");
     h.className = "section-heading";
-    h.id = s.id || ("section-" + i);
+    h.id = entry.sid;
     var num = entry.number;
     var secNum = document.createElement("span");
     secNum.className = "sec-num";
@@ -777,13 +1249,15 @@ function render(tour) {
 
     if (s.code) {
       // `code` is specified as a string. Tolerate accidental non-string shapes
-      // ({ lines }/{ code }/{ text } or string[]) instead of rendering the
-      // useless placeholder that String(object) would produce.
+      // ({ lines }/{ code }/{ text } or string[], including an array inside
+      // the object form) instead of rendering the useless placeholder that
+      // String(object) or Array.prototype.toString ("a,b") would produce.
       var codeText = s.code;
       if (typeof codeText !== "string") {
-        codeText = Array.isArray(codeText)
-          ? codeText.join("\n")
+        var raw = Array.isArray(codeText)
+          ? codeText
           : (codeText.lines || codeText.code || codeText.text || "");
+        codeText = Array.isArray(raw) ? raw.join("\n") : String(raw);
       }
       if (codeText) {
         var pre = document.createElement("pre");
@@ -944,18 +1418,25 @@ try {
 setupThemeToggle();
 </script>
 
-<!-- Embedded Mermaid runtime. When the tour has diagrams, the build script
-     replaces the placeholder token below with the self-contained Mermaid UMD
-     bundle, which assigns the library to globalThis.mermaid. When the tour has
-     no diagrams the token is replaced with nothing. This keeps the rendered
-     tour a single self-contained file: no sidecar mermaid.* files and no
-     network fetch. This script must run BEFORE the bootstrap below so that
-     window.mermaid is already defined when the bootstrap looks for it. -->
-<script id="mermaid-runtime">__MERMAID_RUNTIME__</script>
+<!-- Embedded Mermaid runtime, as JSON script-data (not a raw <script> body).
+     When the tour has diagrams, the build script replaces the placeholder
+     token below with the self-contained Mermaid UMD bundle's text, JSON-
+     encoded exactly like the tour-data element above; when the tour has no
+     diagrams the token decodes to JSON null. This keeps the rendered tour a
+     single self-contained file: no sidecar mermaid.* files and no network
+     fetch. Embedding it as a JSON string means the bundle's own text is never
+     spliced directly into markup, so no textual mutation of it is needed:
+     JSON-encoding cannot introduce a literal "<" character into this page, so
+     no case, whitespace, or slash variant of "</script", "<script", or
+     "<!--" can appear regardless of what the bundle's string/regex literals
+     contain. The Mermaid bootstrap below decodes this and executes it as a
+     real script BEFORE checking window.mermaid, so the embedded runtime --
+     when present -- always wins over the legacy sidecar-file fallback. -->
+<script id="mermaid-runtime-data" type="application/json">__MERMAID_RUNTIME__</script>
 
 <!-- Mermaid bootstrap. Runs only if the tour produced any
-     <pre class="mermaid"> blocks. Preferred path: the embedded runtime above
-     already defined window.mermaid, so render immediately -- no network, no
+     <pre class="mermaid"> blocks. Preferred path: decode the embedded runtime
+     above and execute it, defining window.mermaid -- no network, no
      ES-module load, works over file://. The remaining branches are a legacy
      fallback for a tour rendered without the embedded runtime, loading a
      sidecar UMD bundle (mermaid.min.js) or local ES module. If nothing loads,
@@ -1020,9 +1501,23 @@ setupThemeToggle();
     } catch (e) { /* older browsers: no live OS-scheme updates */ }
   }
 
-  // Preferred path: the build script embedded the Mermaid runtime inline, so
-  // globalThis.mermaid is already defined -- render straight away. The branches
-  // further down are only reached for a tour rendered without that runtime.
+  // Preferred path: decode the Mermaid runtime embedded above (as a JSON
+  // string, not raw script text -- see the comment on mermaid-runtime-data)
+  // and execute it as a real script element, which defines globalThis.mermaid.
+  // The branches further down are only reached for a tour rendered without
+  // an embedded runtime (e.g. an older template) or whose JSON decoded to
+  // null (no diagrams -- unreachable here since `blocks.length` is nonzero).
+  (function loadEmbeddedRuntime() {
+    var el = document.getElementById("mermaid-runtime-data");
+    if (!el) { return; }
+    var source;
+    try { source = JSON.parse(el.textContent); } catch (e) { return; }
+    if (!source) { return; }
+    var s = document.createElement("script");
+    s.text = source;
+    document.head.appendChild(s);
+  })();
+
   if (window.mermaid) { run(window.mermaid); return; }
 
   function fail(err) {

@@ -51,7 +51,7 @@ function request(port, pathname, options = {}) {
       }));
     });
     req.on("error", reject);
-    req.setTimeout(options.timeoutMs || 2000, () => {
+    req.setTimeout(options.timeoutMs || 10000, () => {
       req.destroy(new Error("Timed out waiting for HTTP response."));
     });
     if (options.body) {
@@ -244,6 +244,43 @@ if (args[0] === "kill-session") {
 }
 process.exit(0);
 `);
+  const completedArchiveRoot = path.join(directory, "completed");
+  const completedSession = writeScript(directory, "fake-completed-session.js", `
+const fs = require("node:fs");
+const path = require("node:path");
+const stateFile = process.argv[2];
+const args = process.argv.slice(3);
+const value = (name) => args[args.indexOf(name) + 1];
+const action = value("-Action");
+const directory = path.join(value("-ArchiveRoot"), value("-ArchiveId"));
+const manifestPath = path.join(directory, "manifest.json");
+if (!fs.existsSync(manifestPath) && action === "Release") process.exit(0);
+const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+fs.appendFileSync(path.join(path.dirname(stateFile), "archive-actions.log"), action + "\\n");
+if (action === "Open") {
+  const existing = state.sessions.find((session) => session.name === manifest.session);
+  if (existing && existing.id !== manifest.psmuxId) process.exit(1);
+  if (!existing) {
+    manifest.psmuxId = "$" + (Math.max(0, ...state.sessions.map((session) => Number(session.id.slice(1)))) + 1);
+    manifest.psmuxCreated = Math.floor(Date.now() / 1000);
+    state.sessions.push({
+      id: manifest.psmuxId, name: manifest.session,
+      created: manifest.psmuxCreated, attached: 0, cwd: directory,
+      state: "completed", completedAt: manifest.completedAt,
+      expiresAt: manifest.expiresAt, exitCode: manifest.exitCode,
+    });
+  }
+  console.log(JSON.stringify({ psmuxId: manifest.psmuxId }));
+} else if (action === "Delete" || manifest.psmuxId === value("-ExpectedPsmuxId")) {
+  state.sessions = state.sessions.filter((session) => session.id !== manifest.psmuxId);
+  manifest.psmuxId = null;
+  manifest.psmuxCreated = 0;
+}
+fs.writeFileSync(stateFile, JSON.stringify(state));
+if (action === "Delete") fs.rmSync(directory, { recursive: true });
+else fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+`);
   const ttyd = writeScript(directory, "fake-ttyd.js", `
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -312,6 +349,8 @@ setTimeout(
     psmux: { file: process.execPath, args: [psmux, stateFile] },
     ttyd: options.ttyd || { file: process.execPath, args: [ttyd] },
     shell: process.execPath,
+    completedArchiveRoot,
+    completedSessionCommand: { file: process.execPath, args: [completedSession, stateFile] },
     version: packageMetadata.version,
     defaultWorkingDirectory: directory,
     terminalStartupIdleSeconds: options.terminalStartupIdleSeconds || 10,
@@ -351,12 +390,110 @@ setTimeout(
     gateway,
     port: address.port,
     stateFile,
+    completedArchiveRoot,
     async close() {
       await gateway.close();
       fs.rmSync(directory, { recursive: true, force: true });
     },
   };
 }
+
+function archiveCompletedOutput(current, overrides = {}) {
+  const manifest = {
+    schemaVersion: 1,
+    archiveId: crypto.randomUUID().replaceAll("-", ""),
+    session: "archived",
+    workingDirectory: current.directory,
+    completedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 3600000).toISOString(),
+    exitCode: 23,
+    psmuxCreated: 0,
+    psmuxId: null,
+    ...overrides,
+  };
+  const directory = path.join(current.completedArchiveRoot, manifest.archiveId);
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, "manifest.json"), JSON.stringify(manifest));
+  fs.writeFileSync(path.join(directory, "transcript.log"), "saved terminal output");
+  return { manifest, directory };
+}
+
+test("lists archives without creating viewers, including when psmux has no sessions", async () => {
+  const current = await fixture();
+  try {
+    const { manifest } = archiveCompletedOutput(current);
+    archiveCompletedOutput(current, { session: "expired", expiresAt: new Date(0).toISOString() });
+    const missing = archiveCompletedOutput(current, { session: "missing" });
+    fs.unlinkSync(path.join(missing.directory, "transcript.log"));
+    fs.writeFileSync(current.stateFile, JSON.stringify({ sessions: [] }));
+    const response = await authorizedRequest(current, "/tmux/api/sessions", { timeoutMs: 10000 });
+    assert.equal(response.status, 200);
+    const sessions = JSON.parse(response.body).sessions;
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0].id, `archive-${manifest.archiveId}`);
+    assert.equal(sessions[0].completed, true);
+    assert.equal(sessions[0].exitCode, 23);
+    assert.equal(sessions[0].psmuxId, null);
+    assert.equal(current.gateway.terminals.size, 0);
+    assert.equal(fs.existsSync(path.join(current.directory, "archive-actions.log")), false);
+  } finally {
+    await current.close();
+  }
+});
+
+test("creates one read-only replay on demand and releases only its viewer after disconnect", async () => {
+  const current = await fixture();
+  try {
+    const { manifest, directory } = archiveCompletedOutput(current);
+    const responses = await Promise.all([
+      authorizedRequest(current, "/tmux/session/archived/", { timeoutMs: 10000 }),
+      authorizedRequest(current, "/tmux/session/archived/", { timeoutMs: 10000 }),
+    ]);
+    assert.deepEqual(responses.map((response) => response.status), [200, 200]);
+    const actions = () => fs.readFileSync(path.join(current.directory, "archive-actions.log"), "utf8");
+    assert.equal(actions(), "Open\n");
+    const args = JSON.parse(fs.readFileSync(path.join(current.directory, "ttyd-args.json"), "utf8"));
+    assert.equal(args.includes("-r"), true);
+    const first = current.gateway.terminals.get("archived");
+    const connection = await websocketUpgrade(current.port, "/tmux/session/archived/ws", { Cookie: current.cookie }, 10000);
+    await closeRawWebSocket(connection.socket);
+    await waitFor(() => !current.gateway.terminals.has("archived"));
+    assert.equal(actions(), "Open\nRelease\n");
+    assert.equal(fs.existsSync(path.join(directory, "transcript.log")), true);
+    assert.equal(JSON.parse(fs.readFileSync(current.stateFile, "utf8")).sessions.some((session) => session.name === "archived"), false);
+    const listed = JSON.parse((await authorizedRequest(current, "/tmux/api/sessions/archived", { timeoutMs: 10000 })).body);
+    assert.equal(listed.id, `archive-${manifest.archiveId}`);
+    assert.equal(listed.expiresAt, manifest.expiresAt);
+    const reopened = await authorizedRequest(current, "/tmux/api/sessions/archived/terminal", {
+      method: "POST", headers: { "X-Long-Run-Csrf": current.gateway.csrfToken }, timeoutMs: 10000,
+    });
+    assert.equal(reopened.status, 200);
+    assert.notEqual(current.gateway.terminals.get("archived"), first);
+    assert.equal(actions(), "Open\nRelease\nOpen\n");
+  } finally {
+    await current.close();
+  }
+});
+
+test("deletes an unopened archive and leaves a live same-name replacement untouched", async () => {
+  const current = await fixture();
+  try {
+    const { manifest, directory } = archiveCompletedOutput(current);
+    const deleted = await authorizedRequest(current, `/tmux/api/sessions/archived?sessionId=archive-${manifest.archiveId}`, {
+      method: "DELETE", headers: { "X-Long-Run-Csrf": current.gateway.csrfToken },
+    });
+    assert.equal(deleted.status, 204);
+    assert.equal(fs.existsSync(directory), false);
+    const replacement = archiveCompletedOutput(current, { session: "older" });
+    const conflict = await authorizedRequest(current, `/tmux/api/sessions/older?sessionId=archive-${replacement.manifest.archiveId}`, {
+      method: "DELETE", headers: { "X-Long-Run-Csrf": current.gateway.csrfToken },
+    });
+    assert.equal(conflict.status, 409);
+    assert.equal(JSON.parse(fs.readFileSync(current.stateFile, "utf8")).sessions.some((session) => session.id === "$1"), true);
+  } finally {
+    await current.close();
+  }
+});
 
 test("parses only safe named-session routes", () => {
   assert.deepEqual(parseSessionPath("/tmux/session/name-1/"), {
@@ -745,9 +882,7 @@ test("recreates ttyd after disconnect and allows later session visits", async ()
     assert.match(first.body, /Back to sessions/);
     assert.match(first.body, /\/tmux\/api\/sessions\//);
     assert.match(first.body, /let sessionId = "\$2"/);
-    assert.match(first.body, /const replacementGraceMs = 75000/);
-    assert.doesNotMatch(first.body, /const showClosed = \(\) => \{\s*stop\(\)/);
-    assert.match(first.body, /showClosed\(\);\s*nextDelay = 2000/);
+    assert.match(first.body, /const replacementGraceMs = 15000/);
     assert.match(first.body, /current\.id !== sessionId/);
     assert.match(first.body, /location\.reload\(\)/);
     assert.match(first.body, /Preparing the retained command output/);

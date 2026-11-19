@@ -30,7 +30,7 @@
     {
       "name": "long-run",
       "description": "Route synchronous Copilot PowerShell calls transparently through attached psmux sessions, or start persistent named shells in the chat cwd. A shared authenticated dev tunnel provides an on-demand ttyd proxy and inventory for all named psmux sessions. Use when asked to run a long command, open a persistent shell, or provide remote terminal access.",
-      "version": "2.4.62",
+      "version": "2.4.63",
       "source": "./plugins/long-run"
     },
     {
@@ -38,6 +38,12 @@
       "description": "Show a Windows OS toast (via BurntToast) when a Copilot CLI turn takes longer than a threshold (default 60s), the originating terminal isn't the foreground window, and Copilot is actually ready for input (in autopilot mode, mid-run stops are suppressed and only task completion pings, timed from the start of the autonomous run). Uses userPromptSubmitted/agentStop hooks and fires the notification in a detached process so it blocks the turn as little as possible. The toast is labelled with the session name, git repo, or path, and includes a 'Focus terminal' button that brings the originating terminal window back to the foreground (across virtual desktops). Configure the threshold with the TURN_TOAST_THRESHOLD_SEC environment variable.",
       "version": "1.4.0",
       "source": "./plugins/turn-toast"
+    },
+    {
+      "name": "upstream-reviewer-selection",
+      "description": "Find and sequence reviewers for Chromium Gerrit changes using the changed files, current OWNERS coverage, relevant review history, availability, workload, and recent review activity. Review the main thrust first, then recalculate tertiary ownership after the primary review stabilizes the patch.",
+      "version": "1.0.3",
+      "source": "./plugins/upstream-reviewer-selection"
     }
   ]
 }

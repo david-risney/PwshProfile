@@ -39,7 +39,7 @@ const terminalLifecycleMarkup = (initialSessionId) => {
   if (!match) return;
   const session = decodeURIComponent(match[1]);
   const sessionsUrl = "/tmux/api/sessions/" + encodeURIComponent(session);
-  const replacementGraceMs = 75000;
+  const replacementGraceMs = 15000;
   let sessionId = ${serializedSessionId};
   let missingSince = null;
   let checking = false;
@@ -91,6 +91,7 @@ const terminalLifecycleMarkup = (initialSessionId) => {
     location.reload();
   };
   const showClosed = () => {
+    stop();
     document.title = session + " closed";
     showState(
       "Session closed",
@@ -122,7 +123,6 @@ const terminalLifecycleMarkup = (initialSessionId) => {
         missingSince ??= Date.now();
         if (Date.now() - missingSince >= replacementGraceMs) {
           showClosed();
-          nextDelay = 2000;
           return;
         }
         document.title = session + " completed";
@@ -840,11 +840,11 @@ function createGateway(config) {
   const terminals = new Map();
   const starting = new Map();
   const serverSockets = new Set();
-  const csrfToken = config.csrfToken ||
-    crypto.randomBytes(24).toString("base64url");
+  const csrfToken = crypto.randomBytes(24).toString("base64url");
   const terminalCapability = config.terminalCapability ||
     crypto.randomBytes(24).toString("base64url");
   const logPath = config.logPath || null;
+  const completedArchiveRoot = config.completedArchiveRoot || null;
   let rejectedWebSockets = 0;
   let lastWebSocketRejectionLog = 0;
 
@@ -1062,6 +1062,50 @@ function createGateway(config) {
   }
   const terminalProxy = createTerminalProxy();
 
+  function completedArchives() {
+    if (!completedArchiveRoot) return [];
+    let directories;
+    try {
+      directories = fs.readdirSync(completedArchiveRoot, { withFileTypes: true });
+    } catch (error) {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    }
+    return directories.flatMap((directory) => {
+      if (!directory.isDirectory() || !/^[a-f0-9]{32}$/i.test(directory.name)) return [];
+      try {
+        const manifest = JSON.parse(fs.readFileSync(
+          path.join(completedArchiveRoot, directory.name, "manifest.json"), "utf8",
+        ));
+        if (manifest.archiveId !== directory.name ||
+            !isValidSessionName(manifest.session) ||
+            !(Date.parse(manifest.expiresAt) > Date.now()) ||
+            !fs.statSync(path.join(completedArchiveRoot, directory.name, "transcript.log")).isFile()) {
+          return [];
+        }
+        return [manifest];
+      } catch {
+        // Archives can expire or be replaced while the inventory is read.
+        return [];
+      }
+    });
+  }
+
+  async function completedSessionAction(action, sessionInfo, expectedPsmuxId = null) {
+    const args = [
+      "-Action", action,
+      "-ArchiveRoot", completedArchiveRoot,
+      "-ArchiveId", sessionInfo.archiveId,
+      "-PsmuxPath", commandSpec(config.psmux).file,
+    ];
+    if (expectedPsmuxId) args.push("-ExpectedPsmuxId", expectedPsmuxId);
+    const { stdout } = await runCommand(config.completedSessionCommand, args, {
+      env: withoutPsmuxSessionEnvironment(config.environment || process.env),
+      timeout: 60000,
+    });
+    return stdout.trim() ? JSON.parse(stdout) : null;
+  }
+
   async function listSessions() {
     let stdout;
     try {
@@ -1080,10 +1124,8 @@ function createGateway(config) {
         ].join("|"),
       ]));
     } catch (error) {
-      if (error.code === 1) {
-        return [];
-      }
-      throw error;
+      if (error.code !== 1) throw error;
+      stdout = "";
     }
     let paneOutput = "";
     try {
@@ -1125,7 +1167,7 @@ function createGateway(config) {
         });
       }
     }
-    return stdout
+    const sessions = stdout
       .split(/\r?\n/)
       .filter(Boolean)
       .map((line) => {
@@ -1177,22 +1219,44 @@ function createGateway(config) {
           },
         };
       });
+    for (const archive of completedArchives()) {
+      const index = sessions.findIndex((session) => session.name === archive.session);
+      const live = index >= 0 ? sessions[index] : null;
+      if (live && (!archive.psmuxId || live.id !== archive.psmuxId ||
+          !live.completed)) continue;
+      const encoded = encodeURIComponent(archive.session);
+      const session = {
+        ...live,
+        name: archive.session,
+        id: `archive-${archive.archiveId}`,
+        archiveId: archive.archiveId,
+        psmuxId: live?.id || null,
+        startedAt: archive.completedAt,
+        attachedClients: live?.attachedClients || 0,
+        webTerminalActive: terminals.has(archive.session),
+        utility: false,
+        killable: true,
+        state: "completed",
+        completed: true,
+        completedAt: archive.completedAt,
+        expiresAt: archive.expiresAt,
+        exitCode: archive.exitCode,
+        cwd: archive.workingDirectory || live?.cwd || null,
+        command: "Completed command output",
+        links: {
+          self: `/tmux/api/sessions/${encoded}`,
+          terminalApi: `/tmux/api/sessions/${encoded}/terminal`,
+          terminal: terminalUrl(archive.session),
+        },
+      };
+      if (index >= 0) sessions[index] = session;
+      else sessions.push(session);
+    }
+    return sessions;
   }
 
   async function getSession(session) {
     return (await listSessions()).find((item) => item.name === session) || null;
-  }
-
-  async function hasSession(session) {
-    try {
-      await runCommand(config.psmux, ["has-session", "-t", session]);
-      return true;
-    } catch (error) {
-      if (error.code === 1) {
-        return false;
-      }
-      throw error;
-    }
   }
 
   function stopTerminal(session, expectedTerminal = null) {
@@ -1209,8 +1273,6 @@ function createGateway(config) {
     clearTimeout(terminal.disconnectTimer);
     if (terminal.process.exitCode === null) {
       terminal.process.kill();
-    } else {
-      terminal.finishExit();
     }
     return true;
   }
@@ -1229,7 +1291,11 @@ function createGateway(config) {
     let stdoutFd;
     let stderrFd;
     let child;
+    let viewerPsmuxId = null;
     try {
+      if (sessionInfo.archiveId) {
+        ({ psmuxId: viewerPsmuxId } = await completedSessionAction("Open", sessionInfo));
+      }
       stdoutFd = fs.openSync(path.join(logPath, `${session}.out.log`), "a");
       stderrFd = fs.openSync(path.join(logPath, `${session}.err.log`), "a");
       child = spawnCommand(config.ttyd, [
@@ -1249,11 +1315,16 @@ function createGateway(config) {
         "attach-session",
         ...(sessionInfo.completed ? ["-r"] : []),
         "-t",
-        sessionInfo.id,
+        viewerPsmuxId || sessionInfo.id,
       ], {
         env: psmuxAttachEnvironment(config.environment || process.env),
         stdio: ["ignore", stdoutFd, stderrFd],
       });
+    } catch (error) {
+      if (viewerPsmuxId) {
+        await completedSessionAction("Release", sessionInfo, viewerPsmuxId);
+      }
+      throw error;
     } finally {
       if (stdoutFd !== undefined) fs.closeSync(stdoutFd);
       if (stderrFd !== undefined) fs.closeSync(stderrFd);
@@ -1282,27 +1353,36 @@ function createGateway(config) {
       terminal.finishExit = resolve;
     });
     terminals.set(session, terminal);
-    child.once("exit", (code, signal) => {
+    let finishing = false;
+    async function finishTerminal() {
+      if (finishing) return;
+      finishing = true;
+      terminal.stopping = true;
       clearTimeout(terminal.startupTimer);
       clearTimeout(terminal.disconnectTimer);
+      try {
+        if (viewerPsmuxId) {
+          await completedSessionAction("Release", sessionInfo, viewerPsmuxId);
+        }
+      } catch (error) {
+        logEvent("completed-viewer-release-failed", { session, errorType: error.name }, "warning");
+      }
       if (terminals.get(session) === terminal) {
         terminals.delete(session);
       }
-      logEvent("terminal-exited", { session, exitCode: code, signal });
       terminal.finishExit();
+    }
+    child.once("exit", (code, signal) => {
+      logEvent("terminal-exited", { session, exitCode: code, signal });
+      void finishTerminal();
     });
     child.once("error", (error) => {
-      clearTimeout(terminal.startupTimer);
-      clearTimeout(terminal.disconnectTimer);
-      if (terminals.get(session) === terminal) {
-        terminals.delete(session);
-      }
       logEvent("terminal-error", {
         session,
         errorType: error.name,
         errorCode: error.code || null,
       }, "error");
-      terminal.finishExit();
+      void finishTerminal();
     });
 
     try {
@@ -1514,7 +1594,7 @@ function createGateway(config) {
         return true;
       }
       requireCsrf(req);
-      if (!(await hasSession(session))) {
+      if (!(await getSession(session))) {
         const error = new Error(`The psmux session '${session}' does not exist.`);
         error.statusCode = 404;
         throw error;
@@ -1567,10 +1647,14 @@ function createGateway(config) {
         throw error;
       }
       stopTerminal(session);
-      try {
-        await runCommand(config.psmux, ["kill-session", "-t", current.id]);
-      } catch (error) {
-        if (error.code !== 1) throw error;
+      if (current.archiveId) {
+        await completedSessionAction("Delete", current);
+      } else {
+        try {
+          await runCommand(config.psmux, ["kill-session", "-t", current.id]);
+        } catch (error) {
+          if (error.code !== 1) throw error;
+        }
       }
       logEvent("session-killed", { session, sessionId: current.id });
       res.writeHead(204, { "Cache-Control": "no-store" });

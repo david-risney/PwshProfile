@@ -5,9 +5,10 @@ This script performs every deterministic, non-AI step of the code-tour skill:
 
   * load + validate the tour JSON (the only artifact the AI produces),
   * fill the shipped HTML template (copy template, substitute the
-    ``__TOUR_JSON__`` placeholder, escaping any literal ``</script>``, and
-    embed the Mermaid runtime at ``__MERMAID_RUNTIME__`` when the tour has
-    diagrams so the output is a single self-contained file),
+    ``__TOUR_JSON__`` placeholder with the tour safely encoded as
+    script-data, and embed the Mermaid runtime at ``__MERMAID_RUNTIME__``
+    the same way when the tour has diagrams, so the output is a single
+    self-contained file),
   * or render the same JSON to a Markdown document or ANSI CLI text,
   * write the result to disk (refusing to clobber unless ``--force``).
 
@@ -29,6 +30,7 @@ import os
 import re
 import sys
 import textwrap
+import urllib.parse
 
 # Resolve the shipped template relative to this script, so the skill works no
 # matter what the current working directory is.
@@ -42,7 +44,43 @@ _MERMAID_PLACEHOLDER = "__MERMAID_RUNTIME__"
 _REF_RE = re.compile(r"\[\[([^\]]+)\]\]")
 _CODE_RE = re.compile(r"`([^`]+)`")
 _BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
-_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+# [text](url): the url may contain one level of balanced parentheses (e.g. a
+# Wikipedia-style "foo_(bar)" path segment) without ending the match at the
+# first ")". Mirrors the identical regex in tour-template.html's renderInline
+# (test_code_tour.py asserts parity).
+_LINK_RE = re.compile(r"\[([^\]]+)\]\(((?:[^()]|\([^()]*\))*)\)")
+
+# Placeholder a substituted [text](url) link is parked behind while the
+# remaining inline rules run, so nothing can rewrite the inside of a link
+# (notably a [[...]] badge in a link label, which would otherwise expand into
+# a nested link). Mirrors the identical mechanism in tour-template.html's
+# renderInline.
+_LINK_PLACEHOLDER_RE = re.compile("\x00(\\d+)\x00")
+
+# A [[...]] range component ("5" or "5-10") must be a plain run of digits.
+# Unlike JavaScript's parseInt -- which reads a leading numeric prefix and
+# ignores the rest ("5abc" -> 5, "5.5" -> 5) -- Python's int() already raises
+# on those, so _parse_ref_range was already strict; this regex just makes
+# that rule an explicit, named policy so the identical `INT_RE` in
+# tour-template.html's renderInline (test_code_tour.py asserts parity) can be
+# kept in sync with it.
+_INT_RE = re.compile(r"^[0-9]+$")
+_CALLOUT_TYPES = {"info", "good", "warn", "bad", "danger", "tip", "note"}
+
+# The single allowlist every tour-supplied URL is checked against, regardless
+# of which renderer (HTML, Markdown, or CLI) or which field (a file's `url`,
+# `webUrlTemplate`/`webUrlBase`, an inline `[text](url)` link, a `seeAlso`
+# link, or the top-level `source`) produced it. Keep this in sync with the
+# identical `SAFE_URL_RE` in tour-template.html -- test_code_tour.py asserts
+# the two stay in parity. http(s), the vscode/vscode-insiders editor schemes,
+# mailto, and a bare in-page fragment are allowed; everything else (notably
+# javascript:, data:, and file:) is rejected.
+_SAFE_URL_RE = re.compile(r"^(https?:|vscode(-insiders)?:|mailto:|#)", re.IGNORECASE)
+
+
+def _safe_url(url):
+    """Return ``url`` unchanged if its scheme is on ``_SAFE_URL_RE``, else "#"."""
+    return url if _SAFE_URL_RE.match(str(url)) else "#"
 
 
 class TourError(Exception):
@@ -155,8 +193,31 @@ def _file_line_count(path: str):
         return None
 
 
+def _parse_ref_range(rng):
+    """Parse a ``[[...]]`` reference's numeric range, e.g. ``"5"`` or ``"5-10"``.
+
+    Returns ``(start, end)`` -- ``end`` is ``None`` for a single line -- or
+    ``None`` if either side is not a plain run of digits, e.g. ``"5-abc"`` or
+    ``"5.5"`` (see ``_INT_RE``). Every caller treats ``None`` as "malformed,
+    leave the token alone" rather than raising, so a malformed ref can never
+    crash a renderer (validate_tour separately reports it as an error).
+    """
+    parts = rng.split("-")
+    if not _INT_RE.match(parts[0]):
+        return None
+    start = int(parts[0])
+    end = None
+    if len(parts) > 1 and parts[1]:
+        if not _INT_RE.match(parts[1]):
+            return None
+        end = int(parts[1])
+    return start, end
+
+
 def _iter_refs(text):
-    """Yield ``(file_or_None, start, end_or_None)`` for every ``[[...]]`` token."""
+    """Yield ``(file_or_None, start, end_or_None, raw)`` for every ``[[...]]``
+    token, where ``raw`` is the original ``[[...]]`` text. ``start`` is
+    ``None`` when the range is malformed (see ``_parse_ref_range``)."""
     if not text:
         return
     for match in _REF_RE.finditer(str(text)):
@@ -165,18 +226,9 @@ def _iter_refs(text):
         rng = body
         if ":" in body:
             ref_file, rng = body.split(":", 1)
-        parts = rng.split("-")
-        try:
-            start = int(parts[0])
-        except ValueError:
-            continue
-        end = None
-        if len(parts) > 1 and parts[1]:
-            try:
-                end = int(parts[1])
-            except ValueError:
-                end = None
-        yield ref_file, start, end
+        parsed = _parse_ref_range(rng)
+        start, end = parsed if parsed else (None, None)
+        yield ref_file, start, end, match.group(0)
 
 
 def _check_diagrams(where, diagrams, errors):
@@ -309,11 +361,32 @@ def validate_tour(tour: dict) -> list:
 
         # Inline [[...]] references in body/title and callouts.
         for field in ("title", "body"):
-            for ref_file, rstart, rend in _iter_refs(section.get(field)):
+            for ref_file, rstart, rend, raw in _iter_refs(section.get(field)):
+                if rstart is None:
+                    errors.append("%s %s reference %s is malformed" % (where, field, raw))
+                    continue
                 check_range("%s %s reference" % (where, field),
                             ref_file or sfile, rstart, rend)
-        for c_idx, callout in enumerate(section.get("callouts") or []):
-            for ref_file, rstart, rend in _iter_refs(callout.get("text")):
+        callouts = section.get("callouts") or []
+        if not isinstance(callouts, list):
+            errors.append("%s field 'callouts' must be an array" % where)
+            callouts = []
+        for c_idx, callout in enumerate(callouts):
+            if not isinstance(callout, dict):
+                errors.append(
+                    "%s callout[%d] must be an object" % (where, c_idx)
+                )
+                continue
+            kind = callout.get("type", "info")
+            if kind not in _CALLOUT_TYPES:
+                errors.append(
+                    "%s callout[%d] has unknown type %r" % (where, c_idx, kind)
+                )
+            for ref_file, rstart, rend, raw in _iter_refs(callout.get("text")):
+                if rstart is None:
+                    errors.append(
+                        "%s callout[%d] reference %s is malformed" % (where, c_idx, raw))
+                    continue
                 check_range("%s callout[%d] reference" % (where, c_idx),
                             ref_file or sfile, rstart, rend)
 
@@ -334,6 +407,13 @@ def validate_tour(tour: dict) -> list:
             if gid is not None:
                 if gid in seen_group_ids:
                     errors.append("%s has duplicate id %r" % (gwhere, gid))
+                elif gid in seen_ids:
+                    # Group banners and section headings share one HTML id
+                    # namespace in the viewer, so a collision silently breaks
+                    # whichever anchor loses.
+                    errors.append(
+                        "%s id %r is already used by a section; group and "
+                        "section ids share one namespace" % (gwhere, gid))
                 else:
                     seen_group_ids.add(gid)
                 gwhere = "group %r" % gid
@@ -371,6 +451,24 @@ def validate_tour(tour: dict) -> list:
 # HTML rendering (fill the shipped template)
 # --------------------------------------------------------------------------- #
 
+def _safe_script_json(value) -> str:
+    """Serialize ``value`` as JSON text safe to embed inside an HTML
+    ``<script>`` element, without changing what it parses back to.
+
+    HTML's script-data tokenizer only cares about a literal ``<`` character:
+    it is the first character of every sequence that can end or corrupt the
+    element early -- ``</script`` (any case, and regardless of what
+    whitespace/slash follows), a nested ``<script``, or a comment-open
+    ``<!--`` that changes how the rest of the element is tokenized. Escaping
+    every ``<`` as its JSON unicode escape (``\\u003c``) removes that
+    character from the raw markup entirely, so none of those sequences can
+    appear in any form -- while ``\\u003c`` is defined by the JSON spec to
+    decode back to ``<``, so ``JSON.parse`` of the embedded text always
+    yields a value identical to ``value``.
+    """
+    return json.dumps(value, ensure_ascii=False, indent=2).replace("<", "\\u003c")
+
+
 def render_html(tour: dict, template_path: str) -> str:
     if not os.path.isfile(template_path):
         raise TourError("HTML template not found: %s" % template_path)
@@ -388,22 +486,22 @@ def render_html(tour: dict, template_path: str) -> str:
             "template must contain the %s placeholder exactly once (found %d): %s"
             % (_MERMAID_PLACEHOLDER, mermaid_count, template_path)
         )
-    # Re-serialize so the embedded text is guaranteed valid and escape any
-    # literal "</script>" as "<\/script>" (a valid JSON escape for "/") so it
-    # cannot terminate the surrounding <script> element.
     version = _generator_version()
     if version:
         tour = dict(tour)
         tour["generatorVersion"] = version
-    payload = json.dumps(tour, ensure_ascii=False, indent=2)
-    payload = payload.replace("</script>", "<\\/script>")
-    # Embed the Mermaid runtime inline only when the tour actually has diagrams,
-    # so the output is a single self-contained file; otherwise leave the slot
-    # empty. Substitute the runtime FIRST (on the template), then inject the
-    # tour payload -- so a tour whose text happens to contain the literal
-    # __MERMAID_RUNTIME__ token cannot be mangled by this substitution.
-    runtime = mermaid_runtime_js(template_path) if tour_has_diagrams(tour) else ""
-    out = template.replace(_MERMAID_PLACEHOLDER, runtime)
+    payload = _safe_script_json(tour)
+    # Embed the Mermaid runtime inline only when the tour actually has
+    # diagrams, so the output is a single self-contained file; otherwise the
+    # placeholder decodes to JSON null and the bootstrap script skips it (see
+    # tour-template.html). The runtime is embedded as a JSON string rather
+    # than spliced into the <script> element as raw JS, so its own text never
+    # needs to be mutated (see mermaid_runtime_source). Substitute the runtime
+    # FIRST (on the template), then inject the tour payload -- so a tour whose
+    # text happens to contain the literal __MERMAID_RUNTIME__ token cannot be
+    # mangled by this substitution.
+    runtime_source = mermaid_runtime_source(template_path) if tour_has_diagrams(tour) else None
+    out = template.replace(_MERMAID_PLACEHOLDER, _safe_script_json(runtime_source))
     return out.replace(_PLACEHOLDER, payload)
 
 
@@ -445,25 +543,57 @@ def _fill_url_template(tmpl, **values):
     return out
 
 
+# The extra literal marks JavaScript's encodeURIComponent leaves unescaped
+# beyond RFC 3986 unreserved characters (which urllib.parse.quote's
+# _ALWAYS_SAFE already preserves regardless of the `safe` argument). Passing
+# this as `safe` makes quote() and encodeURIComponent() agree on the exact
+# same set of characters that pass through unescaped.
+_PATH_SEGMENT_SAFE = "!*'()"
+
+
+def _encode_path_segments(path):
+    """Percent-encode a URL path per "/"-separated segment, preserving the
+    "/" separators themselves.
+
+    Mirrors JavaScript's ``encodeURIComponent`` applied to each segment (see
+    ``encodePathSegments`` in tour-template.html; test_code_tour.py asserts
+    parity): unreserved characters and encodeURIComponent's few extra literal
+    marks pass through unescaped, while everything else -- including space,
+    '#', '?', '%', and non-ASCII text -- is percent-encoded, so a webPath
+    can't be mistaken for path/query/fragment syntax by whatever URL it is
+    substituted into.
+    """
+    return "/".join(
+        urllib.parse.quote(segment, safe=_PATH_SEGMENT_SAFE)
+        for segment in str(path).split("/")
+    )
+
+
 def _line_href(tour, file, start, end=None):
     # Resolution order mirrors the HTML renderer (tour-template.html): a file's
     # own `url`, then tour.webUrlTemplate, then legacy tour.webUrlBase, then a
     # local editor link. This lets one JSON drive a local tour or a PR/commit
     # tour just by choosing which link fields it fills. {lineEnd} defaults to
     # {line} for single-line refs so hosts that require a range still work.
+    # The result always passes through _safe_url: a `url`/webUrlTemplate is
+    # tour-authored data, so it is checked against the same allowlist as every
+    # other tour-supplied link before it is handed to a renderer.
     entry = _file_entry(tour, file)
     line_end = end if (end and end != start) else start
     if isinstance(entry, dict) and entry.get("url"):
-        return _fill_url_template(entry["url"], line=start, lineEnd=line_end)
-    if tour.get("webUrlTemplate"):
-        return _fill_url_template(tour["webUrlTemplate"],
-                                  path=_entry_web_path(entry, file),
+        href = _fill_url_template(entry["url"], line=start, lineEnd=line_end)
+    elif tour.get("webUrlTemplate"):
+        href = _fill_url_template(tour["webUrlTemplate"],
+                                  path=_encode_path_segments(_entry_web_path(entry, file)),
                                   line=start, lineEnd=line_end)
-    if tour.get("webUrlBase"):
-        return "%s%s#L%s" % (tour["webUrlBase"], _entry_web_path(entry, file), start)
-    scheme = ("vscode-insiders://file/" if tour.get("editor") == "vscode-insiders"
-              else "vscode://file/")
-    return "%s%s:%s" % (scheme, _entry_local_path(entry, file), start)
+    elif tour.get("webUrlBase"):
+        href = "%s%s#L%s" % (tour["webUrlBase"],
+                              _encode_path_segments(_entry_web_path(entry, file)), start)
+    else:
+        scheme = ("vscode-insiders://file/" if tour.get("editor") == "vscode-insiders"
+                  else "vscode://file/")
+        href = "%s%s:%s" % (scheme, _entry_local_path(entry, file), start)
+    return _safe_url(href)
 
 
 def _ref_label(file, start, end, web):
@@ -476,48 +606,64 @@ def _ref_label(file, start, end, web):
     return "%s:%s" % (file, span)
 
 
+# Mirrors the identical HOST_RE in tour-template.html's seeAlsoHost
+# (test_code_tour.py asserts parity).
+_HOST_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://([^/]+)")
+
+
 def _see_also_host(url):
     # Friendly short label for a bare URL: hostname minus a leading "www.".
-    match = re.match(r"[a-zA-Z][a-zA-Z0-9+.-]*://([^/]+)", str(url))
+    match = _HOST_RE.match(str(url))
     host = match.group(1) if match else str(url)
     return host[4:] if host.startswith("www.") else host
 
 
 def _see_also_link(link):
-    # A link is a URL string, or an object {label?, url|href}. Returns (label, url).
+    # A link is a URL string, or an object {label?, url|href}. Returns (label,
+    # url) with url passed through _safe_url (empty stays empty, so callers'
+    # existing `if url:` checks still treat a missing url as absent).
     if isinstance(link, dict):
         url = link.get("url") or link.get("href") or ""
-        return (link.get("label") or _see_also_host(url)), url
-    return _see_also_host(link), link
+        label = link.get("label") or _see_also_host(url)
+    else:
+        url = link
+        label = _see_also_host(link)
+    return label, (_safe_url(url) if url else url)
 
 
 # Where the "Generated code tour" footer links for more about this tool.
 CODE_TOUR_URL = "https://github.com/david-risney/PwshProfile/tree/main/plugins/code-tour"
 
 
-def _generator_version():
+def _generator_version(manifest_path=None):
     """Read the code-tour plugin version from its plugin.json, if available.
 
     The manifest lives at ``<plugin-root>/.claude-plugin/plugin.json`` --
     three directories up from this script (scripts/ -> skill -> skills ->
-    plugin root). Returns the version string, or None if it cannot be read.
+    plugin root). ``manifest_path`` overrides that location (used by tests).
+    Returns the version string, or None if it cannot be read, does not parse,
+    or does not decode to a JSON object with a non-empty string "version".
     """
-    manifest = os.path.join(
+    manifest = manifest_path or os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         "..", "..", "..", ".claude-plugin", "plugin.json",
     )
     try:
         with open(manifest, "r", encoding="utf-8") as handle:
-            version = json.load(handle).get("version")
-        return version if isinstance(version, str) and version.strip() else None
+            data = json.load(handle)
     except (OSError, ValueError):
         return None
+    # The manifest is expected to be a JSON object, but it is external data --
+    # guard against a non-dict top level (e.g. a bare list or string) rather
+    # than crashing on a missing `.get`.
+    version = data.get("version") if isinstance(data, dict) else None
+    return version if isinstance(version, str) and version.strip() else None
 
 
 
 def _source_link(source):
     # Optional top-level `source`: a URL string or {label?, url|href}. Returns
-    # (label, url), or None when absent/empty.
+    # (label, url) with url passed through _safe_url, or None when absent/empty.
     if not source:
         return None
     if isinstance(source, dict):
@@ -526,7 +672,7 @@ def _source_link(source):
     else:
         url = str(source)
         label = "View source"
-    return (label, url) if url else None
+    return (label, _safe_url(url)) if url else None
 
 
 
@@ -545,17 +691,33 @@ def _md_inline(tour, file, text):
         rng = body
         if ":" in body:
             ref_file, rng = body.split(":", 1)
-        parts = rng.split("-")
-        try:
-            start = int(parts[0])
-        except ValueError:
+        parsed = _parse_ref_range(rng)
+        if parsed is None:
             return match.group(0)
-        end = int(parts[1]) if len(parts) > 1 and parts[1] else None
+        start, end = parsed
         label = _ref_label(ref_file, start, end, web)
         return "[`%s`](%s)" % (label, _line_href(tour, ref_file, start, end))
 
-    out = _REF_RE.sub(ref_sub, str(text))
-    return out
+    links = []
+
+    def link_sub(match):
+        # An author-written [text](url) link, e.g. copied from a PR
+        # description into a section's prose. The url is untrusted input, so
+        # it goes through the same allowlist as every other tour-supplied
+        # link. Substituted before the [[...]] rule and parked behind a
+        # placeholder so a badge inside a link label cannot expand into a
+        # second, nested link -- see renderInline in tour-template.html,
+        # which keeps the same order for the same reason.
+        links.append("[%s](%s)" % (match.group(1), _safe_url(match.group(2))))
+        return "\x00%d\x00" % (len(links) - 1)
+
+    def restore(match):
+        index = int(match.group(1))
+        return links[index] if index < len(links) else match.group(0)
+
+    out = _LINK_RE.sub(link_sub, str(text))
+    out = _REF_RE.sub(ref_sub, out)
+    return _LINK_PLACEHOLDER_RE.sub(restore, out)
 
 
 def _md_block(tour, file, text, out):
@@ -576,8 +738,15 @@ def _md_block(tour, file, text, out):
             out.append("")
 
 
-_CALLOUT_LABEL = {"good": "\u2705 ", "warn": "\u26a0\ufe0f ",
-                  "danger": "\u26d4 ", "info": "\u2139\ufe0f "}
+_CALLOUT_LABEL = {
+    "info": "\u2139\ufe0f ",
+    "good": "\u2705 ",
+    "warn": "\u26a0\ufe0f ",
+    "bad": "\u26a0\ufe0f ",
+    "danger": "\u26d4 ",
+    "tip": "\U0001f4a1 ",
+    "note": "\U0001f4dd ",
+}
 
 
 def _md_diagrams(diagrams, out):
@@ -593,6 +762,19 @@ def _md_diagrams(diagrams, out):
         out.append(str(src).rstrip("\n"))
         out.append("```")
         out.append("")
+
+
+def _md_anchor(anchor_id):
+    # A raw HTML anchor, recognized by GFM (and most other renderers) as a raw
+    # HTML block. TOC entries link to "#<id>" (see render_markdown below); a
+    # bare "## N. Title" heading has no such id -- most renderers derive a
+    # heading's own anchor by slugifying its *rendered text* (algorithms that
+    # vary across renderers and change if the title changes), which would
+    # rarely match the section's stable `id`. Placing this anchor immediately
+    # before the heading gives the TOC a target that resolves everywhere and
+    # never drifts from the id already used to key sections, groups, and
+    # cross-references.
+    return '<a id="%s"></a>' % str(anchor_id).replace('"', "&quot;")
 
 
 def render_markdown(tour: dict) -> str:
@@ -675,6 +857,8 @@ def render_markdown(tour: dict) -> str:
                 out.append("")
                 out.append(_md_inline(tour, None, group.get("description")))
             out.append("")
+        if s.get("id"):
+            out.append(_md_anchor(s["id"]))
         heading = "## %s. %s" % (num, _md_inline(tour, s.get("file"), s.get("title", "")))
         out.append(heading)
         meta = []
@@ -751,7 +935,8 @@ def render_markdown(tour: dict) -> str:
 _ANSI = {
     "reset": "\033[0m", "bold": "\033[1m", "dim": "\033[2m",
     "title": "\033[1;36m", "head": "\033[1;33m", "code": "\033[36m",
-    "good": "\033[32m", "warn": "\033[33m", "danger": "\033[31m",
+    "good": "\033[32m", "warn": "\033[33m", "bad": "\033[33m",
+    "danger": "\033[31m", "tip": "\033[33m", "note": "\033[34m",
     "info": "\033[34m", "link": "\033[4;34m",
 }
 
@@ -767,16 +952,17 @@ def _ansi_inline(tour, file, text, color=True):
         rng = body
         if ":" in body:
             ref_file, rng = body.split(":", 1)
-        parts = rng.split("-")
-        try:
-            start = int(parts[0])
-        except ValueError:
+        parsed = _parse_ref_range(rng)
+        if parsed is None:
             return match.group(0)
-        end = int(parts[1]) if len(parts) > 1 and parts[1] else None
+        start, end = parsed
         label = _ref_label(ref_file, start, end, web)
         return ("%s%s%s" % (_ANSI["link"], label, _ANSI["reset"])) if color else label
 
     out = _REF_RE.sub(ref_sub, str(text))
+    # Plain text has no nesting to break, so the link rule stays last here
+    # (unlike _md_inline / renderInline): a badge inside a link label simply
+    # renders as the badge label, which is what the CLI shows anyway.
     out = _LINK_RE.sub(lambda m: m.group(1), out)
     if color:
         out = _CODE_RE.sub(lambda m: _ANSI["code"] + m.group(1) + _ANSI["reset"], out)
@@ -965,17 +1151,21 @@ def default_output(source, fmt):
     return base + _EXT[fmt]
 
 
-def mermaid_runtime_js(template_path: str) -> str:
-    """Return the Mermaid runtime as raw JS to inline into the tour.
+def mermaid_runtime_source(template_path: str) -> str:
+    """Return the Mermaid UMD bundle's text, verbatim, to embed as script-data.
 
-    The self-contained Mermaid UMD bundle lives beside the template. Its text is
-    substituted into the existing ``<script id="mermaid-runtime">`` element in
-    the template (NOT wrapped in its own <script> tags), so a tour with diagrams
-    renders offline from a single file -- no sidecar assets and no ES-module
-    load. Sequences the HTML tokenizer treats specially inside script data
-    (``</script``, ``<!--``, ``<script``) are escaped the spec-recommended way;
-    the backslash is inert because these only occur inside JS string/regex
-    literals in the bundle (verified with ``node --check``).
+    The self-contained bundle lives beside the template. ``render_html`` embeds
+    it as a JSON string (via ``_safe_script_json``, the same encoding used for
+    the tour JSON itself) into the ``<script id="mermaid-runtime-data"
+    type="application/json">`` element, and the template's bootstrap decodes
+    and executes it. That means this function returns the bundle completely
+    unmodified: no textual mutation of "</script"/"<script"/"<!--" is needed
+    (or safe to rely on -- a prior version of this function patched those
+    substrings directly, which only worked because they happened to occur
+    solely inside this particular bundle's string/regex literals). JSON-string
+    encoding can never introduce a literal "<" into the surrounding markup, so
+    the escaping in ``_safe_script_json`` is sufficient regardless of what the
+    bundle's own text contains.
     """
     src = os.path.join(os.path.dirname(os.path.abspath(template_path)), _MERMAID_UMD)
     if not os.path.isfile(src):
@@ -983,23 +1173,27 @@ def mermaid_runtime_js(template_path: str) -> str:
             "tour uses diagrams but the Mermaid runtime is missing next to the "
             "template: %s" % src)
     with open(src, "r", encoding="utf-8") as handle:
-        bundle = handle.read()
-    bundle = bundle.replace("</script", "<\\/script")
-    bundle = bundle.replace("<!--", "<\\!--")
-    bundle = bundle.replace("<script", "<\\script")
-    return bundle
+        return handle.read()
 
 
 def write_output(path: str, content: str, force: bool) -> None:
-    if os.path.exists(path) and not force:
-        raise TourError(
-            "refusing to overwrite existing file (pass --force to allow): %s" % path
-        )
+    # Avoid a check-then-open race: rather than testing os.path.exists and
+    # separately opening for write (which a concurrent writer could slip
+    # between), open with the exclusive-create flag ("x") unless --force was
+    # given, so the existence check and the create are the same atomic
+    # syscall. --force intentionally still opens with plain "w" (truncate),
+    # since its whole purpose is to overwrite whatever is there.
     parent = os.path.dirname(os.path.abspath(path))
     if parent and not os.path.isdir(parent):
         os.makedirs(parent, exist_ok=True)
-    with open(path, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write(content)
+    mode = "w" if force else "x"
+    try:
+        with open(path, mode, encoding="utf-8", newline="\n") as handle:
+            handle.write(content)
+    except FileExistsError:
+        raise TourError(
+            "refusing to overwrite existing file (pass --force to allow): %s" % path
+        )
 
 
 # --------------------------------------------------------------------------- #

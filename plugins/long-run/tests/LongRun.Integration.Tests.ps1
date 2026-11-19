@@ -9,6 +9,7 @@ $pluginManifest = Join-Path $pluginRoot '.claude-plugin\plugin.json'
 $pluginVersion = (Get-Content -LiteralPath $pluginManifest -Raw |
     ConvertFrom-Json).version
 . (Join-Path $scriptRoot 'LongRun.Common.ps1')
+. (Join-Path $scriptRoot 'LongRun.Completed.ps1')
 
 $runCore = $env:LONG_RUN_INTEGRATION -eq '1'
 $runBrowser = $env:LONG_RUN_BROWSER_INTEGRATION -eq '1'
@@ -147,7 +148,10 @@ exit 23
         }
     }
 
-    It 'replaces a completed command with a bounded same-name output viewer' `
+}
+
+Describe 'Long-run completed-output integration' {
+    It 'creates bounded replay viewers from archived output only on demand' `
         -Skip:(-not $runCore) {
         $root = New-LongRunIntegrationRoot
         $psmux = Get-LongRunIntegrationPsmux
@@ -158,22 +162,24 @@ exit 23
         $savedLocalAppData = $env:LOCALAPPDATA
         try {
             $env:LOCALAPPDATA = Join-Path $root 'local-app-data'
-            @'
-Write-Output 'RETAINED_FIRST_MARKER'
-Write-Output 'RETAINED_LAST_MARKER'
-exit 23
-'@ | Set-Content -LiteralPath $commandFile -Encoding utf8
+            $archiveRoot = Join-Path $env:LOCALAPPDATA 'long-run\completed'
+            [IO.File]::WriteAllText($commandFile,
+                "RETAINED_FIRST_MARKER`nRETAINED_LAST_MARKER`n")
+            (Publish-LongRunCompletedSession -ArchiveRoot $archiveRoot `
+                -PsmuxPath $psmux -Session $session -WorkingDirectory $root `
+                -SourceFiles @($commandFile) -ExitCode 23 -TtlSeconds 120 `
+                -SessionLimit 10 -StorageLimitBytes 1MB -CaptureComplete $true) |
+                Should Be $true
+            (Test-LongRunIntegrationSession $psmux $session) | Should Be $false
 
-            $output = & pwsh -NoProfile -File $startScript `
-                -CommandFile $commandFile -RemoveCommandFile `
-                -WorkingDirectory $root -Session $session `
-                -RemoteMode Never -NoViewer -PsmuxPath $psmux `
-                -CompletedSessionTtlSeconds 3 2>&1
-
-            $LASTEXITCODE | Should Be 23
-            ($output -join "`n") | Should Match 'RETAINED_FIRST_MARKER'
-            (Test-Path -LiteralPath $commandFile) | Should Be $false
-            (Test-Path -LiteralPath $stateDir) | Should Be $false
+            $archives = @(Get-ChildItem -LiteralPath $archiveRoot -Directory)
+            $archives.Count | Should Be 1
+            $archiveId = $archives[0].Name
+            $completedScript = Join-Path $scriptRoot 'Invoke-LongRunCompletedSession.ps1'
+            $viewer = & pwsh -NoProfile -File $completedScript `
+                -Action Open -ArchiveRoot $archiveRoot -ArchiveId $archiveId `
+                -PsmuxPath $psmux | ConvertFrom-Json
+            $LASTEXITCODE | Should Be 0
             (Test-LongRunIntegrationSession $psmux $session) | Should Be $true
 
             $metadata = & $psmux list-sessions -F (
@@ -194,71 +200,30 @@ exit 23
             (Get-Process -Id $retainedPid -ErrorAction SilentlyContinue) |
                 Should BeNullOrEmpty
 
-            $archiveRoot = Join-Path $env:LOCALAPPDATA 'long-run\completed'
-            @(Get-ChildItem -LiteralPath $archiveRoot -Directory).Count |
-                Should Be 1
-            Stop-LongRunIntegrationSession $psmux $session
+            $null = & pwsh -NoProfile -File $completedScript `
+                -Action Release -ArchiveRoot $archiveRoot -ArchiveId $archiveId `
+                -PsmuxPath $psmux -ExpectedPsmuxId $viewer.psmuxId
+            $LASTEXITCODE | Should Be 0
             (Wait-LongRunIntegrationCondition {
                 -not (Test-LongRunIntegrationSession $psmux $session)
             } 5) | Should Be $true
+            (Test-Path -LiteralPath $archives[0].FullName) | Should Be $true
+            $null = & pwsh -NoProfile -File $completedScript `
+                -Action Open -ArchiveRoot $archiveRoot -ArchiveId $archiveId `
+                -PsmuxPath $psmux
+            $LASTEXITCODE | Should Be 0
+            $manifestPath = Join-Path $archives[0].FullName 'manifest.json'
+            $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+            $manifest.expiresAt = [DateTimeOffset]::UtcNow.AddSeconds(-1).ToString('o')
+            [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json))
             (Wait-LongRunIntegrationCondition {
                 -not (Test-Path -LiteralPath $archiveRoot) -or
                 @(Get-ChildItem -LiteralPath $archiveRoot -Directory `
                         -ErrorAction SilentlyContinue).Count -eq 0
-            } 5) | Should Be $true
-        } finally {
-            $env:LOCALAPPDATA = $savedLocalAppData
-            Stop-LongRunIntegrationSession $psmux $session
-            Remove-Item -LiteralPath $root -Recurse -Force `
-                -ErrorAction SilentlyContinue
-        }
-    }
-
-    It 'preserves the child exit code when completed-output publication fails' `
-        -Skip:(-not $runCore) {
-        $root = New-LongRunIntegrationRoot
-        $psmux = Get-LongRunIntegrationPsmux
-        $session = New-LongRunIntegrationSession 'lr-int-retention-failure'
-        $commandFile = Join-Path $root 'command.ps1'
-        $localAppData = Join-Path $root 'local-app-data'
-        $logPath = Join-Path $root 'retention-failure-events.jsonl'
-        $savedLocalAppData = $env:LOCALAPPDATA
-        $savedLogPath = $env:LONG_RUN_LOG_PATH
-        $archiveMutex = [Threading.Mutex]::new(
-            $false,
-            'Local\LongRunCompletedSessionArchive')
-        $archiveLocked = $false
-        try {
-            New-Item -ItemType Directory -Path $localAppData -Force |
-                Out-Null
-            Set-Content -LiteralPath $commandFile `
-                -Value "Write-Output 'RETENTION_FAILURE_MARKER'; exit 31"
-            $env:LOCALAPPDATA = $localAppData
-            $env:LONG_RUN_LOG_PATH = $logPath
-            $archiveLocked = $archiveMutex.WaitOne()
-
-            $output = & pwsh -NoProfile -File $startScript `
-                -CommandFile $commandFile -RemoveCommandFile `
-                -WorkingDirectory $root -Session $session `
-                -RemoteMode Never -NoViewer -PsmuxPath $psmux `
-                -CompletedSessionTtlSeconds 60 2>&1
-
-            $LASTEXITCODE | Should Be 31
-            ($output -join "`n") | Should Match 'RETENTION_FAILURE_MARKER'
+            } 40) | Should Be $true
             (Test-LongRunIntegrationSession $psmux $session) | Should Be $false
-            $event = Get-Content -LiteralPath $logPath |
-                ForEach-Object { $_ | ConvertFrom-Json } |
-                Where-Object event -EQ 'completed-retention-failed' |
-                Select-Object -Last 1
-            $event | Should Not BeNullOrEmpty
-            $event.level | Should Be 'warning'
         } finally {
-            if ($archiveLocked) {
-                $archiveMutex.ReleaseMutex()
-            }
-            $archiveMutex.Dispose()
             $env:LOCALAPPDATA = $savedLocalAppData
-            $env:LONG_RUN_LOG_PATH = $savedLogPath
             Stop-LongRunIntegrationSession $psmux $session
             Remove-Item -LiteralPath $root -Recurse -Force `
                 -ErrorAction SilentlyContinue
@@ -275,15 +240,14 @@ exit 23
         $savedLocalAppData = $env:LOCALAPPDATA
         try {
             $env:LOCALAPPDATA = Join-Path $root 'local-app-data'
-            Set-Content -LiteralPath $firstCommand `
-                -Value "Write-Output 'FIRST_RETAINED'"
-            $null = & pwsh -NoProfile -File $startScript `
-                -CommandFile $firstCommand `
-                -WorkingDirectory $root -Session $session `
-                -RemoteMode Never -NoViewer -PsmuxPath $psmux `
-                -CompletedSessionTtlSeconds 60
-            $LASTEXITCODE | Should Be 0
-            (Test-LongRunIntegrationSession $psmux $session) | Should Be $true
+            Set-Content -LiteralPath $firstCommand -Value 'FIRST_RETAINED'
+            $archiveRoot = Join-Path $env:LOCALAPPDATA 'long-run\completed'
+            (Publish-LongRunCompletedSession -ArchiveRoot $archiveRoot `
+                -PsmuxPath $psmux -Session $session -WorkingDirectory $root `
+                -SourceFiles @($firstCommand) -ExitCode 0 -TtlSeconds 120 `
+                -SessionLimit 10 -StorageLimitBytes 1MB -CaptureComplete $true) |
+                Should Be $true
+            (Test-LongRunIntegrationSession $psmux $session) | Should Be $false
 
             Set-Content -LiteralPath $secondCommand `
                 -Value "Write-Output 'SECOND_WITHOUT_RETENTION'"
@@ -306,6 +270,9 @@ exit 23
         }
     }
 
+}
+
+Describe 'Long-run real psmux interaction integration' {
     It 'accepts stdin from a second real psmux client' -Skip:(-not $runCore) {
         $root = New-LongRunIntegrationRoot
         $psmux = Get-LongRunIntegrationPsmux
@@ -537,7 +504,7 @@ Describe 'Long-run real browser transport integration' {
                 $gateway.TerminalCapability)
             $webSocketUrl =
                 "ws://127.0.0.1:$($gateway.Port)/tmux/session/" +
-                "$encodedSession/ws?longRunCapability=$encodedCapability"
+                "$encodedSession/ws?accessToken=$encodedCapability"
             $nodeOutput = @(
                 & node $sendTtydInput $webSocketUrl 'browser-input-42' 2>&1)
             $nodeExitCode = $LASTEXITCODE

@@ -20,7 +20,8 @@ function Invoke-WithLongRunCompletedArchiveLock {
             $locked = $true
         }
         if (-not $locked) {
-            throw 'Timed out waiting for the completed-session archive lock.'
+            throw [TimeoutException]::new(
+                'Timed out waiting for the completed-session archive lock.')
         }
         & $Action
     } finally {
@@ -92,12 +93,7 @@ function Get-LongRunCompletedSessionMap([string]$PsmuxPath) {
                 "#{session_name}`t#{session_created}`t#{session_id}`t#{session_attached}"
             ) `
             -TimeoutMilliseconds 10000
-        if ($result.ExitCode -eq 1) {
-            return [pscustomobject]@{
-                Success = $true
-                Map = $map
-            }
-        }
+        if ($result.ExitCode -eq 1) { return $map }
         if ($result.ExitCode -ne 0) {
             throw "psmux failed to list sessions (exit $($result.ExitCode))."
         }
@@ -120,15 +116,8 @@ function Get-LongRunCompletedSessionMap([string]$PsmuxPath) {
         Write-LongRunLog -Component 'completed-session' `
             -Event 'list-failed' -Level 'warning' `
             -Data @{ errorType = $_.Exception.GetType().FullName }
-        return [pscustomobject]@{
-            Success = $false
-            Map = $map
-        }
     }
-    return [pscustomobject]@{
-        Success = $true
-        Map = $map
-    }
+    return $map
 }
 
 function Remove-LongRunCompletedArchiveRecord {
@@ -217,23 +206,13 @@ function Invoke-LongRunCompletedCleanupUnlocked {
 
     $now = [DateTimeOffset]::UtcNow
     $records = @(Get-LongRunCompletedArchiveRecords $ArchiveRoot)
-    $sessionInventory = Get-LongRunCompletedSessionMap $PsmuxPath
-    if (-not $sessionInventory.Success) {
-        return
-    }
-    $sessionMap = $sessionInventory.Map
     $remaining = @()
     foreach ($record in $records) {
-        $session = $sessionMap[$record.Session]
-        $sameIdentity = $session -and $record.Manifest.psmuxId -and
-            $session.Id -eq [string]$record.Manifest.psmuxId
         $reason = $null
         if ($RemoveSession -and $record.Session -eq $RemoveSession) {
             $reason = 'session-reused'
         } elseif ($record.ExpiresAt -le $now) {
             $reason = 'expired'
-        } elseif ($record.Manifest.psmuxId -and -not $sameIdentity) {
-            $reason = 'viewer-missing'
         }
 
         if ($reason) {
@@ -248,11 +227,12 @@ function Invoke-LongRunCompletedCleanupUnlocked {
     while ($remaining.Count -gt $SessionLimit -or
         (@($remaining | Measure-Object -Property Bytes -Sum).Sum -gt
             $StorageLimitBytes)) {
-        $sessionInventory = Get-LongRunCompletedSessionMap $PsmuxPath
-        if (-not $sessionInventory.Success) {
-            break
+        $sessionMap = if (@($remaining | Where-Object {
+                    $_.Manifest.psmuxId }).Count -gt 0) {
+            Get-LongRunCompletedSessionMap $PsmuxPath
+        } else {
+            @{}
         }
-        $sessionMap = $sessionInventory.Map
         $victim = $remaining | Where-Object {
             $session = $sessionMap[$_.Session]
             -not $session -or $session.Attached -eq 0
@@ -289,7 +269,6 @@ function Publish-LongRunCompletedSession {
     param(
         [Parameter(Mandatory = $true)][string]$ArchiveRoot,
         [Parameter(Mandatory = $true)][string]$PsmuxPath,
-        [Parameter(Mandatory = $true)][string]$PowerShellPath,
         [Parameter(Mandatory = $true)][string]$Session,
         [Parameter(Mandatory = $true)][string]$WorkingDirectory,
         [Parameter(Mandatory = $true)][string[]]$SourceFiles,
@@ -320,8 +299,6 @@ function Publish-LongRunCompletedSession {
         $viewerGatePath = Join-Path $archiveDirectory 'viewer.ready'
         $manifestPath = Join-Path $archiveDirectory 'manifest.json'
         New-Item -ItemType Directory -Path $archiveDirectory -Force | Out-Null
-        $archiveSession = $null
-        $retentionStage = 'archive'
 
         try {
             $output = [IO.File]::Open(
@@ -352,7 +329,6 @@ function Publish-LongRunCompletedSession {
 param(
     [Parameter(Mandatory = $true)][string]$TranscriptPath,
     [Parameter(Mandatory = $true)][string]$GatePath,
-    [Parameter(Mandatory = $true)][int]$PublisherProcessId,
     [Parameter(Mandatory = $true)][string]$CompletedAt,
     [Parameter(Mandatory = $true)][string]$ExpiresAt,
     [Parameter(Mandatory = $true)][int]$ExitCode
@@ -360,10 +336,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+$gateDeadline = [DateTimeOffset]::UtcNow.AddSeconds(30)
 while (-not (Test-Path -LiteralPath $GatePath -PathType Leaf)) {
-    if (-not (Get-Process -Id $PublisherProcessId `
-            -ErrorAction SilentlyContinue)) {
-        throw 'The completed-session publisher exited before setup finished.'
+    if ([DateTimeOffset]::UtcNow -ge $gateDeadline) {
+        throw 'Timed out waiting for psmux dead-pane retention setup.'
     }
     Start-Sleep -Milliseconds 20
 }
@@ -397,6 +373,7 @@ Write-Host (
                 schemaVersion = 1
                 archiveId = $archiveId
                 session = $Session
+                workingDirectory = $WorkingDirectory
                 completedAt = $completedAt.ToString('o')
                 expiresAt = $expiresAt.ToString('o')
                 exitCode = $ExitCode
@@ -419,137 +396,158 @@ Write-Host (
                 return $false
             }
 
-            $retentionStage = 'viewer-start'
-            $start = Invoke-PsmuxSetupCommand `
-                -Arguments @(
-                    'new-session', '-d', '-s', $Session,
-                    '-c', $WorkingDirectory, '--',
-                    $PowerShellPath, '-NoLogo', '-NoProfile',
-                    '-NonInteractive', '-File', $viewerPath,
-                    '-TranscriptPath', $transcriptPath,
-                    '-GatePath', $viewerGatePath,
-                    '-PublisherProcessId', [string]$PID,
-                    '-CompletedAt', $completedAt.ToString('o'),
-                    '-ExpiresAt', $expiresAt.ToString('o'),
-                    '-ExitCode', [string]$ExitCode
-                ) `
-                -TimeoutMilliseconds 15000
-            if ($start.ExitCode -ne 0) {
-                throw "psmux failed to start the completed viewer (exit $($start.ExitCode))."
-            }
-
-            $retentionStage = 'session-discovery'
-            $archiveSession = Get-LongRunPsmuxSessions $PsmuxPath |
-                Where-Object Name -EQ $Session | Select-Object -First 1
-            if (-not $archiveSession) {
-                throw "The completed viewer did not create session '$Session'."
-            }
-            $manifest.psmuxCreated = $archiveSession.Created
-            $manifest.psmuxId = $archiveSession.Id
-            [IO.File]::WriteAllText(
-                $manifestPath,
-                ($manifest | ConvertTo-Json -Depth 4),
-                [Text.UTF8Encoding]::new($false))
-
-            $target = if ($archiveSession.Id) {
-                $archiveSession.Id
-            } else {
-                $Session
-            }
-            $retentionStage = 'remain-on-exit'
-            $remainResult = Invoke-PsmuxSetupCommand `
-                -Arguments @(
-                    'set-option', '-w', '-t', $target,
-                    'remain-on-exit', 'on') `
-                -TimeoutMilliseconds 10000
-            if ($remainResult.ExitCode -ne 0) {
-                throw "psmux failed to retain the completed pane (exit $($remainResult.ExitCode))."
-            }
-            $retentionStage = 'metadata'
-            foreach ($option in @(
-                    @('set-option', '-t', $target,
-                        '@long-run-state', 'completed'),
-                    @('set-option', '-t', $target,
-                        '@long-run-completed-at', $completedAt.ToString('o')),
-                    @('set-option', '-t', $target,
-                        '@long-run-expires-at', $expiresAt.ToString('o')),
-                    @('set-option', '-t', $target,
-                        '@long-run-exit-code', [string]$ExitCode),
-                    @('set-option', '-t', $target,
-                        '@long-run-archive-id', $archiveId),
-                    @('set-option', '-t', $target,
-                        'status', 'off'),
-                    @('set-option', '-w', '-t', $target,
-                        'history-limit', '50000'))) {
-                $setResult = Invoke-PsmuxSetupCommand `
-                    -Arguments $option `
-                    -TimeoutMilliseconds 10000
-                if ($setResult.ExitCode -ne 0) {
-                    Write-LongRunLog -Component 'completed-session' `
-                        -Event 'set-option-failed' -Level 'warning' `
-                        -Session $Session `
-                        -Data @{ exitCode = $setResult.ExitCode }
-                }
-            }
+            $watcherPath = Join-Path $PSScriptRoot `
+                'Watch-LongRunCompletedSessions.ps1'
+            $watcherCommand = '& {0} -ArchiveRoot {1} -PsmuxPath {2} *> $null' -f (
+                ConvertTo-LongRunPowerShellLiteral $watcherPath),
+                (ConvertTo-LongRunPowerShellLiteral $ArchiveRoot),
+                (ConvertTo-LongRunPowerShellLiteral $PsmuxPath)
+            Start-LongRunDetachedPowerShell `
+                -Command $watcherCommand `
+                -Name 'completed-session expiry watcher'
             Write-LongRunLog -Component 'completed-session' `
                 -Event 'retained' -Session $Session `
                 -Data @{ exitCode = $ExitCode }
-            try {
-                $watcherPath = Join-Path $PSScriptRoot `
-                    'Watch-LongRunCompletedSessions.ps1'
-                $watcherCommand = '& {0} -ArchiveRoot {1} -PsmuxPath {2} *> $null' -f (
-                    ConvertTo-LongRunPowerShellLiteral $watcherPath),
-                    (ConvertTo-LongRunPowerShellLiteral $ArchiveRoot),
-                    (ConvertTo-LongRunPowerShellLiteral $PsmuxPath)
-                Start-LongRunDetachedPowerShell `
-                    -Command $watcherCommand `
-                    -Name 'completed-session expiry watcher'
-            } catch {
-                Write-LongRunLog -Component 'completed-session' `
-                    -Event 'watcher-start-failed' -Level 'warning' `
-                    -Session $Session `
-                    -Data @{ errorType = $_.Exception.GetType().FullName }
-                throw
-            }
-            $retentionStage = 'release'
-            [IO.File]::WriteAllText(
-                $viewerGatePath,
-                'ready',
-                [Text.UTF8Encoding]::new($false))
             return $true
         } catch {
-            $retentionError = $_
-            $archivePreserved = $false
-            if ($archiveSession) {
-                try {
-                    Remove-LongRunCompletedArchiveRecord `
-                        -Record ([pscustomobject]@{
-                            Directory = $archiveDirectory
-                            Manifest = $manifest
-                            Session = $Session
-                        }) `
-                        -PsmuxPath $PsmuxPath `
-                        -Reason 'rollback'
-                } catch {
-                    $archivePreserved = $true
-                    Write-LongRunLog -Component 'completed-session' `
-                        -Event 'rollback-remove-failed' -Level 'warning' `
-                        -Session $Session `
-                        -Data @{ errorType = $_.Exception.GetType().FullName }
-                }
-            }
-            if (-not $archivePreserved -and
-                (Test-Path -LiteralPath $archiveDirectory)) {
-                Remove-Item -LiteralPath $archiveDirectory -Recurse -Force `
-                    -ErrorAction SilentlyContinue
-            }
+            Remove-Item -LiteralPath $archiveDirectory -Recurse -Force `
+                -ErrorAction SilentlyContinue
             Write-LongRunLog -Component 'completed-session' `
                 -Event 'retain-failed' -Level 'warning' -Session $Session `
-                -Data @{
-                    errorType = $retentionError.Exception.GetType().FullName
-                    stage = $retentionStage
-                }
+                -Data @{ errorType = $_.Exception.GetType().FullName }
             return $false
         }
+    }
+}
+
+function Stop-LongRunCompletedViewer {
+    param(
+        [Parameter(Mandatory = $true)]$Record,
+        [Parameter(Mandatory = $true)][string]$PsmuxPath
+    )
+
+    $manifest = $Record.Manifest
+    if ($manifest.psmuxId -and $manifest.psmuxCreated) {
+        $existing = Get-LongRunPsmuxSessions $PsmuxPath |
+            Where-Object {
+                $_.Name -eq $Record.Session -and
+                $_.Id -eq $manifest.psmuxId -and
+                $_.Created -eq [long]$manifest.psmuxCreated
+            } | Select-Object -First 1
+        if ($existing -and -not (Stop-LongRunPsmuxSession `
+                -PsmuxPath $PsmuxPath -Session $Record.Session `
+                -ExpectedCreated $existing.Created -ExpectedId $existing.Id)) {
+            throw 'Failed to remove the completed output viewer.'
+        }
+    }
+    $manifest.psmuxId = $null
+    $manifest.psmuxCreated = 0
+    [IO.File]::WriteAllText(
+        (Join-Path $Record.Directory 'manifest.json'),
+        ($manifest | ConvertTo-Json -Depth 4),
+        [Text.UTF8Encoding]::new($false))
+}
+
+function Start-LongRunCompletedViewer {
+    param(
+        [Parameter(Mandatory = $true)]$Record,
+        [Parameter(Mandatory = $true)][string]$PsmuxPath,
+        [Parameter(Mandatory = $true)][string]$PowerShellPath
+    )
+
+    $manifest = $Record.Manifest
+    $Session = $Record.Session
+    if ($Record.ExpiresAt -le [DateTimeOffset]::UtcNow) {
+        throw 'The completed output archive has expired.'
+    }
+    $existing = Get-LongRunPsmuxSessions $PsmuxPath |
+        Where-Object Name -EQ $Session | Select-Object -First 1
+    if ($existing) {
+        if ($existing.Id -eq $manifest.psmuxId -and
+            $existing.Created -eq [long]$manifest.psmuxCreated) {
+            return $existing.Id
+        }
+        throw 'The completed output session name has been reused.'
+    }
+    $archiveDirectory = $Record.Directory
+    $transcriptPath = Join-Path $archiveDirectory 'transcript.log'
+    $viewerPath = Join-Path $archiveDirectory 'View-CompletedSession.ps1'
+    $viewerGatePath = Join-Path $archiveDirectory 'viewer.ready'
+    $manifestPath = Join-Path $archiveDirectory 'manifest.json'
+    $WorkingDirectory = if ($manifest.workingDirectory -and
+        (Test-Path -LiteralPath $manifest.workingDirectory -PathType Container)) {
+        $manifest.workingDirectory
+    } else {
+        $archiveDirectory
+    }
+    $archiveSession = $null
+    Remove-Item -LiteralPath $viewerGatePath -Force -ErrorAction SilentlyContinue
+    try {
+        $start = Invoke-PsmuxSetupCommand `
+            -Arguments @(
+                'new-session', '-d', '-s', $Session,
+                '-c', $WorkingDirectory, '--',
+                $PowerShellPath, '-NoLogo', '-NoProfile',
+                '-NonInteractive', '-File', $viewerPath,
+                '-TranscriptPath', $transcriptPath,
+                '-GatePath', $viewerGatePath,
+                '-CompletedAt', [string]$manifest.completedAt,
+                '-ExpiresAt', [string]$manifest.expiresAt,
+                '-ExitCode', [string]$manifest.exitCode
+            ) `
+            -TimeoutMilliseconds 15000
+        if ($start.ExitCode -ne 0) {
+            throw "psmux failed to start the completed viewer (exit $($start.ExitCode))."
+        }
+
+        $archiveSession = Get-LongRunPsmuxSessions $PsmuxPath |
+            Where-Object Name -EQ $Session | Select-Object -First 1
+        if (-not $archiveSession) {
+            throw "The completed viewer did not create session '$Session'."
+        }
+        $manifest.psmuxCreated = $archiveSession.Created
+        $manifest.psmuxId = $archiveSession.Id
+        [IO.File]::WriteAllText(
+            $manifestPath,
+            ($manifest | ConvertTo-Json -Depth 4),
+            [Text.UTF8Encoding]::new($false))
+
+        $target = $archiveSession.Id
+        $remainResult = Invoke-PsmuxSetupCommand `
+            -Arguments @(
+                'set-option', '-w', '-t', $target,
+                'remain-on-exit', 'on') `
+            -TimeoutMilliseconds 10000
+        if ($remainResult.ExitCode -ne 0) {
+            throw "psmux failed to retain the completed pane (exit $($remainResult.ExitCode))."
+        }
+        foreach ($option in @(
+                @('set-option', '-t', $target,
+                    '@long-run-state', 'completed'),
+                @('set-option', '-t', $target,
+                    '@long-run-completed-at', [string]$manifest.completedAt),
+                @('set-option', '-t', $target,
+                    '@long-run-expires-at', [string]$manifest.expiresAt),
+                @('set-option', '-t', $target,
+                    '@long-run-exit-code', [string]$manifest.exitCode),
+                @('set-option', '-t', $target,
+                    '@long-run-archive-id', [string]$manifest.archiveId),
+                @('set-option', '-t', $target, 'status', 'off'),
+                @('set-option', '-w', '-t', $target, 'history-limit', '50000'))) {
+            $setResult = Invoke-PsmuxSetupCommand `
+                -Arguments $option `
+                -TimeoutMilliseconds 10000
+            if ($setResult.ExitCode -ne 0) {
+                throw "psmux failed to configure the completed viewer (exit $($setResult.ExitCode))."
+            }
+        }
+        [IO.File]::WriteAllText(
+            $viewerGatePath, 'ready', [Text.UTF8Encoding]::new($false))
+        return $archiveSession.Id
+    } catch {
+        if ($archiveSession) {
+            Stop-LongRunCompletedViewer -Record $Record -PsmuxPath $PsmuxPath
+        }
+        throw
     }
 }

@@ -52,6 +52,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'LongRun.Common.ps1')
+. (Join-Path $PSScriptRoot 'LongRun.Completed.ps1')
 $StateDirectory = ConvertTo-LongRunCanonicalPath $StateDirectory
 $stateMarkerFile = Join-Path $StateDirectory '.long-run-mux-gateway'
 $defaultWorkingDirectory = if ($env:USERPROFILE) {
@@ -508,6 +509,8 @@ try {
         Write-Warning 'No CaskaydiaCove Nerd Font file was found. Use -TerminalFontPath to provide one.'
     }
     $GatewaySource = (Resolve-Path -LiteralPath $GatewaySource).Path
+    $completedArchiveRoot = Get-LongRunCompletedArchiveRoot
+    $completedSessionScript = Join-Path $PSScriptRoot 'Invoke-LongRunCompletedSession.ps1'
     $gatewayPackage = Get-Content (Join-Path $GatewaySource 'package.json') -Raw |
         ConvertFrom-Json
     $gatewayVersion = [string]$gatewayPackage.version
@@ -529,6 +532,9 @@ try {
         (Get-FileHash (Join-Path $GatewaySource 'package.json') -Algorithm SHA256).Hash
         (Get-FileHash (Join-Path $GatewaySource 'package-lock.json') -Algorithm SHA256).Hash
         (Get-FileHash (Join-Path $GatewaySource '.npmrc') -Algorithm SHA256).Hash
+        (Get-FileHash $completedSessionScript -Algorithm SHA256).Hash
+        (Get-FileHash (Join-Path $PSScriptRoot 'LongRun.Completed.ps1') -Algorithm SHA256).Hash
+        (Get-FileHash (Join-Path $PSScriptRoot 'LongRun.Common.ps1') -Algorithm SHA256).Hash
     ) -join ':'
     $configurationText = @(
         $sourceHashText
@@ -538,6 +544,8 @@ try {
         $NodePath
         $NpmPath
         $ShellPath
+        $completedArchiveRoot
+        $completedSessionScript
         $TerminalStartupIdleSeconds
         $TerminalDisconnectIdleSeconds
         $TerminalFontFamily
@@ -642,35 +650,6 @@ try {
                 [string]$tunnelPlan.TunnelId -eq [string]$metadata.tunnelId))) {
         [string]$metadata.terminalCapability
     }
-    $preservedCsrfToken = if ($preservedCapability -and $metadata.csrfToken) {
-        [string]$metadata.csrfToken
-    }
-    if ($LocalOnly -and $metadata -and $metadata.tunnelId) {
-        Stop-LongRunProcessTree `
-            -ProcessId ([int]$metadata.tunnelPid) `
-            -ExpectedStartTimeUtcTicks ([long]$metadata.tunnelStartTimeUtcTicks) `
-            -ExpectedPath ([string]$metadata.tunnelRunnerPath) | Out-Null
-        $transitionDevTunnelPath = if ($metadata.devTunnelPath -and
-            (Test-Path -LiteralPath ([string]$metadata.devTunnelPath) `
-                -PathType Leaf)) {
-            [string]$metadata.devTunnelPath
-        } else {
-            Resolve-LongRunCommandPath $DevTunnelPath @('devtunnel') `
-                'Install it with: winget install --id Microsoft.devtunnel'
-        }
-        $savedDevTunnelPath = $DevTunnelPath
-        try {
-            $DevTunnelPath = $transitionDevTunnelPath
-            if (-not (Remove-LongRunCloudTunnel (
-                        [string]$metadata.tunnelId) `
-                    'local-transition-tunnel-delete-failed')) {
-                throw "devtunnel failed to delete tunnel '$($metadata.tunnelId)'. " +
-                    'Gateway state was retained for retry.'
-            }
-        } finally {
-            $DevTunnelPath = $savedDevTunnelPath
-        }
-    }
     Remove-StaleGateway $metadata
     New-Item -ItemType Directory -Force -Path $StateDirectory | Out-Null
     [System.IO.File]::WriteAllText(
@@ -709,11 +688,6 @@ try {
     } else {
         New-LongRunCapability
     }
-    $csrfToken = if ($preservedCsrfToken) {
-        $preservedCsrfToken
-    } else {
-        New-LongRunCapability
-    }
     Write-Verbose "Selected loopback port $port."
     $configFile = Join-Path $StateDirectory 'config.json'
     $config = [ordered]@{
@@ -723,6 +697,12 @@ try {
         psmux = $PsmuxPath
         ttyd = $TtydPath
         shell = $ShellPath
+        completedArchiveRoot = $completedArchiveRoot
+        completedSessionCommand = @{
+            file = (Get-Process -Id $PID).Path
+            args = @('-NoLogo', '-NoProfile', '-NonInteractive', '-File',
+                $completedSessionScript)
+        }
         version = $gatewayVersion
         defaultWorkingDirectory = $defaultWorkingDirectory
         terminalStartupIdleSeconds = $TerminalStartupIdleSeconds
@@ -730,7 +710,6 @@ try {
         terminalFontFamily = $TerminalFontFamily
         terminalFontPath = $TerminalFontPath
         terminalCapability = $terminalCapability
-        csrfToken = $csrfToken
         logPath = Get-LongRunGatewayLogPath $StateDirectory
     }
     [System.IO.File]::WriteAllText(
@@ -769,7 +748,6 @@ try {
             allowAnonymous = [bool]$AllowAnonymous
             startedAt = [DateTimeOffset]::UtcNow.ToString('o')
             terminalCapability = $terminalCapability
-            csrfToken = $csrfToken
         }
         Write-GatewayMetadata $metadataFile $metadata
         Write-Verbose "Started gateway session '$gatewaySession' (runner PID $gatewayPid)."

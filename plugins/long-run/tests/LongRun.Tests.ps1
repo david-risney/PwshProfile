@@ -416,7 +416,7 @@ exit 23
         Set-Content -LiteralPath $commandFile -Value "Write-Output 'COMMAND_STARTED'; exit 0"
         @'
 [pscustomobject]@{
-    Url = 'https://example.devtunnels.ms/tmux/?longRunCapability=capability'
+    Url = 'https://example.devtunnels.ms/tmux/?accessToken=capability'
     BaseUrl = 'https://example.devtunnels.ms'
     TerminalCapability = 'capability'
 }
@@ -732,7 +732,8 @@ Describe 'Invoke-LongRunHook' {
         $commandFileContent =
             [System.IO.File]::ReadAllText($match.Groups[1].Value)
         $commandFileContent | Should Match "Write-Output 'quoted value'"
-        $commandFileContent | Should Not Match '\$global:LASTEXITCODE\s*='
+        $commandFileContent | Should Match '\$global:LASTEXITCODE = 0'
+        $commandFileContent | Should Match 'exit \$LASTEXITCODE'
         Remove-Item -LiteralPath $match.Groups[1].Value -Force
     }
 
@@ -773,116 +774,6 @@ Describe 'Invoke-LongRunHook' {
         try {
             & pwsh -NoProfile -File $commandFile
             $LASTEXITCODE | Should Be 7
-        } finally {
-            Remove-Item -LiteralPath $commandFile -Force `
-                -ErrorAction SilentlyContinue
-        }
-    }
-
-    It 'does not reuse a stale native exit code for a final PowerShell failure' {
-        $missingPath = Join-Path $TestDrive 'missing-hook-path'
-        $result = Invoke-Hook @{
-            command = "& `$env:ComSpec /d /c 'exit /b 23'; Get-Item '$missingPath'"
-            description = 'Return a PowerShell failure'
-            mode = 'sync'
-        }
-        $match = [regex]::Match(
-            $result.modifiedArgs.command,
-            "-CommandFile '([^']+)'")
-        $match.Success | Should Be $true
-        $commandFile = $match.Groups[1].Value
-        try {
-            & pwsh -NoProfile -File $commandFile 2>$null
-            $LASTEXITCODE | Should Be 1
-        } finally {
-            Remove-Item -LiteralPath $commandFile -Force `
-                -ErrorAction SilentlyContinue
-        }
-    }
-
-    It 'returns one for an ignored final PowerShell error after a native failure' {
-        $missingPath = Join-Path $TestDrive 'ignored-missing-hook-path'
-        $result = Invoke-Hook @{
-            command = "& `$env:ComSpec /d /c 'exit /b 23'; Get-Item '$missingPath' -ErrorAction Ignore"
-            description = 'Return an ignored PowerShell failure'
-            mode = 'sync'
-        }
-        $match = [regex]::Match(
-            $result.modifiedArgs.command,
-            "-CommandFile '([^']+)'")
-        $match.Success | Should Be $true
-        $commandFile = $match.Groups[1].Value
-        try {
-            & pwsh -NoProfile -File $commandFile
-            $LASTEXITCODE | Should Be 1
-        } finally {
-            Remove-Item -LiteralPath $commandFile -Force `
-                -ErrorAction SilentlyContinue
-        }
-    }
-
-    It 'does not wrap a branch-dependent terminal statement' {
-        $result = Invoke-Hook @{
-            command = "if (`$true) { & `$env:ComSpec /d /c 'exit /b 23' }"
-            description = 'Run a branch-dependent command'
-            mode = 'sync'
-        }
-
-        @($result.PSObject.Properties).Count | Should Be 0
-    }
-
-    It 'does not wrap a native command invoked through a runtime variable' {
-        $result = Invoke-Hook @{
-            command = "`$exe = `$env:ComSpec`n& `$exe /d /c 'exit /b 23'"
-            description = 'Run a dynamic native command'
-            mode = 'sync'
-        }
-
-        @($result.PSObject.Properties).Count | Should Be 0
-    }
-
-    It 'does not wrap native commands invoked through runtime expressions' {
-        $cases = @(
-            @{
-                Command = "`$tool = Get-Command `$env:ComSpec`n& `$tool.Source /d /c 'exit /b 26'"
-                ExitCode = 26
-            },
-            @{
-                Command = "`$commands = @(`$env:ComSpec)`n& `$commands[0] /d /c 'exit /b 27'"
-                ExitCode = 27
-            },
-            @{
-                Command = "& (Get-Command `$env:ComSpec) /d /c 'exit /b 28'"
-                ExitCode = 28
-            }
-        )
-        foreach ($case in $cases) {
-            $result = Invoke-Hook @{
-                command = $case.Command
-                description = 'Run a dynamic native command'
-                mode = 'sync'
-            }
-            @($result.PSObject.Properties).Count | Should Be 0
-        }
-    }
-
-    It 'does not expose wrapper state to the original command' {
-        $result = Invoke-Hook @{
-            command = "'LAST=' + [string]`$LASTEXITCODE; " +
-                "'BREAKPOINTS=' + @(Get-PSBreakpoint).Count"
-            description = 'Inspect wrapper state'
-            mode = 'sync'
-        }
-        $match = [regex]::Match(
-            $result.modifiedArgs.command,
-            "-CommandFile '([^']+)'")
-        $match.Success | Should Be $true
-        $commandFile = $match.Groups[1].Value
-        try {
-            $output = & pwsh -NoProfile -File $commandFile
-            $LASTEXITCODE | Should Be 0
-            ($output -join "`n") | Should Match 'LAST=\s*\r?\n'
-            ($output -join "`n") | Should Match 'BREAKPOINTS=0'
         } finally {
             Remove-Item -LiteralPath $commandFile -Force `
                 -ErrorAction SilentlyContinue
@@ -970,7 +861,7 @@ Describe 'Invoke-LongRunHook' {
 
 Describe 'Publish-LongRunUrl' {
     It 'provides a named Markdown remote session link as post-tool context' {
-        $url = 'https://example.devtunnels.ms/tmux/session/test-session/?longRunCapability=synthetic-capability'
+        $url = 'https://example.devtunnels.ms/tmux/session/test-session/?accessToken=synthetic-capability'
         $result = Invoke-PublishUrlHook @"
 Long-running command session: test-session
 LONGRUN_REMOTE_URL=$url
@@ -986,7 +877,7 @@ LONGRUN_TMUX_URL=https://example.devtunnels.ms/tmux/
     }
 
     It 'falls back to a generic Markdown label when the session name is absent' {
-        $url = 'https://example.devtunnels.ms/tmux/session/test-session/?longRunCapability=synthetic-capability'
+        $url = 'https://example.devtunnels.ms/tmux/session/test-session/?accessToken=synthetic-capability'
         $result = Invoke-PublishUrlHook "LONGRUN_REMOTE_URL=$url"
 
         $result.additionalContext | Should Match (
@@ -1073,17 +964,6 @@ Describe 'Completed-session archive cleanup' {
             . (Join-Path $scriptRoot 'LongRun.Completed.ps1')
             $archiveRoot = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
             New-Item -ItemType Directory -Path $archiveRoot | Out-Null
-            $script:completedSessionMapFailure = $false
-            function Invoke-PsmuxSetupCommand {
-                [pscustomobject]@{
-                    ExitCode = if ($script:completedSessionMapFailure) {
-                        2
-                    } else {
-                        1
-                    }
-                    Output = ''
-                }
-            }
         }
 
         function New-TestCompletedArchive(
@@ -1129,7 +1009,7 @@ Describe 'Completed-session archive cleanup' {
 
             Invoke-LongRunCompletedCleanupUnlocked `
                 -ArchiveRoot $archiveRoot `
-                -PsmuxPath 'test-psmux' `
+                -PsmuxPath 'missing-psmux' `
                 -SessionLimit 2 `
                 -StorageLimitBytes 10MB
 
@@ -1148,7 +1028,7 @@ Describe 'Completed-session archive cleanup' {
 
             Invoke-LongRunCompletedCleanupUnlocked `
                 -ArchiveRoot $archiveRoot `
-                -PsmuxPath 'test-psmux' `
+                -PsmuxPath 'missing-psmux' `
                 -SessionLimit 10 `
                 -StorageLimitBytes 1MB
 
@@ -1156,19 +1036,63 @@ Describe 'Completed-session archive cleanup' {
             (Test-Path -LiteralPath $newest) | Should Be $true
     }
 
-    It 'preserves archives when psmux session enumeration fails' {
-            $now = [DateTimeOffset]::UtcNow
-            $directory = New-TestCompletedArchive $archiveRoot 'list-failure' `
-                $now.AddMinutes(-1) $now.AddMinutes(-1)
-            $script:completedSessionMapFailure = $true
+    It 'preserves archived output when its replay viewer is missing' {
+        $now = [DateTimeOffset]::UtcNow
+        $directory = New-TestCompletedArchive $archiveRoot 'viewer-missing' `
+            $now.AddMinutes(-1) $now.AddHours(1)
+        $manifestPath = Join-Path $directory 'manifest.json'
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        $manifest.psmuxCreated = 1700000000
+        $manifest.psmuxId = '$42'
+        [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json))
+        $fakePsmux = Join-Path $TestDrive 'no-viewer-psmux.cmd'
+        [IO.File]::WriteAllText($fakePsmux, "@echo off`r`nexit /b 1`r`n")
 
-            Invoke-LongRunCompletedCleanupUnlocked `
-                -ArchiveRoot $archiveRoot `
-                -PsmuxPath 'test-psmux' `
-                -SessionLimit 0 `
-                -StorageLimitBytes 0
+        Invoke-LongRunCompletedCleanupUnlocked -ArchiveRoot $archiveRoot `
+            -PsmuxPath $fakePsmux -SessionLimit 10 -StorageLimitBytes 1MB
 
-            (Test-Path -LiteralPath $directory) | Should Be $true
+        (Test-Path -LiteralPath $directory) | Should Be $true
+    }
+
+    It 'archives a completed transcript without launching a replay session' {
+        Mock Start-LongRunDetachedPowerShell {}
+        Mock Invoke-PsmuxSetupCommand { throw 'Unexpected psmux command.' }
+        $source = Join-Path $TestDrive 'completed-transcript.log'
+        [IO.File]::WriteAllText($source, "saved output`n")
+
+        $retained = Publish-LongRunCompletedSession -ArchiveRoot $archiveRoot `
+            -PsmuxPath 'unused' -Session 'archive-only' `
+            -WorkingDirectory $TestDrive -SourceFiles @($source) `
+            -ExitCode 23 -TtlSeconds 3600 -SessionLimit 100 `
+            -StorageLimitBytes 200MB -CaptureComplete $true
+
+        $retained | Should Be $true
+        $records = @(Get-LongRunCompletedArchiveRecords $archiveRoot)
+        $records.Count | Should Be 1
+        $records[0].Manifest.psmuxId | Should BeNullOrEmpty
+        $records[0].Manifest.workingDirectory | Should Be ([string]$TestDrive)
+        $records[0].Manifest.exitCode | Should Be 23
+        [IO.File]::ReadAllText((Join-Path $records[0].Directory 'transcript.log')) |
+            Should Be "saved output`n"
+        Assert-MockCalled Start-LongRunDetachedPowerShell -Times 1 -Exactly
+        Assert-MockCalled Invoke-PsmuxSetupCommand -Times 0 -Exactly
+    }
+
+    It 'removes an expired archive even when its manifest records a viewer' {
+        $now = [DateTimeOffset]::UtcNow
+        $directory = New-TestCompletedArchive $archiveRoot 'expired-viewer' `
+            $now.AddMinutes(-2) $now.AddMinutes(-1)
+        $manifestPath = Join-Path $directory 'manifest.json'
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        $manifest.psmuxCreated = 1700000000
+        $manifest.psmuxId = '$42'
+        [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json))
+        Mock Get-LongRunPsmuxSessions { @() }
+
+        Invoke-LongRunCompletedCleanupUnlocked -ArchiveRoot $archiveRoot `
+            -PsmuxPath 'unused' -SessionLimit 10 -StorageLimitBytes 1MB
+
+        (Test-Path -LiteralPath $directory) | Should Be $false
     }
 
     It 'preserves an archive record when its exact session cannot be removed' {

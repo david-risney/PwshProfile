@@ -182,7 +182,7 @@ param(
     [string]$PsmuxPath
 )
 [pscustomobject]@{
-    Url = 'https://example.usw2.devtunnels.ms/tmux/?longRunCapability=test-capability'
+    Url = 'https://example.usw2.devtunnels.ms/tmux/?accessToken=test-capability'
     BaseUrl = 'https://example.usw2.devtunnels.ms'
     TerminalCapability = 'test-capability'
     Reused = $true
@@ -196,14 +196,14 @@ param(
         $LASTEXITCODE | Should Be 0
         ($output -join "`n") | Should Match 'LONGRUN_SHELL_REMOTE=true'
         ($output -join "`n") | Should Match (
-            "LONGRUN_SHELL_REMOTE_URL=https://example\.usw2\.devtunnels\.ms/tmux/session/$session/\?longRunCapability=test-capability")
+            "LONGRUN_SHELL_REMOTE_URL=https://example\.usw2\.devtunnels\.ms/tmux/session/$session/\?accessToken=test-capability")
         ($output -join "`n") | Should Match (
-            'LONGRUN_TMUX_URL=https://example\.usw2\.devtunnels\.ms/tmux/\?longRunCapability=test-capability')
+            'LONGRUN_TMUX_URL=https://example\.usw2\.devtunnels\.ms/tmux/\?accessToken=test-capability')
 
         $metadata = Get-Content (Join-Path $stateDir 'session.json') -Raw |
             ConvertFrom-Json
-        $metadata.remoteUrl | Should Be "https://example.usw2.devtunnels.ms/tmux/session/$session/?longRunCapability=test-capability"
-        $metadata.inventoryUrl | Should Be 'https://example.usw2.devtunnels.ms/tmux/?longRunCapability=test-capability'
+        $metadata.remoteUrl | Should Be "https://example.usw2.devtunnels.ms/tmux/session/$session/?accessToken=test-capability"
+        $metadata.inventoryUrl | Should Be 'https://example.usw2.devtunnels.ms/tmux/?accessToken=test-capability'
 
         Remove-Item (Join-Path $root 'active') -Force
         (Wait-Condition { -not (Test-Path -LiteralPath $stateDir) } 20) |

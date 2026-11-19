@@ -49,16 +49,22 @@ multiple long-run sessions, each link is preserved with its session name.
 ## Completed command output
 
 After the synchronous command exits, long-run retains its raw terminal
-transcript and creates a lightweight, detached psmux session with the same
-session name. A short-lived `pwsh -NoLogo -NoProfile -NonInteractive` process
-streams the transcript into the pane and exits; psmux `remain-on-exit` keeps
-the dead pane and scrollback attachable without a shell process remaining.
-Copilot still receives the original command's exit code and does not return
-until capture and viewer publication finish. The existing local
-`psmux attach-session -t <name>` command and remote session URL can therefore be
-used again to inspect completed output. Remote completed sessions attach
-read-only, and the inventory marks them completed with their exit code and
-expiry time.
+transcript without creating another psmux session. Copilot still receives the
+original command's exit code after capture and archive publication finish.
+The web inventory lists these archives as completed with their exit code and
+expiry time, even when no psmux session exists.
+
+Opening the existing remote session URL creates a detached, same-name replay
+session on demand. A short-lived `pwsh -NoLogo -NoProfile -NonInteractive`
+process streams the saved transcript into its pane and exits;
+`remain-on-exit` preserves the scrollback. Concurrent requests share one
+read-only viewer. After the last web client disconnects, the gateway removes
+both ttyd and the replay psmux session using its normal disconnect idle timeout.
+An unopened web terminal is removed at the normal startup idle timeout.
+The transcript remains available for another replay until its original expiry;
+opening it does not extend retention. Local `psmux attach-session -t <name>`
+works only while a replay viewer exists. Running commands and explicitly
+persistent interactive shells are unchanged.
 
 Completed transcripts are stored under
 `%LOCALAPPDATA%\long-run\completed\<archive-id>`. They can contain command
@@ -68,11 +74,11 @@ scripts, environment snapshots, result files, and hook command files are still
 deleted immediately.
 
 Retention defaults to one hour, at most 100 completed sessions, and 200 MiB.
-One detached singleton expiry watcher removes the retained dead pane and its
-archive at expiry, including when the session was killed first. New commands
-also remove expired or missing viewers and evict the oldest unattached completed
-sessions to enforce count and storage limits. Reusing a session name removes
-its prior completed viewer before starting the new command. Configure the
+One detached singleton expiry watcher removes the archive and any replay
+viewer at expiry. Removing a viewer alone does not remove its archive. New
+commands also remove expired archives and evict the oldest unattached completed
+archives to enforce count and storage limits. Reusing a session name removes
+its prior archive and completed viewer before starting the new command. Configure the
 defaults with:
 
 ```text

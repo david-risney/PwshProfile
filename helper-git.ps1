@@ -628,36 +628,33 @@ function Get-ReviewedBy {
   $gitLog = git log -- $Path;
 
   Write-Progress -Activity "Get-ReviewedBy" -Status "Processing history" -PercentComplete 60;
-  $gitLogProcessed = $gitLog | 
-    Select-String "Reviewed-by: (.*)" | 
-    Group-Object | 
-    Select-Object Name, Count;
+  $gitLogProcessed = $gitLog |
+    ForEach-Object {
+      if ($_ -match "^\s*Reviewed-by:\s*([^<]+?)\s*<([^>]+)>\s*$") {
+        [pscustomobject]@{
+          Name = $matches[1].Trim();
+          Email = $matches[2].Trim().ToLowerInvariant();
+        };
+      }
+    } |
+    Group-Object Email;
 
   Write-Progress -Activity "Get-ReviewedBy" -Status "Correlating history and owners" -PercentComplete 80;
-  $result = $gitLogProcessed | 
-    Where-Object { !($_.Name.StartsWith(">")) } |
-    ForEach-Object { 
-      # Parse email out of name which looks like 'Reviewed-by: Name Othername <nothername@domain.org> '
-      $fullName = "";
-      $email = "";
-
-      if ($_.Name -match "Reviewed-by: ([^<]+) <([^>]+)>") {
-        $fullName = $matches[1].Trim();
-        $email = $matches[2].Trim();
-      }
-
+  $result = $gitLogProcessed |
+    ForEach-Object {
+      $email = $_.Name;
       $isOwner = $false;
       if ($owners) {
         $isOwner = ($owners | Where-Object { $_ -eq $email }).Count -gt 0;
       }
 
       [pscustomobject]@{
-        Name = $fullName;
+        Name = $_.Group[0].Name;
         Email = $email;
         ReviewCount = ($_.Count);
         IsOwner = $isOwner;
       };
-    } | 
+    } |
     Sort-Object ReviewCount -Descending;
 
   Write-Progress -Activity "Get-ReviewedBy" -Status "Done" -PercentComplete 100;
