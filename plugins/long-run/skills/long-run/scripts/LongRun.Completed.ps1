@@ -272,6 +272,7 @@ function Publish-LongRunCompletedSession {
         [Parameter(Mandatory = $true)][string]$Session,
         [Parameter(Mandatory = $true)][string]$WorkingDirectory,
         [Parameter(Mandatory = $true)][string[]]$SourceFiles,
+        [string[]]$Commands = @(),
         [Parameter(Mandatory = $true)][int]$ExitCode,
         [Parameter(Mandatory = $true)][int]$TtlSeconds,
         [Parameter(Mandatory = $true)][int]$SessionLimit,
@@ -370,10 +371,11 @@ Write-Host (
                 [Text.UTF8Encoding]::new($false))
 
             $manifest = [ordered]@{
-                schemaVersion = 1
+                schemaVersion = 2
                 archiveId = $archiveId
                 session = $Session
                 workingDirectory = $WorkingDirectory
+                commands = @($Commands)
                 completedAt = $completedAt.ToString('o')
                 expiresAt = $expiresAt.ToString('o')
                 exitCode = $ExitCode

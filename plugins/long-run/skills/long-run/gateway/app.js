@@ -131,11 +131,14 @@ function cell(label, content) {
   return td;
 }
 
-function copyableValue(value, label) {
+function copyableValue(value, label, { tooltip = false } = {}) {
   const container = document.createElement("span");
   container.className = "copyable-value";
   const code = document.createElement("code");
   code.textContent = value || "Unknown";
+  if (value && tooltip) {
+    code.title = value;
+  }
   container.append(code);
   if (!value) {
     return container;
@@ -255,7 +258,7 @@ function sessionRow(session) {
       sessionTime(session.completedAt || session.startedAt),
     ),
     cell("Path", copyableValue(session.cwd, "working directory")),
-    cell("Command", copyableValue(session.command, "command")),
+    cell("Command", copyableValue(session.command, "command", { tooltip: true })),
     cell("Actions", manage),
   );
   return row;

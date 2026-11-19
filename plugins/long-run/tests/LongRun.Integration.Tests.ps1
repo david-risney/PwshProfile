@@ -167,13 +167,17 @@ Describe 'Long-run completed-output integration' {
                 "RETAINED_FIRST_MARKER`nRETAINED_LAST_MARKER`n")
             (Publish-LongRunCompletedSession -ArchiveRoot $archiveRoot `
                 -PsmuxPath $psmux -Session $session -WorkingDirectory $root `
-                -SourceFiles @($commandFile) -ExitCode 23 -TtlSeconds 120 `
+                -SourceFiles @($commandFile) -Commands @('Get-LongRunMarker') `
+                -ExitCode 23 -TtlSeconds 120 `
                 -SessionLimit 10 -StorageLimitBytes 1MB -CaptureComplete $true) |
                 Should Be $true
             (Test-LongRunIntegrationSession $psmux $session) | Should Be $false
 
             $archives = @(Get-ChildItem -LiteralPath $archiveRoot -Directory)
             $archives.Count | Should Be 1
+            $manifest = Get-Content (Join-Path $archives[0].FullName 'manifest.json') `
+                -Raw | ConvertFrom-Json
+            $manifest.commands[0] | Should Be 'Get-LongRunMarker'
             $archiveId = $archives[0].Name
             $completedScript = Join-Path $scriptRoot 'Invoke-LongRunCompletedSession.ps1'
             $viewer = & pwsh -NoProfile -File $completedScript `
@@ -244,7 +248,8 @@ Describe 'Long-run completed-output integration' {
             $archiveRoot = Join-Path $env:LOCALAPPDATA 'long-run\completed'
             (Publish-LongRunCompletedSession -ArchiveRoot $archiveRoot `
                 -PsmuxPath $psmux -Session $session -WorkingDirectory $root `
-                -SourceFiles @($firstCommand) -ExitCode 0 -TtlSeconds 120 `
+                -SourceFiles @($firstCommand) -Commands @('Write-Output FIRST_RETAINED') `
+                -ExitCode 0 -TtlSeconds 120 `
                 -SessionLimit 10 -StorageLimitBytes 1MB -CaptureComplete $true) |
                 Should Be $true
             (Test-LongRunIntegrationSession $psmux $session) | Should Be $false

@@ -400,10 +400,11 @@ setTimeout(
 
 function archiveCompletedOutput(current, overrides = {}) {
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     archiveId: crypto.randomUUID().replaceAll("-", ""),
     session: "archived",
     workingDirectory: current.directory,
+    commands: ["Write-Output 'archived command'"],
     completedAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + 3600000).toISOString(),
     exitCode: 23,
@@ -433,9 +434,24 @@ test("lists archives without creating viewers, including when psmux has no sessi
     assert.equal(sessions[0].id, `archive-${manifest.archiveId}`);
     assert.equal(sessions[0].completed, true);
     assert.equal(sessions[0].exitCode, 23);
+    assert.equal(sessions[0].command, "Write-Output 'archived command'");
     assert.equal(sessions[0].psmuxId, null);
     assert.equal(current.gateway.terminals.size, 0);
     assert.equal(fs.existsSync(path.join(current.directory, "archive-actions.log")), false);
+  } finally {
+    await current.close();
+  }
+});
+
+test("labels legacy completed archives without command metadata", async () => {
+  const current = await fixture();
+  try {
+    archiveCompletedOutput(current, { commands: undefined });
+    fs.writeFileSync(current.stateFile, JSON.stringify({ sessions: [] }));
+    const response = await authorizedRequest(current, "/tmux/api/sessions", { timeoutMs: 10000 });
+    assert.equal(response.status, 200);
+    const [session] = JSON.parse(response.body).sessions;
+    assert.equal(session.command, "Completed command output");
   } finally {
     await current.close();
   }
@@ -663,6 +679,13 @@ test("serves a script inventory and session REST resources", async () => {
       );
     }
     assert.match(response.body, /class="sort-indicator" aria-hidden="true"/);
+    assert.match(response.body, /table \{[^}]*table-layout: fixed;/s);
+    assert.match(response.body, /th:nth-child\(2\) \{ inline-size: 9rem; \}/);
+    assert.match(response.body, /th:nth-child\(5\) \{ inline-size: 4\.5rem; \}/);
+    assert.match(
+      response.body,
+      /td\[data-label="Command"\] \.copyable-value code \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/s,
+    );
     assert.match(response.body, /\.sort-link \{[^}]*white-space: nowrap;/s);
     assert.match(response.body, /\.sort-link:focus-visible \{[^}]*outline:/s);
     assert.match(response.body, /\.sort-up \{ border-block-end:/);
@@ -705,7 +728,8 @@ test("serves a script inventory and session REST resources", async () => {
     assert.doesNotMatch(app.body, /\b(?:attachedClients|webTerminalActive|actions): \(/);
     assert.match(app.body, /manage\.textContent = "\.\.\.";/);
     assert.match(app.body, /manage\.setAttribute\("aria-label", `Manage session \$\{session\.name\}`\)/);
-    assert.match(app.body, /function copyableValue\(value, label\)/);
+    assert.match(app.body, /function copyableValue\(value, label, \{ tooltip = false \} = \{\}\)/);
+    assert.match(app.body, /if \(value && tooltip\) \{\s*code\.title = value;/);
     assert.match(app.body, /navigator\.clipboard\.writeText\(value\)/);
     assert.match(
       app.body,
@@ -719,7 +743,10 @@ test("serves a script inventory and session REST resources", async () => {
     assert.match(app.body, /confirmKill\.addEventListener\("click", async \(\) =>/);
     assert.doesNotMatch(app.body, /\b(?:confirm|prompt)\(/);
     assert.match(app.body, /cell\("Path", copyableValue\(session\.cwd, "working directory"\)\)/);
-    assert.match(app.body, /cell\("Command", copyableValue\(session\.command, "command"\)\)/);
+    assert.match(
+      app.body,
+      /cell\("Command", copyableValue\(session\.command, "command", \{ tooltip: true \}\)\)/,
+    );
     assert.match(app.body, /killSession\.hidden = session\.killable === false/);
     assert.match(app.body, /target\.searchParams\.set\("sessionId", selectedSession\.id\)/);
     assert.match(app.body, /function filteredSessions\(\)/);

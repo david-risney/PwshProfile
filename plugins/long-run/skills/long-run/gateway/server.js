@@ -547,6 +547,7 @@ function page(defaultWorkingDirectory, csrfToken, version) {
     table {
       inline-size: 100%;
       margin-block-start: 1.5rem;
+      table-layout: fixed;
       border-collapse: collapse;
       background: var(--surface);
       border: 1px solid var(--border);
@@ -557,6 +558,10 @@ function page(defaultWorkingDirectory, csrfToken, version) {
       text-align: start;
       vertical-align: middle;
     }
+    th:nth-child(1) { inline-size: 20%; }
+    th:nth-child(2) { inline-size: 9rem; }
+    th:nth-child(3) { inline-size: 24%; }
+    th:nth-child(5) { inline-size: 4.5rem; }
     th[aria-label="Actions"], td[data-label="Actions"] { text-align: end; }
     th { font-size: .875rem; }
     .sort-link {
@@ -625,6 +630,17 @@ function page(defaultWorkingDirectory, csrfToken, version) {
       max-inline-size: 100%;
     }
     .copyable-value code { min-inline-size: 0; }
+    td[data-label="Command"] .copyable-value {
+      inline-size: 100%;
+      min-inline-size: 0;
+    }
+    td[data-label="Command"] .copyable-value code {
+      display: block;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .copy-button {
       min-block-size: 1.75rem;
       padding: .15rem .4rem;
@@ -1091,6 +1107,16 @@ function createGateway(config) {
     });
   }
 
+  function completedCommand(manifest) {
+    if (!Array.isArray(manifest.commands)) return "Completed command output";
+    const commands = manifest.commands.filter((command) => typeof command === "string");
+    if (commands.length === 0) return "Completed command output";
+    if (commands.length === 1) return commands[0];
+    return commands
+      .map((command, index) => `Pane ${index + 1}:\n${command}`)
+      .join("\n\n");
+  }
+
   async function completedSessionAction(action, sessionInfo, expectedPsmuxId = null) {
     const args = [
       "-Action", action,
@@ -1242,7 +1268,7 @@ function createGateway(config) {
         expiresAt: archive.expiresAt,
         exitCode: archive.exitCode,
         cwd: archive.workingDirectory || live?.cwd || null,
-        command: "Completed command output",
+        command: completedCommand(archive),
         links: {
           self: `/tmux/api/sessions/${encoded}`,
           terminalApi: `/tmux/api/sessions/${encoded}/terminal`,
