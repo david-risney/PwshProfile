@@ -27,29 +27,34 @@ try {
 
     while ($true) {
         $remaining = [Collections.Generic.List[object]]::new()
-        Invoke-WithLongRunCompletedArchiveLock {
-            $now = [DateTimeOffset]::UtcNow
-            foreach ($record in @(
-                    Get-LongRunCompletedArchiveRecords $canonicalRoot)) {
-                if ($record.ExpiresAt -le $now) {
-                    try {
-                        Remove-LongRunCompletedArchiveRecord `
-                            -Record $record `
-                            -PsmuxPath $PsmuxPath `
-                            -Reason 'expired'
-                    } catch {
-                        Write-LongRunLog -Component 'completed-session' `
-                            -Event 'expiry-remove-failed' -Level 'warning' `
-                            -Session $record.Session `
-                            -Data @{
-                                errorType = $_.Exception.GetType().FullName
-                            }
+        try {
+            Invoke-WithLongRunCompletedArchiveLock {
+                $now = [DateTimeOffset]::UtcNow
+                foreach ($record in @(
+                        Get-LongRunCompletedArchiveRecords $canonicalRoot)) {
+                    if ($record.ExpiresAt -le $now) {
+                        try {
+                            Remove-LongRunCompletedArchiveRecord `
+                                -Record $record `
+                                -PsmuxPath $PsmuxPath `
+                                -Reason 'expired'
+                        } catch {
+                            Write-LongRunLog -Component 'completed-session' `
+                                -Event 'expiry-remove-failed' -Level 'warning' `
+                                -Session $record.Session `
+                                -Data @{
+                                    errorType = $_.Exception.GetType().FullName
+                                }
+                            $remaining.Add($record)
+                        }
+                    } else {
                         $remaining.Add($record)
                     }
-                } else {
-                    $remaining.Add($record)
                 }
             }
+        } catch [TimeoutException] {
+            Start-Sleep -Seconds 1
+            continue
         }
         if ($remaining.Count -eq 0) {
             exit 0

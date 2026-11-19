@@ -52,6 +52,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'LongRun.Common.ps1')
+. (Join-Path $PSScriptRoot 'LongRun.Completed.ps1')
 $StateDirectory = ConvertTo-LongRunCanonicalPath $StateDirectory
 $stateMarkerFile = Join-Path $StateDirectory '.long-run-mux-gateway'
 $defaultWorkingDirectory = if ($env:USERPROFILE) {
@@ -508,6 +509,8 @@ try {
         Write-Warning 'No CaskaydiaCove Nerd Font file was found. Use -TerminalFontPath to provide one.'
     }
     $GatewaySource = (Resolve-Path -LiteralPath $GatewaySource).Path
+    $completedArchiveRoot = Get-LongRunCompletedArchiveRoot
+    $completedSessionScript = Join-Path $PSScriptRoot 'Invoke-LongRunCompletedSession.ps1'
     $gatewayPackage = Get-Content (Join-Path $GatewaySource 'package.json') -Raw |
         ConvertFrom-Json
     $gatewayVersion = [string]$gatewayPackage.version
@@ -529,6 +532,9 @@ try {
         (Get-FileHash (Join-Path $GatewaySource 'package.json') -Algorithm SHA256).Hash
         (Get-FileHash (Join-Path $GatewaySource 'package-lock.json') -Algorithm SHA256).Hash
         (Get-FileHash (Join-Path $GatewaySource '.npmrc') -Algorithm SHA256).Hash
+        (Get-FileHash $completedSessionScript -Algorithm SHA256).Hash
+        (Get-FileHash (Join-Path $PSScriptRoot 'LongRun.Completed.ps1') -Algorithm SHA256).Hash
+        (Get-FileHash (Join-Path $PSScriptRoot 'LongRun.Common.ps1') -Algorithm SHA256).Hash
     ) -join ':'
     $configurationText = @(
         $sourceHashText
@@ -538,6 +544,8 @@ try {
         $NodePath
         $NpmPath
         $ShellPath
+        $completedArchiveRoot
+        $completedSessionScript
         $TerminalStartupIdleSeconds
         $TerminalDisconnectIdleSeconds
         $TerminalFontFamily
@@ -689,6 +697,12 @@ try {
         psmux = $PsmuxPath
         ttyd = $TtydPath
         shell = $ShellPath
+        completedArchiveRoot = $completedArchiveRoot
+        completedSessionCommand = @{
+            file = (Get-Process -Id $PID).Path
+            args = @('-NoLogo', '-NoProfile', '-NonInteractive', '-File',
+                $completedSessionScript)
+        }
         version = $gatewayVersion
         defaultWorkingDirectory = $defaultWorkingDirectory
         terminalStartupIdleSeconds = $TerminalStartupIdleSeconds

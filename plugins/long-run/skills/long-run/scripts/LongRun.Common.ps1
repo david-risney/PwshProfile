@@ -584,6 +584,73 @@ exit `$process.ExitCode
     throw "Timed out waiting for the detached $Name runner to start."
 }
 
+function Invoke-PsmuxSetupCommand(
+    [string[]]$Arguments,
+    [int]$TimeoutMilliseconds
+) {
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    Initialize-LongRunHiddenProcessStartInfo $startInfo
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    if ([System.IO.Path]::GetExtension($PsmuxPath) -match '^(?i:\.cmd|\.bat)$') {
+        $startInfo.FileName = $env:ComSpec
+        [void]$startInfo.ArgumentList.Add('/d')
+        [void]$startInfo.ArgumentList.Add('/s')
+        [void]$startInfo.ArgumentList.Add('/c')
+        [void]$startInfo.ArgumentList.Add($PsmuxPath)
+    } else {
+        $startInfo.FileName = $PsmuxPath
+    }
+    foreach ($argument in $Arguments) {
+        [void]$startInfo.ArgumentList.Add($argument)
+    }
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        if (-not $process.Start()) {
+            throw 'Failed to start a psmux setup command.'
+        }
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit($TimeoutMilliseconds)) {
+            $pending = [Collections.Generic.Queue[int]]::new()
+            $pending.Enqueue($process.Id)
+            $descendants = [Collections.Generic.List[int]]::new()
+            while ($pending.Count -gt 0) {
+                $parentId = $pending.Dequeue()
+                foreach ($child in Get-CimInstance Win32_Process `
+                    -Filter "ParentProcessId = $parentId" `
+                    -ErrorAction SilentlyContinue) {
+                    $descendants.Add([int]$child.ProcessId)
+                    $pending.Enqueue([int]$child.ProcessId)
+                }
+            }
+            for ($index = $descendants.Count - 1; $index -ge 0; $index--) {
+                Stop-Process -Id $descendants[$index] -Force `
+                    -ErrorAction SilentlyContinue
+            }
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            [void]$process.WaitForExit(5000)
+            [void]$stdout.Wait(1000)
+            [void]$stderr.Wait(1000)
+            return [pscustomobject]@{
+                ExitCode = $null
+                TimedOut = $true
+                Output = ''
+                Error = ''
+            }
+        }
+        return [pscustomobject]@{
+            ExitCode = $process.ExitCode
+            TimedOut = $false
+            Output = $stdout.GetAwaiter().GetResult()
+            Error = $stderr.GetAwaiter().GetResult()
+        }
+    } finally {
+        $process.Dispose()
+    }
+}
+
 function Get-LongRunPsmuxSessions([string]$PsmuxPath) {
     $lines = @(& $PsmuxPath list-sessions `
         -F "#{session_name}`t#{session_created}`t#{session_id}" 2>$null)

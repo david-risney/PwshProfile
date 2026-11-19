@@ -1036,6 +1036,65 @@ Describe 'Completed-session archive cleanup' {
             (Test-Path -LiteralPath $newest) | Should Be $true
     }
 
+    It 'preserves archived output when its replay viewer is missing' {
+        $now = [DateTimeOffset]::UtcNow
+        $directory = New-TestCompletedArchive $archiveRoot 'viewer-missing' `
+            $now.AddMinutes(-1) $now.AddHours(1)
+        $manifestPath = Join-Path $directory 'manifest.json'
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        $manifest.psmuxCreated = 1700000000
+        $manifest.psmuxId = '$42'
+        [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json))
+        $fakePsmux = Join-Path $TestDrive 'no-viewer-psmux.cmd'
+        [IO.File]::WriteAllText($fakePsmux, "@echo off`r`nexit /b 1`r`n")
+
+        Invoke-LongRunCompletedCleanupUnlocked -ArchiveRoot $archiveRoot `
+            -PsmuxPath $fakePsmux -SessionLimit 10 -StorageLimitBytes 1MB
+
+        (Test-Path -LiteralPath $directory) | Should Be $true
+    }
+
+    It 'archives a completed transcript without launching a replay session' {
+        Mock Start-LongRunDetachedPowerShell {}
+        Mock Invoke-PsmuxSetupCommand { throw 'Unexpected psmux command.' }
+        $source = Join-Path $TestDrive 'completed-transcript.log'
+        [IO.File]::WriteAllText($source, "saved output`n")
+
+        $retained = Publish-LongRunCompletedSession -ArchiveRoot $archiveRoot `
+            -PsmuxPath 'unused' -Session 'archive-only' `
+            -WorkingDirectory $TestDrive -SourceFiles @($source) `
+            -ExitCode 23 -TtlSeconds 3600 -SessionLimit 100 `
+            -StorageLimitBytes 200MB -CaptureComplete $true
+
+        $retained | Should Be $true
+        $records = @(Get-LongRunCompletedArchiveRecords $archiveRoot)
+        $records.Count | Should Be 1
+        $records[0].Manifest.psmuxId | Should BeNullOrEmpty
+        $records[0].Manifest.workingDirectory | Should Be ([string]$TestDrive)
+        $records[0].Manifest.exitCode | Should Be 23
+        [IO.File]::ReadAllText((Join-Path $records[0].Directory 'transcript.log')) |
+            Should Be "saved output`n"
+        Assert-MockCalled Start-LongRunDetachedPowerShell -Times 1 -Exactly
+        Assert-MockCalled Invoke-PsmuxSetupCommand -Times 0 -Exactly
+    }
+
+    It 'removes an expired archive even when its manifest records a viewer' {
+        $now = [DateTimeOffset]::UtcNow
+        $directory = New-TestCompletedArchive $archiveRoot 'expired-viewer' `
+            $now.AddMinutes(-2) $now.AddMinutes(-1)
+        $manifestPath = Join-Path $directory 'manifest.json'
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        $manifest.psmuxCreated = 1700000000
+        $manifest.psmuxId = '$42'
+        [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json))
+        Mock Get-LongRunPsmuxSessions { @() }
+
+        Invoke-LongRunCompletedCleanupUnlocked -ArchiveRoot $archiveRoot `
+            -PsmuxPath 'unused' -SessionLimit 10 -StorageLimitBytes 1MB
+
+        (Test-Path -LiteralPath $directory) | Should Be $false
+    }
+
     It 'preserves an archive record when its exact session cannot be removed' {
             $now = [DateTimeOffset]::UtcNow
             $directory = New-TestCompletedArchive $archiveRoot 'kill-failure' `
