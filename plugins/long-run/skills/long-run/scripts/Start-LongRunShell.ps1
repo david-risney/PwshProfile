@@ -208,7 +208,7 @@ $bootstrapTail
         try {
             $gateway = & $GatewayScript @gatewayArguments
             $inventoryUrl = $gateway.Url
-            $remoteUrl = "$($gateway.BaseUrl)/tmux/session/$Session/?accessToken=$([uri]::EscapeDataString($gateway.TerminalCapability))"
+            $remoteUrl = "$($gateway.BaseUrl)/tmux/session/$Session/?longRunCapability=$([uri]::EscapeDataString($gateway.TerminalCapability))"
         } catch {
             Write-LongRunLog -Component 'shell' -Event 'gateway-unavailable' `
                 -Level 'warning' -Session $Session `

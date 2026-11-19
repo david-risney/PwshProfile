@@ -910,7 +910,8 @@ function createGateway(config) {
   }
 
   function hasGatewayCapability(req, url) {
-    if (capabilityMatches(url.searchParams.get("accessToken")) ||
+    if (capabilityMatches(url.searchParams.get("longRunCapability")) ||
+        capabilityMatches(url.searchParams.get("accessToken")) ||
         capabilityMatches(req.headers["x-long-run-capability"])) {
       return true;
     }
@@ -959,12 +960,24 @@ function createGateway(config) {
     }
   }
 
+  function redirectLegacyCapability(res, url) {
+    const cleanUrl = new URL(url);
+    const capability = cleanUrl.searchParams.get("accessToken");
+    cleanUrl.searchParams.delete("accessToken");
+    cleanUrl.searchParams.set("longRunCapability", capability);
+    res.writeHead(302, {
+      Location: `${cleanUrl.pathname}${cleanUrl.search}`,
+      "Cache-Control": "no-store",
+    });
+    res.end();
+  }
+
   function setGatewayCookie(req, res, url) {
     const secure = String(req.headers["x-forwarded-proto"] || "")
       .split(",")[0]
       .trim() === "https";
     const cleanUrl = new URL(url);
-    cleanUrl.searchParams.delete("accessToken");
+    cleanUrl.searchParams.delete("longRunCapability");
     res.writeHead(302, {
       Location: `${cleanUrl.pathname}${cleanUrl.search}`,
       "Cache-Control": "no-store",
@@ -1595,6 +1608,10 @@ function createGateway(config) {
           return;
         }
         if (url.searchParams.has("accessToken")) {
+          redirectLegacyCapability(res, url);
+          return;
+        }
+        if (url.searchParams.has("longRunCapability")) {
           setGatewayCookie(req, res, url);
           return;
         }

@@ -537,7 +537,7 @@ Describe 'Long-run real browser transport integration' {
                 $gateway.TerminalCapability)
             $webSocketUrl =
                 "ws://127.0.0.1:$($gateway.Port)/tmux/session/" +
-                "$encodedSession/ws?accessToken=$encodedCapability"
+                "$encodedSession/ws?longRunCapability=$encodedCapability"
             $nodeOutput = @(
                 & node $sendTtydInput $webSocketUrl 'browser-input-42' 2>&1)
             $nodeExitCode = $LASTEXITCODE

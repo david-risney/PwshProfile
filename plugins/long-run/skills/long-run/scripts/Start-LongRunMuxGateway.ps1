@@ -606,7 +606,7 @@ try {
             -Data @{ localOnly = [bool]$LocalOnly; port = [int]$metadata.port }
         Write-Verbose "Reusing gateway session '$($metadata.gatewaySession)' on port $($metadata.port)."
         Write-Output ([pscustomobject]@{
-            Url = "$($metadata.url.TrimEnd('/'))/tmux/?accessToken=$(
+            Url = "$($metadata.url.TrimEnd('/'))/tmux/?longRunCapability=$(
                 [uri]::EscapeDataString([string]$metadata.terminalCapability))"
             BaseUrl = $metadata.url.TrimEnd('/')
             Port = [int]$metadata.port
@@ -796,7 +796,7 @@ try {
             Write-LongRunLog -Component 'gateway-launcher' -Event 'started' `
                 -Data @{ localOnly = $true; port = $port; gatewayPid = $gatewayPid }
             Write-Output ([pscustomobject]@{
-                Url = "$baseUrl/tmux/?accessToken=$(
+                Url = "$baseUrl/tmux/?longRunCapability=$(
                     [uri]::EscapeDataString($terminalCapability))"
                 BaseUrl = $baseUrl
                 Port = $port
@@ -858,7 +858,7 @@ try {
                 tunnelPid = $tunnelPid
             }
         Write-Output ([pscustomobject]@{
-            Url = "$baseUrl/tmux/?accessToken=$(
+            Url = "$baseUrl/tmux/?longRunCapability=$(
                 [uri]::EscapeDataString($terminalCapability))"
             BaseUrl = $baseUrl
             Port = $port

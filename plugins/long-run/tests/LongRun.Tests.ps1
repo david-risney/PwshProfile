@@ -416,7 +416,7 @@ exit 23
         Set-Content -LiteralPath $commandFile -Value "Write-Output 'COMMAND_STARTED'; exit 0"
         @'
 [pscustomobject]@{
-    Url = 'https://example.devtunnels.ms/tmux/?accessToken=capability'
+    Url = 'https://example.devtunnels.ms/tmux/?longRunCapability=capability'
     BaseUrl = 'https://example.devtunnels.ms'
     TerminalCapability = 'capability'
 }
@@ -970,7 +970,7 @@ Describe 'Invoke-LongRunHook' {
 
 Describe 'Publish-LongRunUrl' {
     It 'provides a named Markdown remote session link as post-tool context' {
-        $url = 'https://example.devtunnels.ms/tmux/session/test-session/?accessToken=synthetic-capability'
+        $url = 'https://example.devtunnels.ms/tmux/session/test-session/?longRunCapability=synthetic-capability'
         $result = Invoke-PublishUrlHook @"
 Long-running command session: test-session
 LONGRUN_REMOTE_URL=$url
@@ -986,7 +986,7 @@ LONGRUN_TMUX_URL=https://example.devtunnels.ms/tmux/
     }
 
     It 'falls back to a generic Markdown label when the session name is absent' {
-        $url = 'https://example.devtunnels.ms/tmux/session/test-session/?accessToken=synthetic-capability'
+        $url = 'https://example.devtunnels.ms/tmux/session/test-session/?longRunCapability=synthetic-capability'
         $result = Invoke-PublishUrlHook "LONGRUN_REMOTE_URL=$url"
 
         $result.additionalContext | Should Match (

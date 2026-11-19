@@ -341,7 +341,7 @@ setTimeout(
   const address = await gateway.listen();
   const authorization = await request(
     address.port,
-    `/tmux/?accessToken=${gateway.terminalCapability}`,
+    `/tmux/?longRunCapability=${gateway.terminalCapability}`,
   );
   assert.equal(authorization.status, 302);
   const cookie = authorization.headers["set-cookie"][0].split(";")[0];
@@ -717,13 +717,18 @@ test("recreates ttyd after disconnect and allows later session visits", async ()
       `/tmux/session/newer?accessToken=${current.gateway.terminalCapability}`,
     );
     assert.equal(normalized.status, 302);
-    assert.equal(normalized.headers.location, "/tmux/session/newer");
+    assert.equal(
+      normalized.headers.location,
+      `/tmux/session/newer?longRunCapability=${current.gateway.terminalCapability}`,
+    );
     assert.doesNotMatch(normalized.headers.location, /accessToken/);
     const granted = await request(
       current.port,
-      `/tmux/session/newer/?accessToken=${current.gateway.terminalCapability}`,
+      `/tmux/session/newer/?longRunCapability=${current.gateway.terminalCapability}`,
     );
     assert.equal(granted.status, 302);
+    assert.equal(granted.headers.location, "/tmux/session/newer/");
+    assert.doesNotMatch(granted.headers.location, /longRunCapability/);
     const cookie = granted.headers["set-cookie"][0].split(";")[0];
     const first = await request(current.port, "/tmux/session/newer/", {
       headers: { cookie },
@@ -799,7 +804,7 @@ test("recreates ttyd after disconnect and allows later session visits", async ()
 
     const rejectedOrigin = await websocketUpgrade(
       current.port,
-      `/tmux/session/newer/ws?accessToken=${current.gateway.terminalCapability}`,
+      `/tmux/session/newer/ws?longRunCapability=${current.gateway.terminalCapability}`,
       { Origin: "https://attacker.example" },
     );
     assert.match(rejectedOrigin.response, /^HTTP\/1\.1 403/);
@@ -824,7 +829,7 @@ test("recreates ttyd after disconnect and allows later session visits", async ()
     );
     const rejectedTunnelOrigin = await websocketUpgrade(
       current.port,
-      `/tmux/session/newer/ws?accessToken=${current.gateway.terminalCapability}`,
+      `/tmux/session/newer/ws?longRunCapability=${current.gateway.terminalCapability}`,
       {
         Origin: "https://attacker.devtunnels.ms",
         "X-Forwarded-Host": `127.0.0.1:${current.port}`,
@@ -836,7 +841,7 @@ test("recreates ttyd after disconnect and allows later session visits", async ()
 
     const tunneledUpgrade = await websocketUpgrade(
       current.port,
-      `/tmux/session/newer/ws?accessToken=${current.gateway.terminalCapability}`,
+      `/tmux/session/newer/ws?longRunCapability=${current.gateway.terminalCapability}`,
       {
         Origin: "https://example.devtunnels.ms",
         "X-Forwarded-Host": `127.0.0.1:${current.port}`,
@@ -849,7 +854,7 @@ test("recreates ttyd after disconnect and allows later session visits", async ()
 
     const upgraded = await browserWebSocket(
       current.port,
-      `/tmux/session/newer/ws?accessToken=${current.gateway.terminalCapability}`,
+      `/tmux/session/newer/ws?longRunCapability=${current.gateway.terminalCapability}`,
       "first",
     );
     const firstPid = current.gateway.terminals.get("newer").process.pid;
@@ -866,7 +871,7 @@ test("recreates ttyd after disconnect and allows later session visits", async ()
     assert.equal(current.gateway.terminals.get("newer").process.exitCode, null);
     const reconnected = await browserWebSocket(
       current.port,
-      `/tmux/session/newer/ws?accessToken=${current.gateway.terminalCapability}`,
+      `/tmux/session/newer/ws?longRunCapability=${current.gateway.terminalCapability}`,
       "second",
     );
     await closeBrowserWebSocket(reconnected);

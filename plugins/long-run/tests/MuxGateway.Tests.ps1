@@ -300,7 +300,7 @@ switch ($args[0]) {
             Where-Object { $_ -isnot [Management.Automation.VerboseRecord] }
         $first.Reused | Should Be $false
         $first.Url | Should Match (
-            '^https://fake-mux-1\.usw2-\d+\.devtunnels\.ms/tmux/\?accessToken=.+$')
+            '^https://fake-mux-1\.usw2-\d+\.devtunnels\.ms/tmux/\?longRunCapability=.+$')
         $first.GatewaySession | Should Match '^long-run-util-gateway-\d+$'
         $first.TerminalCapability | Should Not BeNullOrEmpty
         Test-Path -LiteralPath (
@@ -312,7 +312,7 @@ switch ($args[0]) {
         $webSession =
             New-Object Microsoft.PowerShell.Commands.WebRequestSession
         $inventory = Invoke-WebRequest (
-            "http://127.0.0.1:$($first.Port)/tmux/?accessToken=" +
+            "http://127.0.0.1:$($first.Port)/tmux/?longRunCapability=" +
             [uri]::EscapeDataString($first.TerminalCapability)) `
             -UseBasicParsing -SkipHttpErrorCheck -WebSession $webSession
         if ($inventory.StatusCode -ne 200) {
@@ -390,7 +390,7 @@ switch ($args[0]) {
             -TerminalFontPath $terminalFont
 
         $result.Url | Should Match (
-            '^http://127\.0\.0\.1:18787/tmux/\?accessToken=.+$')
+            '^http://127\.0\.0\.1:18787/tmux/\?longRunCapability=.+$')
         $result.TunnelId | Should BeNullOrEmpty
         $result.TunnelPid | Should BeNullOrEmpty
         $result.GatewaySession | Should Be 'long-run-util-gateway-2'

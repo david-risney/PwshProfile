@@ -307,6 +307,10 @@ disabled because navigating away cannot lose the underlying psmux session.
 Terminal links contain a gateway-process capability that is exchanged for an
 HTTP-only, strict same-site cookie before ttyd content loads. WebSocket upgrades
 also reject cross-origin browser requests.
+The capability uses the `longRunCapability` query parameter because Dev Tunnels
+reserves `accessToken` for tunnel authentication. Legacy long-run URLs using
+`accessToken` are redirected to the namespaced parameter first, allowing the
+Dev Tunnel login round trip to finish before long-run removes the capability.
 Because the gateway itself runs in psmux, it removes inherited psmux/tmux
 session variables from ttyd's environment before ttyd launches a separate
 `psmux attach-session` client.

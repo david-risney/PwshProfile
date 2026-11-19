@@ -657,7 +657,7 @@ exit `$LASTEXITCODE
         commandCount = $commandFiles.Count
         remote = $remote
         remoteUrl = if ($gateway) {
-            "$($gateway.BaseUrl)/tmux/session/$Session/?accessToken=$([uri]::EscapeDataString($gateway.TerminalCapability))"
+            "$($gateway.BaseUrl)/tmux/session/$Session/?longRunCapability=$([uri]::EscapeDataString($gateway.TerminalCapability))"
         } else {
             $null
         }
@@ -669,7 +669,7 @@ exit `$LASTEXITCODE
         [System.Text.UTF8Encoding]::new($false))
 
     if ($gateway) {
-        $remoteUrl = "$($gateway.BaseUrl)/tmux/session/$Session/?accessToken=$([uri]::EscapeDataString($gateway.TerminalCapability))"
+        $remoteUrl = "$($gateway.BaseUrl)/tmux/session/$Session/?longRunCapability=$([uri]::EscapeDataString($gateway.TerminalCapability))"
         Write-Host "Long-running command session: $Session"
         Write-Host "Connect remotely: $remoteUrl"
         Write-Host "Browse sessions: $($gateway.Url)"
